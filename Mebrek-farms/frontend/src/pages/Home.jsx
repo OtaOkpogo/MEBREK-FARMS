@@ -54,8 +54,9 @@ export default function Home() {
       <section className="grid md:grid-cols-3 gap-6 px-8 py-12">
         <div className="card text-center hover:scale-105 transition">
           <img
-            src="https://images.unsplash.com/photo-1569288063648-5d9c9c2c5e69"
-            className="rounded-lg mb-3"
+  		src="https://cdn.britannica.com/94/151894-050-F72A5317/Brown-eggs.jpg"
+  		alt="Fresh farm eggs"
+  		className="rounded-lg mb-3 hover-zoom object-cover h-40 w-full"
           />
           <h3 className="text-xl font-bold">íµš Fresh Eggs</h3>
           <p>Daily healthy egg production.</p>
@@ -63,7 +64,7 @@ export default function Home() {
 
         <div className="card text-center hover:scale-105 transition">
           <img
-            src="https://images.unsplash.com/photo-1603712725038-e9334ae8f39f"
+            src="https://www.shutterstock.com/image-photo/laying-hen-farm-iron-battery-600nw-2541880001.jpg"
             className="rounded-lg mb-3"
           />
           <h3 className="text-xl font-bold">í°” Poultry</h3>
@@ -72,7 +73,7 @@ export default function Home() {
 
         <div className="card text-center hover:scale-105 transition">
           <img
-            src="https://images.unsplash.com/photo-1598514982841-0c0d89a3e83b"
+            src="https://media.istockphoto.com/id/469085306/photo/soil-with-a-garden-trowel.jpg?s=612x612&w=0&k=20&c=yOFsnxK_9g5puQIeaYLCFo6Hu1NypryTMDzWfyLEnGA="
             className="rounded-lg mb-3"
           />
           <h3 className="text-xl font-bold">í¼± Manure</h3>
