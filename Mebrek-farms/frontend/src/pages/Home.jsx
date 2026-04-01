@@ -17,93 +17,135 @@ export default function Home() {
 
           <Link
             to="/login"
-            className="bg-green-600 text-white px-4 py-2 rounded-lg hover:bg-green-700"
+            className="bg-green-600 text-white px-4 py-2 rounded-lg hover:bg-green-700 transition"
           >
             Admin Login
           </Link>
         </div>
       </nav>
 
-      {/* HERO SECTION */}
-      <section className="text-center py-20 px-6">
-        <h2 className="text-4xl md:text-5xl font-bold mb-4">
-          Fresh Eggs, Healthy Poultry Ì∞î
-        </h2>
+      {/* HERO SECTION WITH BACKGROUND IMAGE */}
+      <section
+        className="h-[90vh] flex flex-col justify-center items-center text-center text-white bg-cover bg-center"
+        style={{
+          backgroundImage:
+            "url('https://images.unsplash.com/photo-1589927986089-35812388d1f4')"
+        }}
+      >
+        <div className="bg-black/50 p-10 rounded-xl animate-fadeIn">
+          <h2 className="text-5xl font-bold mb-4">
+            Fresh Eggs, Healthy Poultry Ì∞î
+          </h2>
 
-        <p className="text-lg mb-6 max-w-xl mx-auto">
-          We produce high-quality eggs and poultry products using modern,
-          hygienic farming practices in Nigeria.
-        </p>
+          <p className="text-lg mb-6">
+            Premium egg production and poultry farming in Nigeria
+          </p>
 
-        <Link
-          to="/login"
-          className="bg-yellow-400 px-6 py-3 rounded-lg font-semibold shadow hover:bg-yellow-500"
-        >
-          Enter Farm Dashboard
-        </Link>
+          <Link
+            to="/login"
+            className="bg-yellow-400 px-6 py-3 rounded-lg font-semibold text-black hover:bg-yellow-500 transition"
+          >
+            Enter Dashboard
+          </Link>
+        </div>
       </section>
 
       {/* FEATURES */}
-      <section className="grid md:grid-cols-3 gap-6 px-8 py-10">
-        <div className="card text-center">
-          <h3 className="text-xl font-bold mb-2">Ìµö Fresh Eggs</h3>
-          <p>Daily production of healthy, organic eggs.</p>
+      <section className="grid md:grid-cols-3 gap-6 px-8 py-12">
+        <div className="card text-center hover:scale-105 transition">
+          <img
+            src="https://images.unsplash.com/photo-1569288063648-5d9c9c2c5e69"
+            className="rounded-lg mb-3"
+          />
+          <h3 className="text-xl font-bold">Ìµö Fresh Eggs</h3>
+          <p>Daily healthy egg production.</p>
         </div>
 
-        <div className="card text-center">
-          <h3 className="text-xl font-bold mb-2">Ì∞î Poultry Farming</h3>
-          <p>Well-managed birds with modern feeding systems.</p>
+        <div className="card text-center hover:scale-105 transition">
+          <img
+            src="https://images.unsplash.com/photo-1603712725038-e9334ae8f39f"
+            className="rounded-lg mb-3"
+          />
+          <h3 className="text-xl font-bold">Ì∞î Poultry</h3>
+          <p>Well-fed and managed birds.</p>
         </div>
 
-        <div className="card text-center">
-          <h3 className="text-xl font-bold mb-2">Ìº± Organic Manure</h3>
-          <p>High-quality wet and dry manure for agriculture.</p>
+        <div className="card text-center hover:scale-105 transition">
+          <img
+            src="https://images.unsplash.com/photo-1598514982841-0c0d89a3e83b"
+            className="rounded-lg mb-3"
+          />
+          <h3 className="text-xl font-bold">Ìº± Manure</h3>
+          <p>Organic fertilizer for farming.</p>
         </div>
       </section>
 
-      {/* ABOUT SECTION */}
-      <section id="about" className="px-8 py-16 bg-white">
-        <h2 className="text-3xl font-bold mb-4 text-center">About Us</h2>
-
-        <p className="max-w-3xl mx-auto text-center">
-          MEBREK FARMS is dedicated to sustainable poultry farming,
-          delivering fresh eggs and high-quality agricultural products.
-          Our mission is to provide healthy food while maintaining
-          excellent farm standards.
+      {/* ABOUT */}
+      <section id="about" className="px-8 py-16 bg-white text-center">
+        <h2 className="text-3xl font-bold mb-4">About Us</h2>
+        <p className="max-w-2xl mx-auto">
+          MEBREK FARMS provides high-quality poultry products with modern,
+          hygienic farming methods tailored for Nigerian agriculture.
         </p>
       </section>
 
-      {/* PRODUCTS SECTION */}
+      {/* PRICING / PRODUCTS */}
       <section id="products" className="px-8 py-16">
         <h2 className="text-3xl font-bold text-center mb-10">
-          Our Products
+          Our Products & Prices
         </h2>
 
         <div className="grid md:grid-cols-3 gap-6">
-          <div className="card text-center">
-            <h3 className="font-bold text-lg">Crate of Eggs</h3>
-            <p>Affordable and fresh daily supply.</p>
+
+          <div className="card text-center hover:scale-105 transition">
+            <h3 className="text-xl font-bold mb-2">Ìµö Crate of Eggs</h3>
+            <p className="text-2xl font-bold text-green-700">‚Ç¶3,500</p>
+            <p>Fresh daily supply</p>
           </div>
 
-          <div className="card text-center">
-            <h3 className="font-bold text-lg">Broilers</h3>
-            <p>Healthy chickens ready for consumption.</p>
+          <div className="card text-center hover:scale-105 transition">
+            <h3 className="text-xl font-bold mb-2">Ì∞î Broilers</h3>
+            <p className="text-2xl font-bold text-green-700">‚Ç¶8,000</p>
+            <p>Healthy and ready</p>
           </div>
 
-          <div className="card text-center">
-            <h3 className="font-bold text-lg">Manure</h3>
-            <p>Organic fertilizer for crops.</p>
+          <div className="card text-center hover:scale-105 transition">
+            <h3 className="text-xl font-bold mb-2">Ìº± Manure</h3>
+            <p className="text-2xl font-bold text-green-700">‚Ç¶2,000</p>
+            <p>Organic fertilizer</p>
           </div>
+
         </div>
       </section>
 
-      {/* CONTACT */}
-      <section id="contact" className="px-8 py-16 bg-white text-center">
-        <h2 className="text-3xl font-bold mb-4">Contact Us</h2>
+      {/* CONTACT / ORDER FORM */}
+      <section id="contact" className="px-8 py-16 bg-white">
+        <h2 className="text-3xl font-bold text-center mb-6">
+          Place an Order / Contact Us
+        </h2>
 
-        <p>Ì≥ç Lagos, Nigeria</p>
-        <p>Ì≥û +234 XXX XXX XXXX</p>
-        <p>Ì≥ß info@mebrekfarms.com</p>
+        <form className="max-w-xl mx-auto space-y-4">
+          <input
+            type="text"
+            placeholder="Your Name"
+            className="input"
+          />
+
+          <input
+            type="email"
+            placeholder="Email"
+            className="input"
+          />
+
+          <textarea
+            placeholder="Your Order / Message"
+            className="input"
+          ></textarea>
+
+          <button className="btn btn-primary w-full">
+            Submit
+          </button>
+        </form>
       </section>
 
       {/* FOOTER */}

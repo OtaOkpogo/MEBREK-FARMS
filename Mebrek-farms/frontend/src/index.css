@@ -1,68 +1,104 @@
-:root {
-  font-family: system-ui, Avenir, Helvetica, Arial, sans-serif;
-  line-height: 1.5;
-  font-weight: 400;
+@tailwind base;
+@tailwind components;
+@tailwind utilities;
 
-  color-scheme: light dark;
-  color: rgba(255, 255, 255, 0.87);
-  background-color: #242424;
+/* =========================
+   GLOBAL RESET / BASE STYLES
+========================= */
 
-  font-synthesis: none;
-  text-rendering: optimizeLegibility;
+body {
+  @apply bg-yellow-50 text-gray-800 font-sans;
+  margin: 0;
+  padding: 0;
+}
+
+/* Smooth fonts */
+* {
   -webkit-font-smoothing: antialiased;
   -moz-osx-font-smoothing: grayscale;
 }
 
-a {
-  font-weight: 500;
-  color: #646cff;
-  text-decoration: inherit;
-}
-a:hover {
-  color: #535bf2;
+/* =========================
+   REUSABLE COMPONENTS
+========================= */
+
+/* Buttons */
+.btn {
+  @apply px-4 py-2 rounded-lg font-semibold shadow transition duration-300 ease-in-out;
 }
 
-body {
-  margin: 0;
-  display: flex;
-  place-items: center;
-  min-width: 320px;
-  min-height: 100vh;
+.btn-primary {
+  @apply bg-farmGreen text-white hover:bg-green-800 hover:scale-105;
 }
 
-h1 {
-  font-size: 3.2em;
-  line-height: 1.1;
+.btn-secondary {
+  @apply bg-eggYellow text-gray-900 hover:bg-yellow-400 hover:scale-105;
 }
 
-button {
-  border-radius: 8px;
-  border: 1px solid transparent;
-  padding: 0.6em 1.2em;
-  font-size: 1em;
-  font-weight: 500;
-  font-family: inherit;
-  background-color: #1a1a1a;
-  cursor: pointer;
-  transition: border-color 0.25s;
-}
-button:hover {
-  border-color: #646cff;
-}
-button:focus,
-button:focus-visible {
-  outline: 4px auto -webkit-focus-ring-color;
+/* Cards */
+.card {
+  @apply bg-white p-5 rounded-2xl shadow-md hover:shadow-xl transition duration-300 ease-in-out;
 }
 
-@media (prefers-color-scheme: light) {
-  :root {
-    color: #213547;
-    background-color: #ffffff;
+/* Inputs */
+.input {
+  @apply w-full p-3 border rounded-lg focus:outline-none focus:ring-2 focus:ring-farmGreen transition;
+}
+
+/* =========================
+   LAYOUT HELPERS
+========================= */
+
+/* Navbar */
+.navbar {
+  @apply flex justify-between items-center px-8 py-5 bg-white shadow;
+}
+
+/* Sidebar */
+.sidebar {
+  @apply w-64 bg-farmGreen text-white min-h-screen p-5;
+}
+
+/* Container */
+.container {
+  @apply p-6;
+}
+
+/* Section spacing */
+.section {
+  @apply px-8 py-16;
+}
+
+/* =========================
+   ANIMATIONS
+========================= */
+
+/* Fade In */
+@keyframes fadeIn {
+  from {
+    opacity: 0;
+    transform: translateY(30px);
   }
-  a:hover {
-    color: #747bff;
+  to {
+    opacity: 1;
+    transform: translateY(0);
   }
-  button {
-    background-color: #f9f9f9;
+}
+
+.animate-fadeIn {
+  animation: fadeIn 1s ease-in-out;
+}
+
+/* Slow Zoom (for images) */
+@keyframes zoomIn {
+  from {
+    transform: scale(1);
   }
+  to {
+    transform: scale(1.05);
+  }
+}
+
+.hover-zoom:hover {
+  animation: zoomIn 0.4s forwards;
 }
