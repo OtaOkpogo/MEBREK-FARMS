@@ -1,5 +1,19 @@
 import { Link } from "react-router-dom";
-import logo from "../assets/Mebrek Farm4.PNG";
+import logo from "../assets/logo.PNG";
+
+// Reusable Card Component
+function Card({ image, title, price, description }) {
+  return (
+    <div className="card text-center hover:scale-105 transition rounded-lg shadow-lg overflow-hidden">
+      <img src={image} alt={title} className="object-cover h-40 w-full" />
+      <div className="p-4">
+        <h3 className="text-xl font-bold mb-2">{title}</h3>
+        {price && <p className="text-2xl font-bold text-green-700 mb-1">{price}</p>}
+        <p>{description}</p>
+      </div>
+    </div>
+  );
+}
 
 export default function Home() {
   return (
@@ -7,15 +21,14 @@ export default function Home() {
 
       {/* NAVBAR */}
       <nav className="flex justify-between items-center px-8 py-5 bg-white shadow">
-        <h1 className="text-2xl font-bold text-green-700">
-          <img src={logo} alt="MEBREK FARMS Logo" className="h-10" /> MEBREK FARMS
+        <h1 className="text-2xl font-bold text-green-700 flex items-center space-x-2">
+          <img src={logo} alt="MEBREK FARMS Logo" className="h-10" />
+          <span>MEBREK FARMS</span>
         </h1>
-
         <div className="space-x-6">
           <a href="#about" className="hover:text-green-700">About</a>
           <a href="#products" className="hover:text-green-700">Products</a>
           <a href="#contact" className="hover:text-green-700">Contact</a>
-
           <Link
             to="/login"
             className="bg-green-600 text-white px-4 py-2 rounded-lg hover:bg-green-700 transition"
@@ -25,23 +38,21 @@ export default function Home() {
         </div>
       </nav>
 
-      {/* HERO SECTION WITH BACKGROUND IMAGE */}
+      {/* HERO SECTION */}
       <section
         className="h-[90vh] flex flex-col justify-center items-center text-center text-white bg-cover bg-center"
         style={{
           backgroundImage:
-            "url('https://static.vecteezy.com/system/resources/thumbnails/029/340/262/small/ai-generated-ai-generative-organic-eco-chicken-rooster-and-egg-at-countryside-farm-background-graphic-art-photo.jpg')"
+            "url('https://static.vecteezy.com/system/resources/thumbnails/029/340/262/small/ai-generated-ai-generative-organic-eco-chicken-rooster-and-egg-at-countryside-farm-background-graphic-art-photo.jpg')",
         }}
       >
         <div className="bg-black/50 p-10 rounded-xl animate-fadeIn">
-          <h2 className="text-5xl font-bold mb-4">
-            Fresh Eggs, Healthy Poultry í°”
+          <h2 className="text-4xl md:text-5xl font-bold mb-4">
+            Fresh Eggs, Healthy Poultry íµší°”
           </h2>
-
           <p className="text-lg mb-6">
             Premium egg production and poultry farming in Nigeria
           </p>
-
           <Link
             to="/login"
             className="bg-yellow-400 px-6 py-3 rounded-lg font-semibold text-black hover:bg-yellow-500 transition"
@@ -53,98 +64,77 @@ export default function Home() {
 
       {/* FEATURES */}
       <section className="grid md:grid-cols-3 gap-6 px-8 py-12">
-        <div className="card text-center hover:scale-105 transition">
-          <img
-  		src="https://cdn.britannica.com/94/151894-050-F72A5317/Brown-eggs.jpg"
-  		alt="Fresh farm eggs"
-  		className="rounded-lg mb-3 hover-zoom object-cover h-40 w-full"
-          />
-          <h3 className="text-xl font-bold">íµš Fresh Eggs</h3>
-          <p>Daily healthy egg production.</p>
-        </div>
-
-        <div className="card text-center hover:scale-105 transition">
-          <img
-            src="https://www.shutterstock.com/image-photo/laying-hen-farm-iron-battery-600nw-2541880001.jpg"
-            className="rounded-lg mb-3"
-          />
-          <h3 className="text-xl font-bold">í°” Poultry</h3>
-          <p>Well-fed and managed birds.</p>
-        </div>
-
-        <div className="card text-center hover:scale-105 transition">
-          <img
-            src="https://media.istockphoto.com/id/469085306/photo/soil-with-a-garden-trowel.jpg?s=612x612&w=0&k=20&c=yOFsnxK_9g5puQIeaYLCFo6Hu1NypryTMDzWfyLEnGA="
-            className="rounded-lg mb-3"
-          />
-          <h3 className="text-xl font-bold">í¼± Manure</h3>
-          <p>Organic fertilizer for farming.</p>
-        </div>
+        <Card
+          image="https://cdn.britannica.com/94/151894-050-F72A5317/Brown-eggs.jpg"
+          title="íµš Fresh Eggs"
+          description="Daily healthy egg production."
+        />
+        <Card
+          image="https://www.shutterstock.com/image-photo/laying-hen-farm-iron-battery-600nw-2541880001.jpg"
+          title="í°” Poultry"
+          description="Well-fed and managed birds."
+        />
+        <Card
+          image="https://media.istockphoto.com/id/469085306/photo/soil-with-a-garden-trowel.jpg?s=612x612&w=0&k=20&c=yOFsnxK_9g5puQIeaYLCFo6Hu1NypryTMDzWfyLEnGA="
+          title="í¼¿ Manure"
+          description="Organic fertilizer for farming."
+        />
       </section>
 
       {/* ABOUT */}
-      <section id="about" className="px-8 py-16 bg-white text-center">
+      <section id="about" aria-label="About Mebrek Farms" className="px-8 py-16 bg-white text-center">
         <h2 className="text-3xl font-bold mb-4">About Us</h2>
         <p className="max-w-2xl mx-auto">
-          MEBREK FARMS provides high-quality poultry products with modern,
-          hygienic farming methods tailored for Nigerian agriculture.
+          MEBREK FARMS provides high-quality poultry products with modern, hygienic farming
+          methods tailored for Nigerian agriculture.
         </p>
       </section>
 
-      {/* PRICING / PRODUCTS */}
+      {/* PRODUCTS / PRICING */}
       <section id="products" className="px-8 py-16">
-        <h2 className="text-3xl font-bold text-center mb-10">
-          Our Products & Prices
-        </h2>
-
+        <h2 className="text-3xl font-bold text-center mb-10">Our Products & Prices</h2>
         <div className="grid md:grid-cols-3 gap-6">
-
-          <div className="card text-center hover:scale-105 transition">
-            <h3 className="text-xl font-bold mb-2">íµš Crate of Eggs</h3>
-            <p className="text-2xl font-bold text-green-700">â‚¦4,800</p>
-            <p>Fresh daily supply</p>
-          </div>
-
-          <div className="card text-center hover:scale-105 transition">
-            <h3 className="text-xl font-bold mb-2">í°” Layers</h3>
-            <p className="text-2xl font-bold text-green-700">â‚¦20,000</p>
-            <p>Healthy and ready</p>
-          </div>
-
-          <div className="card text-center hover:scale-105 transition">
-            <h3 className="text-xl font-bold mb-2">í¼± Manure</h3>
-            <p className="text-2xl font-bold text-green-700">â‚¦1,000/500</p>
-            <p>Organic fertilizer</p>
-          </div>
-
+          <Card
+            title="íµš Crate of Eggs"
+            price="â‚¦4,800"
+            description="Fresh daily supply"
+            image="https://cdn.britannica.com/94/151894-050-F72A5317/Brown-eggs.jpg"
+          />
+          <Card
+            title="í°” Layers"
+            price="â‚¦20,000"
+            description="Healthy and ready"
+            image="https://www.shutterstock.com/image-photo/laying-hen-farm-iron-battery-600nw-2541880001.jpg"
+          />
+          <Card
+            title="í¼¿ Manure"
+            price="â‚¦1,000/500"
+            description="Organic fertilizer"
+            image="https://media.istockphoto.com/id/469085306/photo/soil-with-a-garden-trowel.jpg?s=612x612&w=0&k=20&c=yOFsnxK_9g5puQIeaYLCFo6Hu1NypryTMDzWfyLEnGA="
+          />
         </div>
       </section>
 
       {/* CONTACT / ORDER FORM */}
-      <section id="contact" className="px-8 py-16 bg-white">
-        <h2 className="text-3xl font-bold text-center mb-6">
-          Place an Order / Contact Us
-        </h2>
-
+      <section id="contact" aria-label="Contact Mebrek Farms" className="px-8 py-16 bg-white">
+        <h2 className="text-3xl font-bold text-center mb-6">Place an Order / Contact Us</h2>
         <form className="max-w-xl mx-auto space-y-4">
           <input
             type="text"
             placeholder="Your Name"
-            className="input"
+            className="w-full border border-gray-300 rounded-lg px-4 py-2 focus:outline-none focus:ring-2 focus:ring-green-600"
           />
-
           <input
             type="email"
             placeholder="Email"
-            className="input"
+            className="w-full border border-gray-300 rounded-lg px-4 py-2 focus:outline-none focus:ring-2 focus:ring-green-600"
           />
-
           <textarea
             placeholder="Your Order / Message"
-            className="input"
+            className="w-full border border-gray-300 rounded-lg px-4 py-2 focus:outline-none focus:ring-2 focus:ring-green-600"
+            rows={5}
           ></textarea>
-
-          <button className="btn btn-primary w-full">
+          <button className="bg-green-600 text-white w-full py-3 rounded-lg font-semibold hover:bg-green-700 transition">
             Submit
           </button>
         </form>
@@ -154,7 +144,6 @@ export default function Home() {
       <footer className="text-center py-6 bg-green-700 text-white">
         <p>Â© 2026 MEBREK FARMS. All rights reserved.</p>
       </footer>
-
     </div>
   );
 }
