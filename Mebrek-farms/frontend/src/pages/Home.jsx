@@ -1,4 +1,5 @@
 import { Link } from "react-router-dom";
+import logo from "../assets/Mebrek Farm4.PNG";
 
 export default function Home() {
   return (
@@ -7,7 +8,7 @@ export default function Home() {
       {/* NAVBAR */}
       <nav className="flex justify-between items-center px-8 py-5 bg-white shadow">
         <h1 className="text-2xl font-bold text-green-700">
-          íµš MEBREK FARMS
+          <img src={logo} alt="MEBREK FARMS Logo" className="h-10" /> MEBREK FARMS
         </h1>
 
         <div className="space-x-6">
