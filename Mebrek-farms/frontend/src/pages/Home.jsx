@@ -1,5 +1,4 @@
 import { Link as RouterLink } from "react-router-dom";
-import { Link as ScrollLink } from "react-scroll";
 import logo from "../assets/logo.PNG";
 
 // Reusable Card Component
@@ -18,8 +17,10 @@ function Card({ image, title, price, description }) {
 
 export default function Home() {
   return (
-    <div className="min-h-screen bg-yellow-50 text-gray-800">
-
+    <div
+      className="min-h-screen bg-yellow-50 text-gray-800 font-sans"
+      style={{ fontFamily: '"Segoe UI Emoji", "Noto Color Emoji", "Apple Color Emoji", sans-serif' }}
+    >
       {/* NAVBAR */}
       <nav className="flex justify-between items-center px-8 py-5 bg-white shadow sticky top-0 z-50">
         <h1 className="text-2xl font-bold text-green-700 flex items-center space-x-2">
@@ -27,30 +28,9 @@ export default function Home() {
           <span>MEBREK FARMS</span>
         </h1>
         <div className="space-x-6">
-          <ScrollLink
-            to="about"
-            smooth={true}
-            duration={500}
-            className="cursor-pointer hover:text-green-700"
-          >
-            About
-          </ScrollLink>
-          <ScrollLink
-            to="products"
-            smooth={true}
-            duration={500}
-            className="cursor-pointer hover:text-green-700"
-          >
-            Products
-          </ScrollLink>
-          <ScrollLink
-            to="contact"
-            smooth={true}
-            duration={500}
-            className="cursor-pointer hover:text-green-700"
-          >
-            Contact
-          </ScrollLink>
+          <a href="#about" className="hover:text-green-700 cursor-pointer">About</a>
+          <a href="#products" className="hover:text-green-700 cursor-pointer">Products</a>
+          <a href="#contact" className="hover:text-green-700 cursor-pointer">Contact</a>
           <RouterLink
             to="/login"
             className="bg-green-600 text-white px-4 py-2 rounded-lg hover:bg-green-700 transition"
@@ -70,7 +50,7 @@ export default function Home() {
       >
         <div className="bg-black/50 p-10 rounded-xl animate-fadeIn">
           <h2 className="text-4xl md:text-5xl font-bold mb-4">
-            Fresh Eggs, Healthy Poultry ï¿½ï¿½
+            Fresh Eggs, Healthy Poultry íµší°”
           </h2>
           <p className="text-lg mb-6">
             Premium egg production and poultry farming in Nigeria
@@ -88,17 +68,17 @@ export default function Home() {
       <section className="grid md:grid-cols-3 gap-6 px-8 py-12">
         <Card
           image="https://cdn.britannica.com/94/151894-050-F72A5317/Brown-eggs.jpg"
-          title="ï¿½ Fresh Eggs"
+          title="íµš Fresh Eggs"
           description="Daily healthy egg production."
         />
         <Card
           image="https://www.shutterstock.com/image-photo/laying-hen-farm-iron-battery-600nw-2541880001.jpg"
-          title="ï¿½ Poultry"
+          title="í°” Poultry"
           description="Well-fed and managed birds."
         />
         <Card
           image="https://media.istockphoto.com/id/469085306/photo/soil-with-a-garden-trowel.jpg?s=612x612&w=0&k=20&c=yOFsnxK_9g5puQIeaYLCFo6Hu1NypryTMDzWfyLEnGA="
-          title="ï¿½ Manure"
+          title="í¼¿ Manure"
           description="Organic fertilizer for farming."
         />
       </section>
@@ -117,19 +97,19 @@ export default function Home() {
         <h2 className="text-3xl font-bold text-center mb-10">Our Products & Prices</h2>
         <div className="grid md:grid-cols-3 gap-6">
           <Card
-            title="ï¿½ Crate of Eggs"
+            title="íµš Crate of Eggs"
             price="â‚¦4,800"
             description="Fresh daily supply"
             image="https://cdn.britannica.com/94/151894-050-F72A5317/Brown-eggs.jpg"
           />
           <Card
-            title="ï¿½ Layers"
+            title="í°” Layers"
             price="â‚¦20,000"
             description="Healthy and ready"
             image="https://www.shutterstock.com/image-photo/laying-hen-farm-iron-battery-600nw-2541880001.jpg"
           />
           <Card
-            title="ï¿½ Manure"
+            title="í¼¿ Manure"
             price="â‚¦1,000/500"
             description="Organic fertilizer"
             image="https://media.istockphoto.com/id/469085306/photo/soil-with-a-garden-trowel.jpg?s=612x612&w=0&k=20&c=yOFsnxK_9g5puQIeaYLCFo6Hu1NypryTMDzWfyLEnGA="
