@@ -29,7 +29,7 @@ export default function Home() {
         className="h-[90vh] flex flex-col justify-center items-center text-center text-white bg-cover bg-center"
         style={{
           backgroundImage:
-            "url('https://images.unsplash.com/photo-1589927986089-35812388d1f4')"
+            "url('https://static.vecteezy.com/system/resources/thumbnails/029/340/262/small/ai-generated-ai-generative-organic-eco-chicken-rooster-and-egg-at-countryside-farm-background-graphic-art-photo.jpg')"
         }}
       >
         <div className="bg-black/50 p-10 rounded-xl animate-fadeIn">
@@ -100,19 +100,19 @@ export default function Home() {
 
           <div className="card text-center hover:scale-105 transition">
             <h3 className="text-xl font-bold mb-2">íµš Crate of Eggs</h3>
-            <p className="text-2xl font-bold text-green-700">â‚¦3,500</p>
+            <p className="text-2xl font-bold text-green-700">â‚¦4,800</p>
             <p>Fresh daily supply</p>
           </div>
 
           <div className="card text-center hover:scale-105 transition">
-            <h3 className="text-xl font-bold mb-2">í°” Broilers</h3>
-            <p className="text-2xl font-bold text-green-700">â‚¦8,000</p>
+            <h3 className="text-xl font-bold mb-2">í°” Layers</h3>
+            <p className="text-2xl font-bold text-green-700">â‚¦20,000</p>
             <p>Healthy and ready</p>
           </div>
 
           <div className="card text-center hover:scale-105 transition">
             <h3 className="text-xl font-bold mb-2">í¼± Manure</h3>
-            <p className="text-2xl font-bold text-green-700">â‚¦2,000</p>
+            <p className="text-2xl font-bold text-green-700">â‚¦1,000/500</p>
             <p>Organic fertilizer</p>
           </div>
 
