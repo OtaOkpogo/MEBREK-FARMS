@@ -1,5 +1,7 @@
 import { Link as RouterLink } from "react-router-dom";
 import logo from "../assets/logo.PNG";
+import { useState } from "react";
+import axios from "axios";
 
 // Reusable Card Component
 function Card({ image, title, price, description }) {
@@ -170,7 +172,7 @@ export default function Home() {
         <p>© 2026 MEBREK FARMS. All rights reserved.</p>
       </footer>
       <a
-        href="https://wa.me/2348012345678?text=Hello%20MEBREK%20FARMS,%20I%20want%20to%20order%20eggs"
+        href="https://wa.me/2349033723103?text=Hello%20MEBREK%20FARMS,%20I%20want%20to%20order%20eggs"
         target="_blank"
         rel="noopener noreferrer"
         className="fixed bottom-5 right-5 flex items-center gap-2 bg-green-600 text-white px-4 py-3 rounded-full shadow-lg hover:scale-110 transition z-50"
