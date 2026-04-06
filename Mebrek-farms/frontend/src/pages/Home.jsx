@@ -169,6 +169,14 @@ export default function Home() {
       <footer className="text-center py-6 bg-green-700 text-white">
         <p>© 2026 MEBREK FARMS. All rights reserved.</p>
       </footer>
+      <a
+        href="https://wa.me/2348012345678?text=Hello%20MEBREK%20FARMS,%20I%20want%20to%20order%20eggs"
+        target="_blank"
+        rel="noopener noreferrer"
+        className="fixed bottom-5 right-5 flex items-center gap-2 bg-green-600 text-white px-4 py-3 rounded-full shadow-lg hover:scale-110 transition z-50"
+      >
+        📱 <span className="hidden md:inline">Order on WhatsApp</span>
+      </a>
     </div>
   );
 }
