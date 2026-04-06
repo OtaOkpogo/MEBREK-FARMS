@@ -8,7 +8,9 @@ function Card({ image, title, price, description }) {
       <img src={image} alt={title} className="object-cover h-40 w-full" />
       <div className="p-4">
         <h3 className="text-xl font-bold mb-2">{title}</h3>
-        {price && <p className="text-2xl font-bold text-green-700 mb-1">{price}</p>}
+        {price && (
+          <p className="text-2xl font-bold text-green-700 mb-1">{price}</p>
+        )}
         <p>{description}</p>
       </div>
     </div>
@@ -19,18 +21,27 @@ export default function Home() {
   return (
     <div
       className="min-h-screen bg-yellow-50 text-gray-800 font-sans"
-      style={{ fontFamily: '"Segoe UI Emoji", "Noto Color Emoji", "Apple Color Emoji", sans-serif' }}
+      style={{
+        fontFamily:
+          '"Segoe UI Emoji", "Noto Color Emoji", "Apple Color Emoji", sans-serif',
+      }}
     >
       {/* NAVBAR */}
       <nav className="flex justify-between items-center px-8 py-5 bg-white shadow sticky top-0 z-50">
-        <h1 className="text-2xl font-bold text-green-700 flex items-center space-x-2">
-          <img src={logo} alt="MEBREK FARMS Logo" className="h-10" />
+        <h1 className="text-4xl font-bold text-green-700 flex items-center space-x-4">
+          <img src={logo} alt="MEBREK FARMS Logo" className="h-20" />
           <span>MEBREK FARMS</span>
         </h1>
-        <div className="space-x-6">
-          <a href="#about" className="hover:text-green-700 cursor-pointer">About</a>
-          <a href="#products" className="hover:text-green-700 cursor-pointer">Products</a>
-          <a href="#contact" className="hover:text-green-700 cursor-pointer">Contact</a>
+        <div className="space-x-4">
+          <a href="#about" className="hover:text-green-700 cursor-pointer">
+            About
+          </a>
+          <a href="#products" className="hover:text-green-700 cursor-pointer">
+            Products
+          </a>
+          <a href="#contact" className="hover:text-green-700 cursor-pointer">
+            Contact
+          </a>
           <RouterLink
             to="/login"
             className="bg-green-600 text-white px-4 py-2 rounded-lg hover:bg-green-700 transition"
@@ -50,7 +61,7 @@ export default function Home() {
       >
         <div className="bg-black/50 p-10 rounded-xl animate-fadeIn">
           <h2 className="text-4xl md:text-5xl font-bold mb-4">
-            Fresh Eggs, Healthy Poultry ÌµöÌ∞î
+            Fresh Eggs, Healthy Poultry ü•öüêìüåø
           </h2>
           <p className="text-lg mb-6">
             Premium egg production and poultry farming in Nigeria
@@ -68,48 +79,54 @@ export default function Home() {
       <section className="grid md:grid-cols-3 gap-6 px-8 py-12">
         <Card
           image="https://cdn.britannica.com/94/151894-050-F72A5317/Brown-eggs.jpg"
-          title="Ìµö Fresh Eggs"
+          title="ü•ö Fresh Eggs"
           description="Daily healthy egg production."
         />
         <Card
           image="https://www.shutterstock.com/image-photo/laying-hen-farm-iron-battery-600nw-2541880001.jpg"
-          title="Ì∞î Poultry"
+          title="üêìPoultry"
           description="Well-fed and managed birds."
         />
         <Card
           image="https://media.istockphoto.com/id/469085306/photo/soil-with-a-garden-trowel.jpg?s=612x612&w=0&k=20&c=yOFsnxK_9g5puQIeaYLCFo6Hu1NypryTMDzWfyLEnGA="
-          title="Ìºø Manure"
+          title="üåø Manure"
           description="Organic fertilizer for farming."
         />
       </section>
 
       {/* ABOUT */}
-      <section id="about" aria-label="About Mebrek Farms" className="px-8 py-16 bg-white text-center">
+      <section
+        id="about"
+        aria-label="About Mebrek Farms"
+        className="px-8 py-16 bg-white text-center"
+      >
         <h2 className="text-3xl font-bold mb-4">About Us</h2>
         <p className="max-w-2xl mx-auto">
-          MEBREK FARMS provides high-quality poultry products with modern, hygienic farming
-          methods tailored for Nigerian agriculture.
+          MEBREK FARMS provides high-quality poultry products with modern,
+          hygienic farming methods tailored for Nigerian agriculture.
         </p>
       </section>
 
       {/* PRODUCTS / PRICING */}
       <section id="products" className="px-8 py-16">
-        <h2 className="text-3xl font-bold text-center mb-10">Our Products & Prices</h2>
+        <h2 className="text-3xl font-bold text-center mb-10">
+          Our Products & Prices
+        </h2>
         <div className="grid md:grid-cols-3 gap-6">
           <Card
-            title="Ìµö Crate of Eggs"
+            title="ü•öü•öü•ö Crate of Eggs"
             price="‚Ç¶4,800"
             description="Fresh daily supply"
             image="https://cdn.britannica.com/94/151894-050-F72A5317/Brown-eggs.jpg"
           />
           <Card
-            title="Ì∞î Layers"
+            title="üêìüêìüêì Layers"
             price="‚Ç¶20,000"
             description="Healthy and ready"
             image="https://www.shutterstock.com/image-photo/laying-hen-farm-iron-battery-600nw-2541880001.jpg"
           />
           <Card
-            title="Ìºø Manure"
+            title="üåøüåøüåø Manure"
             price="‚Ç¶1,000/500"
             description="Organic fertilizer"
             image="https://media.istockphoto.com/id/469085306/photo/soil-with-a-garden-trowel.jpg?s=612x612&w=0&k=20&c=yOFsnxK_9g5puQIeaYLCFo6Hu1NypryTMDzWfyLEnGA="
@@ -118,8 +135,14 @@ export default function Home() {
       </section>
 
       {/* CONTACT / ORDER FORM */}
-      <section id="contact" aria-label="Contact Mebrek Farms" className="px-8 py-16 bg-white">
-        <h2 className="text-3xl font-bold text-center mb-6">Place an Order / Contact Us</h2>
+      <section
+        id="contact"
+        aria-label="Contact Mebrek Farms"
+        className="px-8 py-16 bg-white"
+      >
+        <h2 className="text-3xl font-bold text-center mb-6">
+          Place an Order / Contact Us
+        </h2>
         <form className="max-w-xl mx-auto space-y-4">
           <input
             type="text"
