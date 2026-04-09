@@ -86,24 +86,32 @@ export default function Home() {
       </nav>
 
       {/* HERO */}
-      <section
-        className="h-screen flex items-center justify-center text-center text-white bg-cover bg-center px-4"
-        style={{
-          backgroundImage:
-            "url('https://static.vecteezy.com/system/resources/thumbnails/029/340/262/small/ai-generated-ai-generative-organic-eco-chicken-rooster-and-egg-at-countryside-farm-background-graphic-art-photo.jpg')",
-        }}
-      >
-        <div className="bg-black/60 p-6 md:p-10 rounded-xl">
+      <section className="relative h-screen flex items-center justify-center text-center text-white overflow-hidden">
+        {/* BACKGROUND IMAGE */}
+        <div
+          className="absolute inset-0 bg-cover bg-center scale-105 animate-zoomSlow"
+          style={{
+            backgroundImage:
+              "url('https://static.vecteezy.com/system/resources/thumbnails/029/340/262/small/ai-generated-ai-generative-organic-eco-chicken-rooster-and-egg-at-countryside-farm-background-graphic-art-photo.jpg')",
+          }}
+        ></div>
+
+        {/* GRADIENT OVERLAY */}
+        <div className="absolute inset-0 bg-gradient-to-r from-black/70 via-black/50 to-black/70"></div>
+
+        {/* CONTENT */}
+        <div className="relative z-10 px-4 animate-fadeUp">
           <h2 className="text-3xl md:text-5xl font-bold mb-4">
             🥚 Fresh Eggs, Healthy Poultry
           </h2>
-          <p className="text-sm md:text-lg mb-6">
+
+          <p className="text-sm md:text-lg mb-6 opacity-90">
             Premium egg production and poultry farming in Nigeria
           </p>
 
           <RouterLink
             to="/login"
-            className="bg-yellow-400 px-5 py-3 rounded-lg font-semibold text-black hover:scale-105 transition"
+            className="bg-yellow-400 px-6 py-3 rounded-lg font-semibold text-black hover:scale-110 transition duration-300 shadow-lg"
           >
             Enter Dashboard
           </RouterLink>
