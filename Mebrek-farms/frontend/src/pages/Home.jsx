@@ -4,6 +4,28 @@ import axios from "axios";
 import logo from "../assets/logo.PNG";
 
 // Reusable Card Component
+
+function useInView() {
+  const ref = useRef();
+  const [isVisible, setIsVisible] = useState(false);
+
+  useEffect(() => {
+    const observer = new IntersectionObserver(
+      ([entry]) => {
+        if (entry.isIntersecting) {
+          setIsVisible(true);
+        }
+      },
+      { threshold: 0.2 },
+    );
+
+    if (ref.current) observer.observe(ref.current);
+
+    return () => observer.disconnect();
+  }, []);
+
+  return [ref, isVisible];
+}
 function Card({ image, title, price, description }) {
   return (
     <div className="bg-white text-center hover:scale-105 transition duration-300 rounded-xl shadow-lg hover:shadow-2xl overflow-hidden">

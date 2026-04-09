@@ -8,6 +8,7 @@ import Contact from "./pages/Contact";
 import ProtectedRoute from "./routes/ProtectedRoute";
 import AdminLayout from "./admin/AdminLayout";
 import Dashboard from "./admin/Dashboard";
+import Orders from "./admin/Orders";
 
 function App() {
   return (
