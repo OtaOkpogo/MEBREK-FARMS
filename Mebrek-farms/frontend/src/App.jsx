@@ -20,9 +20,14 @@ function App() {
         <Route path="/products" element={<Products />} />
         <Route path="/contact" element={<Contact />} />
 
-        {/* Admin */}
+        {/* Admin Routes */}
         <Route path="/admin" element={<AdminLayout />}>
+
+	  {/* Default page /admin */}
           <Route index element={<Dashboard />} />
+
+	  {/* New page /admin/orders */}
+	  <Route path="orders" element={<Orders />} />
         </Route>
       </Routes>
     </BrowserRouter>
