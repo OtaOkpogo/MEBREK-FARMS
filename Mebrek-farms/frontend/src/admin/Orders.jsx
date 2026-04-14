@@ -10,7 +10,12 @@ export default function Orders() {
 
   const fetchOrders = async () => {
     try {
-      const res = await axios.get("http://localhost:5000/api/orders");
+      const token = localStorage.getItem("token");
+      const res = await axios.get("http://localhost:5000/api/orders", {
+        headers: {
+          Authorization: token,
+        },
+      });
       setOrders(res.data);
     } catch (err) {
       console.error(err);
@@ -19,8 +24,7 @@ export default function Orders() {
 
   return (
     <div className="p-6">
-
-      <h2 className="text-2xl font-bold mb-6">í³¦ Customer Orders</h2>
+      <h2 className="text-2xl font-bold mb-6">ï¿½ï¿½ï¿½ Customer Orders</h2>
 
       {orders.length === 0 ? (
         <p>No orders yet</p>
@@ -39,7 +43,6 @@ export default function Orders() {
             <tbody>
               {orders.map((order) => (
                 <tr key={order._id} className="border-b hover:bg-gray-100">
-
                   <td className="p-3">{order.name}</td>
                   <td className="p-3">{order.email || "â€”"}</td>
                   <td className="p-3">{order.message}</td>
@@ -47,14 +50,12 @@ export default function Orders() {
                   <td className="p-3">
                     {new Date(order.createdAt).toLocaleString()}
                   </td>
-
                 </tr>
               ))}
             </tbody>
           </table>
         </div>
       )}
-
     </div>
   );
 }
