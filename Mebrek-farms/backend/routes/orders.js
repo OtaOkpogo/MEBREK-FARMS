@@ -1,12 +1,16 @@
 const express = require("express");
+const router = express.Router();
+const auth = require("../middleware/auth");
+
 const {
   createOrder,
   getOrders
 } = require("../controllers/orderController");
 
-const router = express.Router();
+// PUBLIC
+router.post("/", createOrder);
 
-router.post("/", createOrder);   // submit order
-router.get("/", getOrders);      // admin fetch
+// PROTECTED
+router.get("/", auth, getOrders);
 
 module.exports = router;
