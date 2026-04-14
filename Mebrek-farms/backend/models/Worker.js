@@ -5,6 +5,7 @@ const workerSchema = new mongoose.Schema({
   role: String,
   phone: String,
   shift: String,
+  salary: Number,
   employmentDate: Date,
   status: { type: String, default: "Active" }
 });
