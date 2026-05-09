@@ -25,6 +25,7 @@ mongoose
 // Routes
 app.use("/api/workers", require("./routes/workers"));
 app.use("/api/production", require("./routes/production"));
+app.use("/api/production", require("./routes/productionRoutes"));
 app.use("/api/auth", require("./routes/auth"));
 app.use("/api/orders", require("./routes/orders"));
 

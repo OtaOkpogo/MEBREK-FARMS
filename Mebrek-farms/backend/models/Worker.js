@@ -1,13 +1,13 @@
-import mongoose from "mongoose";
+const mongoose = require("mongoose");
 
-const workerSchema = new mongoose.Schema({
-  fullName: String,
-  role: String,
-  phone: String,
-  shift: String,
-  salary: Number,
-  employmentDate: Date,
-  status: { type: String, default: "Active" }
-});
+const workerSchema = new mongoose.Schema(
+  {
+    name: { type: String, required: true },
+    role: { type: String, required: true },
+    phone: String,
+    salary: Number,
+  },
+  { timestamps: true }
+);
 
-export default mongoose.model("Worker", workerSchema);
+module.exports = mongoose.model("Worker", workerSchema);
