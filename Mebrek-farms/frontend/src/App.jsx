@@ -14,6 +14,7 @@ import Orders from "./admin/Orders";
 import Workers from "./admin/Workers";
 import Production from "./admin/Production";
 import FeedInventory from "./admin/FeedInventory";
+import FeedInvoices from "./admin/FeedInvoices";
 
 function App() {
   return (
@@ -55,6 +56,9 @@ function App() {
 
           {/* /admin/feeds */}
           <Route path="feeds" element={<FeedInventory />} />
+
+	  {/* /admin/feedInvoices */}
+          <Route path="feed-invoices" element={<FeedInvoices />}
         </Route>
 
         {/* ================= FALLBACK ================= */}
