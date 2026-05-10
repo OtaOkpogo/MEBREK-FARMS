@@ -11,19 +11,28 @@ import ProtectedRoute from "./routes/ProtectedRoute";
 import AdminLayout from "./admin/AdminLayout";
 import Dashboard from "./admin/Dashboard";
 import Orders from "./admin/Orders";
+import Workers from "./admin/Workers";
+import Production from "./admin/Production";
+import FeedInventory from "./admin/FeedInventory";
 
 function App() {
   return (
     <BrowserRouter>
       <Routes>
         {/* ================= PUBLIC ROUTES ================= */}
+
         <Route path="/" element={<Home />} />
+
         <Route path="/login" element={<Login />} />
+
         <Route path="/about" element={<About />} />
+
         <Route path="/products" element={<Products />} />
+
         <Route path="/contact" element={<Contact />} />
 
         {/* ================= PROTECTED ADMIN ROUTES ================= */}
+
         <Route
           path="/admin"
           element={
@@ -37,9 +46,19 @@ function App() {
 
           {/* /admin/orders */}
           <Route path="orders" element={<Orders />} />
+
+          {/* /admin/workers */}
+          <Route path="workers" element={<Workers />} />
+
+          {/* /admin/production */}
+          <Route path="production" element={<Production />} />
+
+          {/* /admin/feeds */}
+          <Route path="feeds" element={<FeedInventory />} />
         </Route>
 
         {/* ================= FALLBACK ================= */}
+
         <Route
           path="*"
           element={
