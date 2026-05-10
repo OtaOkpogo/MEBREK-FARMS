@@ -31,8 +31,14 @@ export const updateWorker = async (id, workerData) => {
   return res.data;
 };
 
-// ✅ Delete Woker
+// ✅ Delete Worker
 export const deleteWorker = async (id) => {
   const res = await axios.delete(`${API_URL}/${id}`, getConfig());
+  return res.data;
+};
+
+// ✅ GET WORKER ANALYTICS (NEW)
+export const getWorkerStats = async () => {
+  const res = await axios.get(`${API_URL}/stats`, getConfig());
   return res.data;
 };
