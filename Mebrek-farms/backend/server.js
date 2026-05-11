@@ -3,6 +3,7 @@ const mongoose = require("mongoose");
 const cors = require("cors");
 const dotenv = require("dotenv");
 const warehouseRoutes = require("./routes/warehouseRoutes");
+const vaccinationRoutes = require("./routes/vaccinationRoutes");
 
 dotenv.config();
 const app = express();
@@ -32,6 +33,7 @@ app.use("/api/feed-invoices",require("./routes/feedInvoiceRoutes"));
 app.use("/api/feeds", require("./routes/feedRoutes"));
 app.use("/api/orders", require("./routes/orders"));
 app.use("/api/warehouse", warehouseRoutes);
+app.use("/api/vaccinations", vaccinationRoutes);
 
 const PORT = process.env.PORT || 5000;
 app.listen(PORT, () =>
