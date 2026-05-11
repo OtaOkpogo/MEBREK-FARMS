@@ -5,6 +5,7 @@ const dotenv = require("dotenv");
 const warehouseRoutes = require("./routes/warehouseRoutes");
 const vaccinationRoutes = require("./routes/vaccinationRoutes");
 const mortalityRoutes = require("./routes/mortalityRoutes");
+const dashboardRoutes = require("./routes/dashboardRoutes");
 
 dotenv.config();
 const app = express();
@@ -36,6 +37,7 @@ app.use("/api/orders", require("./routes/orders"));
 app.use("/api/warehouse", warehouseRoutes);
 app.use("/api/vaccinations", vaccinationRoutes);
 app.use("/api/mortality", mortalityRoutes);
+app.use("/api/dashboard", dashboardRoutes);
 
 const PORT = process.env.PORT || 5000;
 app.listen(PORT, () =>
