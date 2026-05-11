@@ -18,24 +18,21 @@ import FeedInvoices from "./admin/FeedInvoices";
 import Warehouse from "./admin/Warehouse";
 import Vaccinations from "./admin/Vaccinations";
 import mortality from "./admin/Mortality";
+import BirdHealth from "./admin/BirdHealth";
 
 function App() {
   return (
     <BrowserRouter>
       <Routes>
-        {/* ================= PUBLIC ROUTES ================= */}
+        {/* PUBLIC ROUTES */}
 
         <Route path="/" element={<Home />} />
-
+        <Route path="/about" element={<About />} />
+        <Route path="/products" element={<Products />} />
+        <Route path="/contact" element={<Contact />} />
         <Route path="/login" element={<Login />} />
 
-        <Route path="/about" element={<About />} />
-
-        <Route path="/products" element={<Products />} />
-
-        <Route path="/contact" element={<Contact />} />
-
-        {/* ================= PROTECTED ADMIN ROUTES ================= */}
+        {/* ADMIN ROUTES */}
 
         <Route
           path="/admin"
@@ -45,37 +42,35 @@ function App() {
             </ProtectedRoute>
           }
         >
-          {/* /admin */}
           <Route index element={<Dashboard />} />
 
-          {/* /admin/orders */}
           <Route path="orders" element={<Orders />} />
 
-          {/* /admin/workers */}
           <Route path="workers" element={<Workers />} />
 
-          {/* /admin/production */}
           <Route path="production" element={<Production />} />
 
-          {/* /admin/feeds */}
           <Route path="feeds" element={<FeedInventory />} />
 
-	  {/* /admin/feedInvoices */}
-          <Route path="feed-invoices" element={<FeedInvoices />}
+          <Route path="feed-invoices" element={<FeedInvoices />} />
 
+          <Route path="warehouse" element={<Warehouse />} />
 
-	  <Route path="warehouse" element={<Warehouse />} />
+          <Route path="vaccinations" element={<Vaccinations />} />
 
-	  <Route path="vaccinations" element={<Vaccinations />}/>
-	  <Route path="mortality" element={<Mortality />}/>
+          <Route path="bird-health" element={<BirdHealth />} />
+
+          <Route path="medications" element={<Medications />} />
+
+          <Route path="mortality" element={<Mortality />} />
         </Route>
 
-        {/* ================= FALLBACK ================= */}
+        {/* 404 */}
 
         <Route
           path="*"
           element={
-            <div className="flex items-center justify-center h-screen text-xl">
+            <div className="flex items-center justify-center h-screen">
               404 - Page Not Found
             </div>
           }
