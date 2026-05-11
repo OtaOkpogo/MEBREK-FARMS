@@ -16,6 +16,7 @@ import Production from "./admin/Production";
 import FeedInventory from "./admin/FeedInventory";
 import FeedInvoices from "./admin/FeedInvoices";
 import Warehouse from "./admin/Warehouse";
+import Vaccinations from "./admin/Vaccinations";
 
 function App() {
   return (
@@ -63,6 +64,9 @@ function App() {
 
 
 	  <Route path="warehouse" element={<Warehouse />} />
+
+	  <Route path="vaccinations" element={<Vaccinations />}
+/>
         </Route>
 
         {/* ================= FALLBACK ================= */}
