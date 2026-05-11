@@ -3,11 +3,14 @@ import { useEffect, useState } from "react";
 import {
   fetchWorkers,
   createWorker,
+  updateWorker,
   deleteWorker,
 } from "../services/workerService";
 
 export default function Workers() {
   const [workers, setWorkers] = useState([]);
+
+  const [editingId, setEditingId] = useState(null);
 
   const [formData, setFormData] = useState({
     name: "",
@@ -33,7 +36,13 @@ export default function Workers() {
     e.preventDefault();
 
     try {
-      await createWorker(formData);
+      if (editingId) {
+        await updateWorker(editingId, formData);
+
+        setEditingId(null);
+      } else {
+        await createWorker(formData);
+      }
 
       setFormData({
         name: "",
@@ -45,6 +54,16 @@ export default function Workers() {
     } catch (err) {
       console.error(err);
     }
+  };
+
+  const handleEdit = (worker) => {
+    setFormData({
+      name: worker.name,
+      role: worker.role,
+      salary: worker.salary,
+    });
+
+    setEditingId(worker._id);
   };
 
   const handleDelete = async (id) => {
@@ -59,16 +78,28 @@ export default function Workers() {
 
   return (
     <div className="p-6 bg-gray-100 min-h-screen">
-      <h1 className="text-4xl font-bold text-green-700 mb-8">
-        Workers Management 👨‍🌾
-      </h1>
+      {/* PAGE HEADER */}
 
-      {/* FORM */}
+      <div className="mb-8">
+        <h1 className="text-4xl font-bold text-green-700">
+          Workers Management 👨‍🌾
+        </h1>
 
-      <div className="bg-white p-6 rounded-2xl shadow mb-10">
-        <h2 className="text-2xl font-bold mb-6">Add Worker</h2>
+        <p className="text-gray-600 mt-2">
+          Manage farm workers, salaries, and roles
+        </p>
+      </div>
+
+      {/* FORM SECTION */}
+
+      <div className="bg-white rounded-2xl shadow p-6 mb-10">
+        <h2 className="text-2xl font-bold mb-6">
+          {editingId ? "Update Worker ✏️" : "Add New Worker ➕"}
+        </h2>
 
         <form onSubmit={handleSubmit} className="grid md:grid-cols-3 gap-4">
+          {/* NAME */}
+
           <input
             type="text"
             placeholder="Worker Name"
@@ -83,9 +114,11 @@ export default function Workers() {
             required
           />
 
+          {/* ROLE */}
+
           <input
             type="text"
-            placeholder="Role"
+            placeholder="Worker Role"
             value={formData.role}
             onChange={(e) =>
               setFormData({
@@ -97,9 +130,11 @@ export default function Workers() {
             required
           />
 
+          {/* SALARY */}
+
           <input
             type="number"
-            placeholder="Salary"
+            placeholder="Monthly Salary"
             value={formData.salary}
             onChange={(e) =>
               setFormData({
@@ -111,44 +146,89 @@ export default function Workers() {
             required
           />
 
-          <button className="bg-green-600 text-white py-3 rounded-lg hover:bg-green-700 transition">
-            Add Worker
+          {/* BUTTON */}
+
+          <button
+            className="
+              bg-green-600
+              hover:bg-green-700
+              text-white
+              py-3
+              rounded-lg
+              transition
+            "
+          >
+            {editingId ? "Update Worker" : "Add Worker"}
           </button>
         </form>
       </div>
 
-      {/* TABLE */}
+      {/* TABLE SECTION */}
 
-      <div className="bg-white p-6 rounded-2xl shadow">
-        <h2 className="text-2xl font-bold mb-6">Farm Workers</h2>
+      <div className="bg-white rounded-2xl shadow p-6">
+        <h2 className="text-2xl font-bold mb-6">Farm Workers List 📋</h2>
 
         {workers.length === 0 ? (
-          <p>No workers found</p>
+          <p className="text-gray-500">No workers found</p>
         ) : (
           <div className="overflow-x-auto">
             <table className="w-full">
               <thead>
                 <tr className="border-b text-left">
                   <th className="py-3">Name</th>
+
                   <th>Role</th>
+
                   <th>Salary</th>
-                  <th>Action</th>
+
+                  <th>Actions</th>
                 </tr>
               </thead>
 
               <tbody>
                 {workers.map((worker) => (
                   <tr key={worker._id} className="border-b hover:bg-gray-50">
-                    <td className="py-3">{worker.name}</td>
+                    {/* NAME */}
+
+                    <td className="py-4 font-medium">{worker.name}</td>
+
+                    {/* ROLE */}
 
                     <td>{worker.role}</td>
 
-                    <td>₦{worker.salary}</td>
+                    {/* SALARY */}
 
-                    <td>
+                    <td className="font-semibold text-green-700">
+                      ₦{Number(worker.salary).toLocaleString()}
+                    </td>
+
+                    {/* ACTIONS */}
+
+                    <td className="space-x-2">
+                      <button
+                        onClick={() => handleEdit(worker)}
+                        className="
+                          bg-blue-500
+                          hover:bg-blue-600
+                          text-white
+                          px-4
+                          py-1
+                          rounded
+                        "
+                      >
+                        Edit
+                      </button>
+
                       <button
                         onClick={() => handleDelete(worker._id)}
-                        className="bg-red-500 text-white px-3 py-1 rounded"
+                        className="
+                          bg-red-500
+                          hover:bg-red-600
+                          text-white
+                          px-4
+                          py-1
+                          rounded
+                        "
                       >
                         Delete
                       </button>
