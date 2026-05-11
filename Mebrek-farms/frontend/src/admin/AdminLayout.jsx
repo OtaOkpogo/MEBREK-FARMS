@@ -11,6 +11,7 @@ export default function AdminLayout() {
           <Link to="/admin/production" className="block">Egg Production</Link>
 	  <Link to="/admin/feeds" className="block hover:bg-green-600 p-3 rounded-lg">🌽 Feed Inventory</Link>
 	  <Link to="/admin/feed-invoices" className="block hover:bg-green-600 p-3 rounded-lg">🧾 Feed Invoices</Link>
+	  <Link to="/admin/warehouse" className="block"> Warehouse</Link>
           <Link to="/admin/orders" className="block">Orders</Link>
         </nav>
       </aside>

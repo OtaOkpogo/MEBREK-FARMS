@@ -1,6 +1,6 @@
-import { useRef } from "react";
+import React, { useRef, useEffect, useState, forwardRef } from "react";
+
 import { useReactToPrint } from "react-to-print";
-import { useEffect, useState } from "react";
 
 import {
   fetchInvoices,
@@ -8,9 +8,66 @@ import {
   deleteInvoice,
 } from "../services/feedInvoiceService";
 
-export default function FeedInvoices() {
+// ================= PRINTABLE COMPONENT =================
 
+const PrintableInvoice = forwardRef(({ invoice }, ref) => {
+  return (
+    <div ref={ref} className="p-10 bg-white text-black min-h-screen">
+      <div className="border-b pb-6 mb-6">
+        <h1 className="text-4xl font-bold text-green-700">MEBREK FARMS</h1>
+
+        <p className="text-gray-600">Premium Poultry & Feed Management</p>
+      </div>
+
+      <h2 className="text-2xl font-bold mb-8">🧾 Feed Purchase Invoice</h2>
+
+      <div className="space-y-4 text-lg">
+        <p>
+          <strong>Supplier:</strong> {invoice.supplier}
+        </p>
+
+        <p>
+          <strong>Feed Name:</strong> {invoice.feedName}
+        </p>
+
+        <p>
+          <strong>Quantity:</strong> {invoice.quantity}
+        </p>
+
+        <p>
+          <strong>Unit Price:</strong> ₦{invoice.unitPrice}
+        </p>
+
+        <p>
+          <strong>Total Cost:</strong> ₦{invoice.totalCost}
+        </p>
+
+        <p>
+          <strong>Payment Status:</strong> {invoice.paymentStatus}
+        </p>
+
+        <p>
+          <strong>Date:</strong> {new Date(invoice.createdAt).toLocaleString()}
+        </p>
+      </div>
+
+      <div className="mt-20">
+        <p className="mb-10">Authorized Signature</p>
+
+        <div className="border-b border-black w-64"></div>
+      </div>
+    </div>
+  );
+});
+
+// ================= MAIN COMPONENT =================
+
+export default function FeedInvoices() {
   const [invoices, setInvoices] = useState([]);
+
+  const [selectedInvoice, setSelectedInvoice] = useState(null);
+
+  const componentRef = useRef();
 
   const [formData, setFormData] = useState({
     supplier: "",
@@ -20,27 +77,34 @@ export default function FeedInvoices() {
     paymentStatus: "Pending",
   });
 
+  // ================= PRINT FUNCTION =================
+
+  const handlePrint = useReactToPrint({
+    content: () => componentRef.current,
+  });
+
+  // ================= LOAD INVOICES =================
+
   useEffect(() => {
     loadInvoices();
   }, []);
 
   const loadInvoices = async () => {
     try {
-
       const data = await fetchInvoices();
 
       setInvoices(data);
-
     } catch (err) {
       console.error(err);
     }
   };
 
+  // ================= CREATE INVOICE =================
+
   const handleSubmit = async (e) => {
     e.preventDefault();
 
     try {
-
       await createInvoice(formData);
 
       setFormData({
@@ -52,19 +116,18 @@ export default function FeedInvoices() {
       });
 
       loadInvoices();
-
     } catch (err) {
       console.error(err);
     }
   };
 
+  // ================= DELETE INVOICE =================
+
   const handleDelete = async (id) => {
     try {
-
       await deleteInvoice(id);
 
       loadInvoices();
-
     } catch (err) {
       console.error(err);
     }
@@ -72,18 +135,16 @@ export default function FeedInvoices() {
 
   return (
     <div className="p-6">
+      {/* HEADER */}
 
-      <h1 className="text-3xl font-bold mb-6">
-        🧾 Feed Purchase Invoices
-      </h1>
+      <h1 className="text-3xl font-bold mb-6">🧾 Feed Purchase Invoices</h1>
 
-      {/* FORM */}
+      {/* ================= FORM ================= */}
 
       <form
         onSubmit={handleSubmit}
-        className="grid md:grid-cols-2 gap-4 mb-8"
+        className="grid md:grid-cols-2 gap-4 mb-8 bg-white p-6 rounded-lg shadow"
       >
-
         <input
           type="text"
           placeholder="Supplier"
@@ -95,6 +156,7 @@ export default function FeedInvoices() {
             })
           }
           className="border p-3 rounded-lg"
+          required
         />
 
         <input
@@ -108,6 +170,7 @@ export default function FeedInvoices() {
             })
           }
           className="border p-3 rounded-lg"
+          required
         />
 
         <input
@@ -121,6 +184,7 @@ export default function FeedInvoices() {
             })
           }
           className="border p-3 rounded-lg"
+          required
         />
 
         <input
@@ -134,6 +198,7 @@ export default function FeedInvoices() {
             })
           }
           className="border p-3 rounded-lg"
+          required
         />
 
         <select
@@ -150,20 +215,16 @@ export default function FeedInvoices() {
           <option>Paid</option>
         </select>
 
-        <button className="bg-green-600 text-white rounded-lg">
+        <button className="bg-green-600 hover:bg-green-700 text-white rounded-lg p-3 font-semibold transition">
           Create Invoice
         </button>
-
       </form>
 
-      {/* TABLE */}
+      {/* ================= TABLE ================= */}
 
       <div className="bg-white rounded-lg shadow overflow-x-auto">
-
         <table className="w-full">
-
           <thead className="bg-green-700 text-white">
-
             <tr>
               <th className="p-3">Supplier</th>
               <th>Feed</th>
@@ -171,65 +232,65 @@ export default function FeedInvoices() {
               <th>Unit Price</th>
               <th>Total</th>
               <th>Status</th>
-              <th>Action</th>
+              <th>Actions</th>
             </tr>
-
           </thead>
 
           <tbody>
-
             {invoices.map((invoice) => (
+              <tr key={invoice._id} className="border-b hover:bg-gray-50">
+                <td className="p-3">{invoice.supplier}</td>
 
-              <tr
-                key={invoice._id}
-                className="border-b"
-              >
+                <td>{invoice.feedName}</td>
 
-                <td className="p-3">
-                  {invoice.supplier}
-                </td>
+                <td>{invoice.quantity}</td>
 
-                <td>
-                  {invoice.feedName}
-                </td>
-
-                <td>
-                  {invoice.quantity}
-                </td>
-
-                <td>
-                  ₦{invoice.unitPrice}
-                </td>
+                <td>₦{invoice.unitPrice}</td>
 
                 <td className="font-bold text-green-700">
                   ₦{invoice.totalCost}
                 </td>
 
-                <td>
-                  {invoice.paymentStatus}
-                </td>
+                <td>{invoice.paymentStatus}</td>
 
-                <td>
+                <td className="flex gap-2 p-3">
+                  {/* PRINT BUTTON */}
+
                   <button
-                    onClick={() =>
-                      handleDelete(invoice._id)
-                    }
-                    className="bg-red-500 text-white px-3 py-1 rounded"
+                    onClick={() => {
+                      setSelectedInvoice(invoice);
+
+                      setTimeout(() => {
+                        handlePrint();
+                      }, 100);
+                    }}
+                    className="bg-blue-500 hover:bg-blue-600 text-white px-3 py-1 rounded"
+                  >
+                    Print
+                  </button>
+
+                  {/* DELETE BUTTON */}
+
+                  <button
+                    onClick={() => handleDelete(invoice._id)}
+                    className="bg-red-500 hover:bg-red-600 text-white px-3 py-1 rounded"
                   >
                     Delete
                   </button>
                 </td>
-
               </tr>
-
             ))}
-
           </tbody>
-
         </table>
-
       </div>
 
+      {/* ================= HIDDEN PRINT AREA ================= */}
+
+      <div className="hidden">
+        {selectedInvoice && (
+          <PrintableInvoice ref={componentRef} invoice={selectedInvoice} />
+        )}
+      </div>
     </div>
   );
 }
