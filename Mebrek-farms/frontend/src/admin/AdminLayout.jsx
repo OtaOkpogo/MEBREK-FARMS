@@ -13,7 +13,8 @@ export default function AdminLayout() {
 	  <Link to="/admin/feed-invoices" className="block hover:bg-green-600 p-3 rounded-lg">🧾 Feed Invoices</Link>
 	  <Link to="/admin/warehouse" className="block"> Warehouse</Link>
           <Link to="/admin/orders" className="block">Orders</Link>
-	  <Link to="/admin/vaccinations" className="block"> Vaccinations</Link>
+	  <Link to="/admin/vaccinations" className="block"> VaccinationsAdminLayout.jsx</Link>
+	  <Link to="/admin/mortality" className="block"> Mortality</Link>
         </nav>
       </aside>
 
