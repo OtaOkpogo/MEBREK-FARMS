@@ -17,8 +17,9 @@ import FeedInventory from "./admin/FeedInventory";
 import FeedInvoices from "./admin/FeedInvoices";
 import Warehouse from "./admin/Warehouse";
 import Vaccinations from "./admin/Vaccinations";
-import mortality from "./admin/Mortality";
+import Mortality from "./admin/Mortality";
 import BirdHealth from "./admin/BirdHealth";
+import Medications from "./admin/Medications";
 
 function App() {
   return (
