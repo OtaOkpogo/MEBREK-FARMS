@@ -2,6 +2,7 @@ const express = require("express");
 const mongoose = require("mongoose");
 const cors = require("cors");
 const dotenv = require("dotenv");
+const warehouseRoutes = require("./routes/warehouseRoutes");
 
 dotenv.config();
 const app = express();
@@ -30,6 +31,7 @@ app.use("/api/auth", require("./routes/auth"));
 app.use("/api/feed-invoices",require("./routes/feedInvoiceRoutes"));
 app.use("/api/feeds", require("./routes/feedRoutes"));
 app.use("/api/orders", require("./routes/orders"));
+app.use("/api/warehouse", warehouseRoutes);
 
 const PORT = process.env.PORT || 5000;
 app.listen(PORT, () =>
