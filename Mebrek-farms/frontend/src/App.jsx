@@ -20,6 +20,7 @@ import Vaccinations from "./admin/Vaccinations";
 import Mortality from "./admin/Mortality";
 import BirdHealth from "./admin/BirdHealth";
 import Medications from "./admin/Medications";
+import Unauthorized from "./pages/Unauthorized";
 
 function App() {
   return (
@@ -47,7 +48,16 @@ function App() {
 
           <Route path="orders" element={<Orders />} />
 
-          <Route path="workers" element={<Workers />} />
+          <Route
+            path="workers"
+            element={
+              localStorage.getItem("role") === "superadmin" ? (
+                <Workers />
+              ) : (
+                <Unauthorized />
+              )
+            }
+          />
 
           <Route path="production" element={<Production />} />
 
