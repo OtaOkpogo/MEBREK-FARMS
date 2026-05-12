@@ -2,26 +2,36 @@ const mongoose = require("mongoose");
 
 const feedSchema = new mongoose.Schema(
   {
-    date: {
-      type: Date,
-      default: Date.now
-    },
-    feedType: {
+    name: {
       type: String,
-      enum: ["Starter", "Grower", "Layer"],
-      required: true
+      required: true,
     },
-    quantityKg: {
+
+    quantity: {
       type: Number,
-      required: true
+      required: true,
     },
-    issuedBy: {
-      type: mongoose.Schema.Types.ObjectId,
-      ref: "Worker"
-    }
+
+    unit: {
+      type: String,
+      default: "bags",
+    },
+
+    pricePerUnit: {
+      type: Number,
+      required: true,
+    },
+
+    supplier: {
+      type: String,
+    },
+
+    lowStockThreshold: {
+      type: Number,
+      default: 5,
+    },
   },
   { timestamps: true }
 );
 
 module.exports = mongoose.model("Feed", feedSchema);
-
