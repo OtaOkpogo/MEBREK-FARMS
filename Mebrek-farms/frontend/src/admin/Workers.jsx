@@ -26,7 +26,7 @@ export default function Workers() {
     try {
       const data = await fetchWorkers();
 
-      setWorkers(data);
+      setWorkers(Array, isArray(data) ? data : []);
     } catch (err) {
       console.error(err);
     }
