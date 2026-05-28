@@ -8,6 +8,7 @@ import Contact from "./pages/Contact";
 
 import ProtectedRoute from "./routes/ProtectedRoute";
 
+import Attendance from "./admin/Attendance";
 import AdminLayout from "./admin/AdminLayout";
 import Dashboard from "./admin/Dashboard";
 import Orders from "./admin/Orders";
@@ -48,16 +49,7 @@ function App() {
 
           <Route path="orders" element={<Orders />} />
 
-          <Route
-            path="workers"
-            element={
-              localStorage.getItem("role") === "superadmin" ? (
-                <Workers />
-              ) : (
-                <Unauthorized />
-              )
-            }
-          />
+          <Route path="workers" element={<Workers />} />
 
           <Route path="production" element={<Production />} />
 
@@ -72,6 +64,7 @@ function App() {
           <Route path="bird-health" element={<BirdHealth />} />
 
           <Route path="medications" element={<Medications />} />
+	  <Route path="attendance" element={<Attendance />} />
 
           <Route path="mortality" element={<Mortality />} />
         </Route>
