@@ -6,6 +6,7 @@ const warehouseRoutes = require("./routes/warehouseRoutes");
 const vaccinationRoutes = require("./routes/vaccinationRoutes");
 const mortalityRoutes = require("./routes/mortalityRoutes");
 const dashboardRoutes = require("./routes/dashboardRoutes");
+const attendanceRoutes = require("./routes/attendanceRoutes");
 
 dotenv.config();
 const app = express();
@@ -28,6 +29,7 @@ mongoose
 
 // Routes
 app.use("/api/workers", require("./routes/workers"));
+app.use("/api/attendance", attendanceRoutes);
 app.use("/api/production", require("./routes/production"));
 app.use("/api/production", require("./routes/productionRoutes"));
 app.use("/api/auth", require("./routes/auth"));
