@@ -1,5 +1,4 @@
 import { useEffect, useState } from "react";
-
 import {
   fetchWorkers,
   createWorker,
@@ -9,8 +8,8 @@ import {
 
 export default function Workers() {
   const [workers, setWorkers] = useState([]);
-
   const [editingId, setEditingId] = useState(null);
+  const [loading, setLoading] = useState(false);
 
   const [formData, setFormData] = useState({
     name: "",
@@ -25,23 +24,29 @@ export default function Workers() {
   const loadWorkers = async () => {
     try {
       const data = await fetchWorkers();
-
-      setWorkers(Array, isArray(data) ? data : []);
+      setWorkers(Array.isArray(data) ? data : []);
     } catch (err) {
-      console.error(err);
+      console.error("Failed to load workers:", err);
+      setWorkers([]);
     }
   };
 
   const handleSubmit = async (e) => {
     e.preventDefault();
 
-    try {
-      if (editingId) {
-        await updateWorker(editingId, formData);
+    setLoading(true);
 
+    try {
+      const workerData = {
+        ...formData,
+        salary: Number(formData.salary),
+      };
+
+      if (editingId) {
+        await updateWorker(editingId, workerData);
         setEditingId(null);
       } else {
-        await createWorker(formData);
+        await createWorker(workerData);
       }
 
       setFormData({
@@ -50,36 +55,52 @@ export default function Workers() {
         salary: "",
       });
 
-      loadWorkers();
+      await loadWorkers();
     } catch (err) {
-      console.error(err);
+      console.error("Failed to save worker:", err);
+    } finally {
+      setLoading(false);
     }
   };
 
   const handleEdit = (worker) => {
     setFormData({
-      name: worker.name,
-      role: worker.role,
-      salary: worker.salary,
+      name: worker.name || "",
+      role: worker.role || "",
+      salary: worker.salary || "",
     });
 
     setEditingId(worker._id);
   };
 
   const handleDelete = async (id) => {
+    const confirmed = window.confirm(
+      "Are you sure you want to delete this worker?",
+    );
+
+    if (!confirmed) return;
+
     try {
       await deleteWorker(id);
-
-      loadWorkers();
+      await loadWorkers();
     } catch (err) {
-      console.error(err);
+      console.error("Failed to delete worker:", err);
     }
   };
 
-  return (
-    <div className="p-6 bg-gray-100 min-h-screen">
-      {/* PAGE HEADER */}
+  const handleCancelEdit = () => {
+    setEditingId(null);
 
+    setFormData({
+      name: "",
+      role: "",
+      salary: "",
+    });
+  };
+
+  return (
+    <div className="p-6">
+      {/* PAGE HEADER */}
       <div className="mb-8">
         <h1 className="text-4xl font-bold text-green-700">
           Workers Management 👨‍🌾
@@ -91,7 +112,6 @@ export default function Workers() {
       </div>
 
       {/* FORM SECTION */}
-
       <div className="bg-white rounded-2xl shadow p-6 mb-10">
         <h2 className="text-2xl font-bold mb-6">
           {editingId ? "Update Worker ✏️" : "Add New Worker ➕"}
@@ -99,7 +119,6 @@ export default function Workers() {
 
         <form onSubmit={handleSubmit} className="grid md:grid-cols-3 gap-4">
           {/* NAME */}
-
           <input
             type="text"
             placeholder="Worker Name"
@@ -115,7 +134,6 @@ export default function Workers() {
           />
 
           {/* ROLE */}
-
           <input
             type="text"
             placeholder="Worker Role"
@@ -131,7 +149,6 @@ export default function Workers() {
           />
 
           {/* SALARY */}
-
           <input
             type="number"
             placeholder="Monthly Salary"
@@ -143,28 +160,55 @@ export default function Workers() {
               })
             }
             className="border p-3 rounded-lg"
+            min="0"
             required
           />
 
-          {/* BUTTON */}
+          {/* ACTION BUTTONS */}
+          <div className="flex gap-2 md:col-span-3">
+            <button
+              type="submit"
+              disabled={loading}
+              className="
+                bg-green-600
+                hover:bg-green-700
+                disabled:bg-gray-400
+                text-white
+                py-3
+                px-6
+                rounded-lg
+                transition
+              "
+            >
+              {loading
+                ? "Saving..."
+                : editingId
+                  ? "Update Worker"
+                  : "Add Worker"}
+            </button>
 
-          <button
-            className="
-              bg-green-600
-              hover:bg-green-700
-              text-white
-              py-3
-              rounded-lg
-              transition
-            "
-          >
-            {editingId ? "Update Worker" : "Add Worker"}
-          </button>
+            {editingId && (
+              <button
+                type="button"
+                onClick={handleCancelEdit}
+                className="
+                  bg-gray-500
+                  hover:bg-gray-600
+                  text-white
+                  py-3
+                  px-6
+                  rounded-lg
+                  transition
+                "
+              >
+                Cancel
+              </button>
+            )}
+          </div>
         </form>
       </div>
 
       {/* TABLE SECTION */}
-
       <div className="bg-white rounded-2xl shadow p-6">
         <h2 className="text-2xl font-bold mb-6">Farm Workers List 📋</h2>
 
@@ -176,11 +220,8 @@ export default function Workers() {
               <thead>
                 <tr className="border-b text-left">
                   <th className="py-3">Name</th>
-
                   <th>Role</th>
-
                   <th>Salary</th>
-
                   <th>Actions</th>
                 </tr>
               </thead>
@@ -189,21 +230,17 @@ export default function Workers() {
                 {workers.map((worker) => (
                   <tr key={worker._id} className="border-b hover:bg-gray-50">
                     {/* NAME */}
-
                     <td className="py-4 font-medium">{worker.name}</td>
 
                     {/* ROLE */}
-
                     <td>{worker.role}</td>
 
                     {/* SALARY */}
-
                     <td className="font-semibold text-green-700">
                       ₦{Number(worker.salary).toLocaleString()}
                     </td>
 
                     {/* ACTIONS */}
-
                     <td className="space-x-2">
                       <button
                         onClick={() => handleEdit(worker)}

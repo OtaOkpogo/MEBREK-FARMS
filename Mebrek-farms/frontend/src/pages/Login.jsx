@@ -19,6 +19,7 @@ export default function Login() {
   const handleChange = (e) => {
     setFormData({
       ...formData,
+
       [e.target.name]: e.target.value,
     });
   };
@@ -33,8 +34,11 @@ export default function Login() {
     try {
       const res = await axios.post(
         "http://localhost:5000/api/auth/login",
+
         formData,
       );
+
+      // SAVE AUTH DATA
 
       localStorage.setItem("token", res.data.token);
 
@@ -73,6 +77,8 @@ export default function Login() {
           p-10
         "
       >
+        {/* HEADER */}
+
         <div className="text-center mb-8">
           <h1
             className="
@@ -88,6 +94,8 @@ export default function Login() {
           <p className="text-gray-500">Farm Management System</p>
         </div>
 
+        {/* ERROR */}
+
         {error && (
           <div
             className="
@@ -102,7 +110,11 @@ export default function Login() {
           </div>
         )}
 
+        {/* FORM */}
+
         <form onSubmit={handleSubmit} className="space-y-5">
+          {/* EMAIL */}
+
           <div>
             <label
               className="
@@ -120,6 +132,7 @@ export default function Login() {
               value={formData.email}
               onChange={handleChange}
               placeholder="Enter email"
+              required
               className="
                 w-full
                 border
@@ -129,9 +142,10 @@ export default function Login() {
                 focus:ring-2
                 focus:ring-green-600
               "
-              required
             />
           </div>
+
+          {/* PASSWORD */}
 
           <div>
             <label
@@ -150,6 +164,7 @@ export default function Login() {
               value={formData.password}
               onChange={handleChange}
               placeholder="Enter password"
+              required
               className="
                 w-full
                 border
@@ -159,9 +174,10 @@ export default function Login() {
                 focus:ring-2
                 focus:ring-green-600
               "
-              required
             />
           </div>
+
+          {/* BUTTON */}
 
           <button
             type="submit"

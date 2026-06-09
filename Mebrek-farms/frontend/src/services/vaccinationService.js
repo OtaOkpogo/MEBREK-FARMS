@@ -1,70 +1,33 @@
-import axios from "axios";
+import API from "./api";
 
-const API_URL =
-  "http://localhost:5000/api/vaccinations";
+// ================= GET ALL =================
 
+export const fetchVaccinations = async () => {
+  const res = await API.get("/vaccinations");
 
-const getConfig = () => {
-  const token =
-    localStorage.getItem("token");
-
-  return {
-    headers: {
-      Authorization: token,
-    },
-  };
+  return res.data;
 };
-
-
-// ================= GET =================
-
-export const fetchVaccinations =
-  async () => {
-    const res = await axios.get(
-      API_URL,
-      getConfig()
-    );
-
-    return res.data;
-  };
-
 
 // ================= CREATE =================
 
-export const createVaccination =
-  async (data) => {
-    const res = await axios.post(
-      API_URL,
-      data,
-      getConfig()
-    );
+export const createVaccination = async (data) => {
+  const res = await API.post("/vaccinations", data);
 
-    return res.data;
-  };
-
-
-// ================= UPDATE =================
-
-export const updateVaccination =
-  async (id, data) => {
-    const res = await axios.put(
-      `${API_URL}/${id}`,
-      data,
-      getConfig()
-    );
-
-    return res.data;
-  };
-
+  return res.data;
+};
 
 // ================= DELETE =================
 
-export const deleteVaccination =
-  async (id) => {
-    const res = await axios.delete(
-      `${API_URL}/${id}`,
-      getConfig()
-    );
+export const deleteVaccination = async (id) => {
+  const res = await API.delete(`/vaccinations/${id}`);
 
-    return res.data;
-  };
+  return res.data;
+};
+
+// ================= UPDATE =================
+
+export const updateVaccination = async (id, data) => {
+  const res = await API.put(`/vaccinations/${id}`, data);
+
+  return res.data;
+};

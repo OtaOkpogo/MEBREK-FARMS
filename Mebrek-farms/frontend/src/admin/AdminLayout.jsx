@@ -5,14 +5,22 @@ import logo from "../assets/logo.png";
 export default function AdminLayout() {
   const navigate = useNavigate();
 
+  const role = localStorage.getItem("role");
+
   const handleLogout = () => {
     localStorage.removeItem("token");
+
+    localStorage.removeItem("role");
+
+    localStorage.removeItem("adminName");
+
     navigate("/login");
   };
 
   return (
     <div className="flex min-h-screen bg-gray-100">
       {/* SIDEBAR */}
+
       <aside
         className="
           w-72
@@ -23,6 +31,7 @@ export default function AdminLayout() {
         "
       >
         {/* LOGO + TITLE */}
+
         <div className="mb-8">
           <div className="flex items-center gap-3">
             <img
@@ -47,6 +56,7 @@ export default function AdminLayout() {
         </div>
 
         {/* BACK TO MAIN WEBSITE */}
+
         <button
           onClick={() => navigate("/")}
           className="
@@ -65,6 +75,7 @@ export default function AdminLayout() {
         </button>
 
         {/* LOGOUT */}
+
         <button
           onClick={handleLogout}
           className="
@@ -82,80 +93,151 @@ export default function AdminLayout() {
         </button>
 
         {/* NAVIGATION */}
+
         <nav className="space-y-3">
           <Link
             to="/admin"
-            className="block hover:bg-green-700 p-3 rounded-lg transition"
+            className="
+              block
+              hover:bg-green-700
+              p-3
+              rounded-lg
+              transition
+            "
           >
             Dashboard 📊
           </Link>
 
           <Link
             to="/admin/orders"
-            className="block hover:bg-green-700 p-3 rounded-lg transition"
+            className="
+              block
+              hover:bg-green-700
+              p-3
+              rounded-lg
+              transition
+            "
           >
             Orders 📦
           </Link>
 
+          {/* WORKERS — SUPERADMIN ONLY */}
+
+          <Link to="/admin/workers">Workers 👨‍🌾</Link>
+
           <Link
-            to="/admin/workers"
-            className="block hover:bg-green-700 p-3 rounded-lg transition"
+            to="/admin/attendance"
+            className="
+              block
+              hover:bg-green-700
+              p-3
+              rounded-lg
+              transition
+            "
           >
-            Workers 👨‍🌾
+            Attendance 📅
           </Link>
 
           <Link
             to="/admin/production"
-            className="block hover:bg-green-700 p-3 rounded-lg transition"
+            className="
+              block
+              hover:bg-green-700
+              p-3
+              rounded-lg
+              transition
+            "
           >
             Production 🥚
           </Link>
 
           <Link
             to="/admin/feeds"
-            className="block hover:bg-green-700 p-3 rounded-lg transition"
+            className="
+              block
+              hover:bg-green-700
+              p-3
+              rounded-lg
+              transition
+            "
           >
             Feed Inventory 🌽
           </Link>
 
           <Link
             to="/admin/feed-invoices"
-            className="block hover:bg-green-700 p-3 rounded-lg transition"
+            className="
+              block
+              hover:bg-green-700
+              p-3
+              rounded-lg
+              transition
+            "
           >
             Feed Invoices 🧾
           </Link>
 
           <Link
             to="/admin/warehouse"
-            className="block hover:bg-green-700 p-3 rounded-lg transition"
+            className="
+              block
+              hover:bg-green-700
+              p-3
+              rounded-lg
+              transition
+            "
           >
             Warehouse 🏬
           </Link>
 
           <Link
             to="/admin/vaccinations"
-            className="block hover:bg-green-700 p-3 rounded-lg transition"
+            className="
+              block
+              hover:bg-green-700
+              p-3
+              rounded-lg
+              transition
+            "
           >
             Vaccinations 💉
           </Link>
 
           <Link
             to="/admin/bird-health"
-            className="block hover:bg-green-700 p-3 rounded-lg transition"
+            className="
+              block
+              hover:bg-green-700
+              p-3
+              rounded-lg
+              transition
+            "
           >
             Bird Health 🐔
           </Link>
 
           <Link
             to="/admin/medications"
-            className="block hover:bg-green-700 p-3 rounded-lg transition"
+            className="
+              block
+              hover:bg-green-700
+              p-3
+              rounded-lg
+              transition
+            "
           >
             Medications 💊
           </Link>
 
           <Link
             to="/admin/mortality"
-            className="block hover:bg-green-700 p-3 rounded-lg transition"
+            className="
+              block
+              hover:bg-green-700
+              p-3
+              rounded-lg
+              transition
+            "
           >
             Mortality Tracking ☠️
           </Link>
@@ -163,6 +245,7 @@ export default function AdminLayout() {
       </aside>
 
       {/* MAIN CONTENT */}
+
       <main
         className="
           flex-1
