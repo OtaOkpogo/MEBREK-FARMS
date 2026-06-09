@@ -1,5 +1,4 @@
 const mongoose = require("mongoose");
-
 const productionSchema = new mongoose.Schema(
   {
     eggsCollected: {
