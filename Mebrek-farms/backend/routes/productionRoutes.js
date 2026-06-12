@@ -1,13 +1,13 @@
 const router = require("express").Router();
 
 const {
-  getProduction,
+  getProductions,
   createProduction,
 } = require("../controllers/productionController");
 
 const protect = require("../middleware/authMiddleware");
 
-router.get("/", protect, getProduction);
+router.get("/", protect, getProductions);
 
 router.post("/", protect, createProduction);
 
