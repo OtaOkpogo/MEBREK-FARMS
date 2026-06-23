@@ -15,8 +15,8 @@ app.use(
   cors({
     origin: ["http://localhost:5173"],
     methods: ["GET", "POST", "PUT", "DELETE"],
-    credentials: true
-  })
+    credentials: true,
+  }),
 );
 
 app.use(express.json());
@@ -25,7 +25,7 @@ app.use(express.json());
 mongoose
   .connect(process.env.MONGO_URI)
   .then(() => console.log("MongoDB connected"))
-  .catch(err => console.error(err));
+  .catch((err) => console.error(err));
 
 // Routes
 app.use("/api/workers", require("./routes/workers"));
@@ -33,7 +33,7 @@ app.use("/api/attendance", attendanceRoutes);
 app.use("/api/production", require("./routes/production"));
 app.use("/api/production", require("./routes/productionRoutes"));
 app.use("/api/auth", require("./routes/auth"));
-app.use("/api/feed-invoices",require("./routes/feedInvoiceRoutes"));
+app.use("/api/feed-invoices", require("./routes/feedInvoiceRoutes"));
 app.use("/api/feeds", require("./routes/feedRoutes"));
 app.use("/api/orders", require("./routes/orders"));
 app.use("/api/warehouse", warehouseRoutes);
@@ -42,6 +42,4 @@ app.use("/api/mortality", mortalityRoutes);
 app.use("/api/dashboard", dashboardRoutes);
 
 const PORT = process.env.PORT || 5000;
-app.listen(PORT, () =>
-  console.log(`Server running on port ${PORT}`)
-);
+app.listen(PORT, () => console.log(`Server running on port ${PORT}`));

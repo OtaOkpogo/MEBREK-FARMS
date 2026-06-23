@@ -7,7 +7,22 @@ const productionSchema = new mongoose.Schema(
       required: true,
     },
 
-    day: {
+    pen: {
+      type: String,
+      required: true,
+      enum: [
+        "Battery Cage Row 1",
+        "Battery Cage Row 2",
+        "Battery Cage Row 3",
+        "Deep Litter Pen 1",
+        "Deep Litter Pen 2",
+        "Deep Litter Pen 3",
+        "Sick Bay",
+        "Pen 150",
+      ],
+    },
+
+    days: {
       type: Number,
       required: true,
     },

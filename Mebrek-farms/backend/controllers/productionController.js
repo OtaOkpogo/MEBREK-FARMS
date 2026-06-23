@@ -5,12 +5,18 @@ const Production = require("../models/Production");
 // ==========================
 const getProductions = async (req, res) => {
   try {
+    console.log("GET PRODUCTIONS HIT");
+
     const productions = await Production.find().sort({
       date: -1,
     });
 
+    console.log("FOUND:", productions.length);
+
     res.json(productions);
   } catch (err) {
+    console.log("PRODUCTION ERROR:", err);
+
     res.status(500).json({
       message: err.message,
     });
@@ -22,11 +28,18 @@ const getProductions = async (req, res) => {
 // ==========================
 const createProduction = async (req, res) => {
   try {
-    const { openingStock, mortality, cratesProduced } = req.body;
+    console.log(req.body);
+    const {
+	    openingStock, 
+	    mortality, 
+	    cratesProduced, 
+	    extraEggPieces 
+    } = req.body;
 
     const closingStock = Number(openingStock || 0) - Number(mortality || 0);
 
-    const totalEggs = Number(cratesProduced || 0) * 30;
+    const totalEggs =
+      Number(cratesProduced || 0) * 30 + Number(extraEggPieces || 0);
 
     const productionPercentage =
       closingStock > 0
