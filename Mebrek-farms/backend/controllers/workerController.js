@@ -5,11 +5,15 @@ const Worker = require("../models/Worker");
 // =========================
 exports.createWorker = async (req, res) => {
   try {
-    const worker = new Worker(req.body);
-    await worker.save();
+    const worker = await Worker.create(req.body);
+
     res.status(201).json(worker);
   } catch (err) {
-    res.status(500).json({ error: err.message });
+    console.error(err);
+
+    res.status(500).json({
+      error: err.message,
+    });
   }
 };
 
