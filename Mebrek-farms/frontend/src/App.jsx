@@ -22,6 +22,7 @@ import Mortality from "./admin/Mortality";
 import BirdHealth from "./admin/BirdHealth";
 import Medications from "./admin/Medications";
 import Unauthorized from "./pages/Unauthorized";
+import Expenses from "./pages/Expenses";
 
 function App() {
   return (
@@ -47,6 +48,8 @@ function App() {
         >
           <Route index element={<Dashboard />} />
 
+          <Route path="expenses" element={<Expenses />} />
+
           <Route path="orders" element={<Orders />} />
 
           <Route path="workers" element={<Workers />} />
@@ -64,7 +67,7 @@ function App() {
           <Route path="bird-health" element={<BirdHealth />} />
 
           <Route path="medications" element={<Medications />} />
-	  <Route path="attendance" element={<Attendance />} />
+          <Route path="attendance" element={<Attendance />} />
 
           <Route path="mortality" element={<Mortality />} />
         </Route>
