@@ -70,21 +70,42 @@ exports.deleteWorker = async (req, res) => {
 // =========================
 exports.getWorkerStats = async (req, res) => {
   try {
-    // Total workers
     const totalWorkers = await Worker.countDocuments();
 
-    // Salary stats
+    const activeWorkers = await Worker.countDocuments({
+      status: "Active",
+    });
+
+    const inactiveWorkers = await Worker.countDocuments({
+      status: "Inactive",
+    });
+
     const salaryStats = await Worker.aggregate([
       {
         $group: {
           _id: null,
           totalSalary: { $sum: "$salary" },
-          avgSalary: { $avg: "$salary" },
+          averageSalary: { $avg: "$salary" },
+          highestSalary: { $max: "$salary" },
+          lowestSalary: { $min: "$salary" },
         },
       },
     ]);
 
-    // Role distribution
+    const departmentStats = await Worker.aggregate([
+      {
+        $group: {
+          _id: "$department",
+          count: { $sum: 1 },
+        },
+      },
+      {
+        $sort: {
+          count: -1,
+        },
+      },
+    ]);
+
     const roleStats = await Worker.aggregate([
       {
         $group: {
@@ -92,19 +113,37 @@ exports.getWorkerStats = async (req, res) => {
           count: { $sum: 1 },
         },
       },
+      {
+        $sort: {
+          count: -1,
+        },
+      },
     ]);
 
-    // Recent workers
     const recentWorkers = await Worker.find().sort({ createdAt: -1 }).limit(5);
 
     res.json({
       totalWorkers,
+      activeWorkers,
+      inactiveWorkers,
+
       totalSalary: salaryStats[0]?.totalSalary || 0,
-      avgSalary: salaryStats[0]?.avgSalary || 0,
+
+      averageSalary: Math.round(salaryStats[0]?.averageSalary || 0),
+
+      highestSalary: salaryStats[0]?.highestSalary || 0,
+
+      lowestSalary: salaryStats[0]?.lowestSalary || 0,
+
+      departmentStats,
       roleStats,
       recentWorkers,
     });
   } catch (err) {
-    res.status(500).json({ error: err.message });
+    console.error(err);
+
+    res.status(500).json({
+      error: err.message,
+    });
   }
 };
