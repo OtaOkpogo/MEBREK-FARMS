@@ -46,6 +46,9 @@ export default function Login() {
 
       localStorage.setItem("adminName", res.data.name);
 
+      // Save complete logged-in user
+      localStorage.setItem("user", JSON.stringify(res.data.admin));
+
       navigate("/admin");
     } catch (err) {
       setError(err.response?.data?.message || "Login failed");

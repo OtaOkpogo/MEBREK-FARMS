@@ -5,10 +5,10 @@ import Home from "./pages/Home";
 import About from "./pages/About";
 import Products from "./pages/Products";
 import Contact from "./pages/Contact";
+import Unauthorized from "./pages/Unauthorized";
 
 import ProtectedRoute from "./routes/ProtectedRoute";
 
-import Attendance from "./admin/Attendance";
 import AdminLayout from "./admin/AdminLayout";
 import Dashboard from "./admin/Dashboard";
 import Orders from "./admin/Orders";
@@ -21,7 +21,7 @@ import Vaccinations from "./admin/Vaccinations";
 import Mortality from "./admin/Mortality";
 import BirdHealth from "./admin/BirdHealth";
 import Medications from "./admin/Medications";
-import Unauthorized from "./pages/Unauthorized";
+import Attendance from "./admin/Attendance";
 import Expenses from "./pages/Expenses";
 
 function App() {
@@ -29,15 +29,14 @@ function App() {
     <BrowserRouter>
       <Routes>
         {/* PUBLIC ROUTES */}
-
         <Route path="/" element={<Home />} />
         <Route path="/about" element={<About />} />
         <Route path="/products" element={<Products />} />
         <Route path="/contact" element={<Contact />} />
         <Route path="/login" element={<Login />} />
+        <Route path="/unauthorized" element={<Unauthorized />} />
 
-        {/* ADMIN ROUTES */}
-
+        {/* ADMIN PANEL */}
         <Route
           path="/admin"
           element={
@@ -46,38 +45,68 @@ function App() {
             </ProtectedRoute>
           }
         >
+          {/* BOTH ADMIN & STAFF */}
           <Route index element={<Dashboard />} />
-
-          <Route path="expenses" element={<Expenses />} />
-
           <Route path="orders" element={<Orders />} />
-
-          <Route path="workers" element={<Workers />} />
-
           <Route path="production" element={<Production />} />
-
-          <Route path="feeds" element={<FeedInventory />} />
-
-          <Route path="feed-invoices" element={<FeedInvoices />} />
-
-          <Route path="warehouse" element={<Warehouse />} />
-
-          <Route path="vaccinations" element={<Vaccinations />} />
-
-          <Route path="bird-health" element={<BirdHealth />} />
-
-          <Route path="medications" element={<Medications />} />
           <Route path="attendance" element={<Attendance />} />
-
+          <Route path="vaccinations" element={<Vaccinations />} />
+          <Route path="bird-health" element={<BirdHealth />} />
+          <Route path="medications" element={<Medications />} />
           <Route path="mortality" element={<Mortality />} />
+
+          {/* ADMIN ONLY */}
+          <Route
+            path="workers"
+            element={
+              <ProtectedRoute allowedRoles={["admin"]}>
+                <Workers />
+              </ProtectedRoute>
+            }
+          />
+
+          <Route
+            path="expenses"
+            element={
+              <ProtectedRoute allowedRoles={["admin"]}>
+                <Expenses />
+              </ProtectedRoute>
+            }
+          />
+
+          <Route
+            path="feeds"
+            element={
+              <ProtectedRoute allowedRoles={["admin"]}>
+                <FeedInventory />
+              </ProtectedRoute>
+            }
+          />
+
+          <Route
+            path="feed-invoices"
+            element={
+              <ProtectedRoute allowedRoles={["admin"]}>
+                <FeedInvoices />
+              </ProtectedRoute>
+            }
+          />
+
+          <Route
+            path="warehouse"
+            element={
+              <ProtectedRoute allowedRoles={["admin"]}>
+                <Warehouse />
+              </ProtectedRoute>
+            }
+          />
         </Route>
 
         {/* 404 */}
-
         <Route
           path="*"
           element={
-            <div className="flex items-center justify-center h-screen">
+            <div className="flex items-center justify-center h-screen text-3xl font-bold">
               404 - Page Not Found
             </div>
           }

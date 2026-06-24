@@ -6,19 +6,37 @@ import {
   deleteWorker,
 } from "../services/workerService";
 
+import apiClient from "../services/apiClient";
+
 export default function Workers() {
   const [workers, setWorkers] = useState([]);
+  const [stats, setStats] = useState({
+    totalWorkers: 0,
+    totalSalary: 0,
+    avgSalary: 0,
+    recentWorkers: [],
+  });
+
   const [editingId, setEditingId] = useState(null);
   const [loading, setLoading] = useState(false);
 
   const [formData, setFormData] = useState({
-    name: "",
+    employeeId: "",
+    firstName: "",
+    lastName: "",
     role: "",
+    department: "",
+    phone: "",
+    email: "",
     salary: "",
+    employmentType: "Permanent",
+    status: "Active",
+    hireDate: "",
   });
 
   useEffect(() => {
     loadWorkers();
+    loadStats();
   }, []);
 
   const loadWorkers = async () => {
@@ -26,117 +44,176 @@ export default function Workers() {
       const data = await fetchWorkers();
       setWorkers(Array.isArray(data) ? data : []);
     } catch (err) {
-      console.error("Failed to load workers:", err);
-      setWorkers([]);
+      console.error(err);
+    }
+  };
+
+  const loadStats = async () => {
+    try {
+      const data = await apiClient.get("/workers/stats");
+
+      setStats({
+        totalWorkers: data.totalWorkers || 0,
+        totalSalary: data.totalSalary || 0,
+        avgSalary: data.avgSalary || 0,
+        recentWorkers: data.recentWorkers || [],
+      });
+    } catch (err) {
+      console.error(err);
     }
   };
 
   const handleSubmit = async (e) => {
     e.preventDefault();
 
-    setLoading(true);
-
     try {
-      const workerData = {
+      setLoading(true);
+
+      const payload = {
         ...formData,
         salary: Number(formData.salary),
       };
 
       if (editingId) {
-        await updateWorker(editingId, workerData);
-        setEditingId(null);
+        await updateWorker(editingId, payload);
       } else {
-        await createWorker(workerData);
+        await createWorker(payload);
       }
 
+      setEditingId(null);
+
       setFormData({
-        name: "",
+        employeeId: "",
+        firstName: "",
+        lastName: "",
         role: "",
+        department: "",
+        phone: "",
+        email: "",
         salary: "",
+        employmentType: "Permanent",
+        status: "Active",
+        hireDate: "",
       });
 
       await loadWorkers();
+      await loadStats();
     } catch (err) {
-      console.error("Failed to save worker:", err);
+      console.error(err);
     } finally {
       setLoading(false);
     }
   };
 
   const handleEdit = (worker) => {
-    setFormData({
-      name: worker.name || "",
-      role: worker.role || "",
-      salary: worker.salary || "",
-    });
-
     setEditingId(worker._id);
+
+    setFormData({
+      employeeId: worker.employeeId || "",
+      firstName: worker.firstName || "",
+      lastName: worker.lastName || "",
+      role: worker.role || "",
+      department: worker.department || "",
+      phone: worker.phone || "",
+      email: worker.email || "",
+      salary: worker.salary || "",
+      employmentType: worker.employmentType || "Permanent",
+      status: worker.status || "Active",
+      hireDate: worker.hireDate ? worker.hireDate.substring(0, 10) : "",
+    });
   };
 
   const handleDelete = async (id) => {
-    const confirmed = window.confirm(
-      "Are you sure you want to delete this worker?",
-    );
-
-    if (!confirmed) return;
+    if (!window.confirm("Delete worker?")) return;
 
     try {
       await deleteWorker(id);
+
       await loadWorkers();
+      await loadStats();
     } catch (err) {
-      console.error("Failed to delete worker:", err);
+      console.error(err);
     }
-  };
-
-  const handleCancelEdit = () => {
-    setEditingId(null);
-
-    setFormData({
-      name: "",
-      role: "",
-      salary: "",
-    });
   };
 
   return (
     <div className="p-6">
-      {/* PAGE HEADER */}
-      <div className="mb-8">
-        <h1 className="text-4xl font-bold text-green-700">
-          Workers Management 👨‍🌾
-        </h1>
+      <h1 className="text-3xl font-bold mb-6">Workers Management</h1>
 
-        <p className="text-gray-600 mt-2">
-          Manage farm workers, salaries, and roles
-        </p>
+      {/* Analytics Cards */}
+
+      <div className="grid md:grid-cols-3 gap-4 mb-8">
+        <div className="bg-white shadow rounded p-5">
+          <h3 className="text-gray-500">Total Workers</h3>
+
+          <p className="text-3xl font-bold">{stats.totalWorkers}</p>
+        </div>
+
+        <div className="bg-white shadow rounded p-5">
+          <h3 className="text-gray-500">Monthly Payroll</h3>
+
+          <p className="text-3xl font-bold text-green-600">
+            ₦{stats.totalSalary.toLocaleString()}
+          </p>
+        </div>
+
+        <div className="bg-white shadow rounded p-5">
+          <h3 className="text-gray-500">Average Salary</h3>
+
+          <p className="text-3xl font-bold text-blue-600">
+            ₦{Math.round(stats.avgSalary).toLocaleString()}
+          </p>
+        </div>
       </div>
 
-      {/* FORM SECTION */}
-      <div className="bg-white rounded-2xl shadow p-6 mb-10">
-        <h2 className="text-2xl font-bold mb-6">
-          {editingId ? "Update Worker ✏️" : "Add New Worker ➕"}
+      {/* Worker Form */}
+
+      <div className="bg-white shadow rounded p-6 mb-8">
+        <h2 className="text-xl font-bold mb-4">
+          {editingId ? "Edit Worker" : "Add Worker"}
         </h2>
 
         <form onSubmit={handleSubmit} className="grid md:grid-cols-3 gap-4">
-          {/* NAME */}
           <input
-            type="text"
-            placeholder="Worker Name"
-            value={formData.name}
+            placeholder="Employee ID"
+            value={formData.employeeId}
             onChange={(e) =>
               setFormData({
                 ...formData,
-                name: e.target.value,
+                employeeId: e.target.value,
               })
             }
-            className="border p-3 rounded-lg"
+            className="border p-2 rounded"
+          />
+
+          <input
+            placeholder="First Name"
+            value={formData.firstName}
+            onChange={(e) =>
+              setFormData({
+                ...formData,
+                firstName: e.target.value,
+              })
+            }
+            className="border p-2 rounded"
             required
           />
 
-          {/* ROLE */}
           <input
-            type="text"
-            placeholder="Worker Role"
+            placeholder="Last Name"
+            value={formData.lastName}
+            onChange={(e) =>
+              setFormData({
+                ...formData,
+                lastName: e.target.value,
+              })
+            }
+            className="border p-2 rounded"
+            required
+          />
+
+          <input
+            placeholder="Role"
             value={formData.role}
             onChange={(e) =>
               setFormData({
@@ -144,14 +221,49 @@ export default function Workers() {
                 role: e.target.value,
               })
             }
-            className="border p-3 rounded-lg"
+            className="border p-2 rounded"
             required
           />
 
-          {/* SALARY */}
+          <input
+            placeholder="Department"
+            value={formData.department}
+            onChange={(e) =>
+              setFormData({
+                ...formData,
+                department: e.target.value,
+              })
+            }
+            className="border p-2 rounded"
+          />
+
+          <input
+            placeholder="Phone"
+            value={formData.phone}
+            onChange={(e) =>
+              setFormData({
+                ...formData,
+                phone: e.target.value,
+              })
+            }
+            className="border p-2 rounded"
+          />
+
+          <input
+            placeholder="Email"
+            value={formData.email}
+            onChange={(e) =>
+              setFormData({
+                ...formData,
+                email: e.target.value,
+              })
+            }
+            className="border p-2 rounded"
+          />
+
           <input
             type="number"
-            placeholder="Monthly Salary"
+            placeholder="Salary"
             value={formData.salary}
             onChange={(e) =>
               setFormData({
@@ -159,123 +271,87 @@ export default function Workers() {
                 salary: e.target.value,
               })
             }
-            className="border p-3 rounded-lg"
-            min="0"
-            required
+            className="border p-2 rounded"
           />
 
-          {/* ACTION BUTTONS */}
-          <div className="flex gap-2 md:col-span-3">
-            <button
-              type="submit"
-              disabled={loading}
-              className="
-                bg-green-600
-                hover:bg-green-700
-                disabled:bg-gray-400
-                text-white
-                py-3
-                px-6
-                rounded-lg
-                transition
-              "
-            >
-              {loading
-                ? "Saving..."
-                : editingId
-                  ? "Update Worker"
-                  : "Add Worker"}
-            </button>
+          <input
+            type="date"
+            value={formData.hireDate}
+            onChange={(e) =>
+              setFormData({
+                ...formData,
+                hireDate: e.target.value,
+              })
+            }
+            className="border p-2 rounded"
+          />
 
-            {editingId && (
-              <button
-                type="button"
-                onClick={handleCancelEdit}
-                className="
-                  bg-gray-500
-                  hover:bg-gray-600
-                  text-white
-                  py-3
-                  px-6
-                  rounded-lg
-                  transition
-                "
-              >
-                Cancel
-              </button>
-            )}
-          </div>
+          <button
+            type="submit"
+            disabled={loading}
+            className="bg-green-600 text-white p-3 rounded"
+          >
+            {loading ? "Saving..." : editingId ? "Update Worker" : "Add Worker"}
+          </button>
         </form>
       </div>
 
-      {/* TABLE SECTION */}
-      <div className="bg-white rounded-2xl shadow p-6">
-        <h2 className="text-2xl font-bold mb-6">Farm Workers List 📋</h2>
+      {/* Workers Table */}
 
-        {workers.length === 0 ? (
-          <p className="text-gray-500">No workers found</p>
-        ) : (
-          <div className="overflow-x-auto">
-            <table className="w-full">
-              <thead>
-                <tr className="border-b text-left">
-                  <th className="py-3">Name</th>
-                  <th>Role</th>
-                  <th>Salary</th>
-                  <th>Actions</th>
+      <div className="bg-white shadow rounded p-6">
+        <h2 className="text-xl font-bold mb-4">Workers List</h2>
+
+        <div className="overflow-x-auto">
+          <table className="w-full">
+            <thead>
+              <tr className="border-b">
+                <th>Name</th>
+                <th>Role</th>
+                <th>Department</th>
+                <th>Phone</th>
+                <th>Salary</th>
+                <th>Status</th>
+                <th>Actions</th>
+              </tr>
+            </thead>
+
+            <tbody>
+              {workers.map((worker) => (
+                <tr key={worker._id} className="border-b">
+                  <td>
+                    {worker.firstName} {worker.lastName}
+                  </td>
+
+                  <td>{worker.role}</td>
+
+                  <td>{worker.department}</td>
+
+                  <td>{worker.phone}</td>
+
+                  <td>₦{Number(worker.salary || 0).toLocaleString()}</td>
+
+                  <td>{worker.status}</td>
+
+                  <td className="space-x-2">
+                    <button
+                      onClick={() => handleEdit(worker)}
+                      className="bg-blue-500 text-white px-3 py-1 rounded"
+                    >
+                      Edit
+                    </button>
+
+                    <button
+                      onClick={() => handleDelete(worker._id)}
+                      className="bg-red-500 text-white px-3 py-1 rounded"
+                    >
+                      Delete
+                    </button>
+                  </td>
                 </tr>
-              </thead>
-
-              <tbody>
-                {workers.map((worker) => (
-                  <tr key={worker._id} className="border-b hover:bg-gray-50">
-                    {/* NAME */}
-                    <td className="py-4 font-medium">{worker.name}</td>
-
-                    {/* ROLE */}
-                    <td>{worker.role}</td>
-
-                    {/* SALARY */}
-                    <td className="font-semibold text-green-700">
-                      ₦{Number(worker.salary).toLocaleString()}
-                    </td>
-
-                    {/* ACTIONS */}
-                    <td className="space-x-2">
-                      <button
-                        onClick={() => handleEdit(worker)}
-                        className="
-                          bg-blue-500
-                          hover:bg-blue-600
-                          text-white
-                          px-4
-                          py-1
-                          rounded
-                        "
-                      >
-                        Edit
-                      </button>
-
-                      <button
-                        onClick={() => handleDelete(worker._id)}
-                        className="
-                          bg-red-500
-                          hover:bg-red-600
-                          text-white
-                          px-4
-                          py-1
-                          rounded
-                        "
-                      >
-                        Delete
-                      </button>
-                    </td>
-                  </tr>
-                ))}
-              </tbody>
-            </table>
-          </div>
-        )}
+              ))}
+            </tbody>
+          </table>
+        </div>
       </div>
     </div>
   );

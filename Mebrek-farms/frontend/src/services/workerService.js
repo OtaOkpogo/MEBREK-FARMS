@@ -8,6 +8,10 @@ export const fetchWorkers = async () => {
   return res?.workers || res?.data?.workers || res?.data || res || [];
 };
 
+export const fetchWorkerStats = async () => {
+  return await apiClient.get("/workers/stats");
+};
+
 // CREATE WORKER
 export const createWorker = async (data) => {
   return await apiClient.post("/workers", data);
