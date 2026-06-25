@@ -8,7 +8,7 @@ import Contact from "./pages/Contact";
 import Unauthorized from "./pages/Unauthorized";
 
 import ProtectedRoute from "./routes/ProtectedRoute";
-
+import StaffAccounts from "./admin/StaffAccounts";
 import AdminLayout from "./admin/AdminLayout";
 import Dashboard from "./admin/Dashboard";
 import Orders from "./admin/Orders";
