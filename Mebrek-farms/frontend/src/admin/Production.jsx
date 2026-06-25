@@ -10,9 +10,9 @@ const pens = [
   "Battery Cage Row 1",
   "Battery Cage Row 2",
   "Battery Cage Row 3",
-  "Deep Litter 1",
-  "Deep Litter 2",
-  "Deep Litter 3",
+  "Deep Litter Pen 1",
+  "Deep Litter Pen 2",
+  "Deep Litter Pen 3",
   "Sick Bay",
   "Pen 150",
 ];
