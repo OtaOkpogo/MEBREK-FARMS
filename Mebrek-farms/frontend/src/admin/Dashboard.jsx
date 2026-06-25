@@ -1,5 +1,5 @@
 import { useEffect, useState } from "react";
-
+import { getCurrentUser } from "../services/authService";
 import {
   ResponsiveContainer,
   LineChart,
@@ -31,9 +31,11 @@ export default function Dashboard() {
   const [loading, setLoading] = useState(true);
 
   const [error, setError] = useState("");
+  const [user, setUser] = useState(null);
 
   useEffect(() => {
     loadDashboard();
+    loadUser();
   }, []);
 
   const loadDashboard = async () => {
@@ -58,6 +60,14 @@ export default function Dashboard() {
     }
   };
 
+  const loadUser = async () => {
+    try {
+      const data = await getCurrentUser();
+      setUser(data);
+    } catch (err) {
+      console.error(err);
+    }
+  };
   // ================= DATA =================
 
   const orders = data.orders;
@@ -166,6 +176,54 @@ export default function Dashboard() {
         </h1>
 
         <p className="text-gray-600 mt-2">Farm Operations Monitoring Center</p>
+      </div>
+
+      {/* USER PROFILE CARD */}
+
+      <div className="bg-white rounded-2xl shadow-lg p-6 mb-8">
+        <h2 className="text-3xl font-bold text-green-700">
+          Welcome back {user?.name || "User"} 👋
+        </h2>
+
+        <p className="text-gray-500 mt-2">Farm Management Dashboard</p>
+
+        <div className="grid md:grid-cols-3 gap-4 mt-6">
+          {/* ROLE */}
+
+          <div className="bg-gray-50 p-4 rounded-xl">
+            <p className="text-gray-500 text-sm">Role</p>
+
+            <p className="font-bold text-lg uppercase">
+              {user?.role || "staff"}
+            </p>
+          </div>
+
+          {/* STATUS */}
+
+          <div className="bg-gray-50 p-4 rounded-xl">
+            <p className="text-gray-500 text-sm">Status</p>
+
+            <p
+              className={`font-bold text-lg ${
+                user?.status === "active" ? "text-green-600" : "text-red-600"
+              }`}
+            >
+              {user?.status?.toUpperCase() || "ACTIVE"}
+            </p>
+          </div>
+
+          {/* LAST LOGIN */}
+
+          <div className="bg-gray-50 p-4 rounded-xl">
+            <p className="text-gray-500 text-sm">Last Login</p>
+
+            <p className="font-bold text-lg">
+              {user?.lastLogin
+                ? new Date(user.lastLogin).toLocaleString()
+                : "Never"}
+            </p>
+          </div>
+        </div>
       </div>
 
       {/* KPI CARDS */}

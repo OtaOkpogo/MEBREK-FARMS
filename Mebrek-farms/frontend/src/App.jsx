@@ -8,7 +8,7 @@ import Contact from "./pages/Contact";
 import Unauthorized from "./pages/Unauthorized";
 
 import ProtectedRoute from "./routes/ProtectedRoute";
-import StaffAccounts from "./admin/StaffAccounts";
+
 import AdminLayout from "./admin/AdminLayout";
 import Dashboard from "./admin/Dashboard";
 import Orders from "./admin/Orders";
@@ -22,11 +22,15 @@ import Mortality from "./admin/Mortality";
 import BirdHealth from "./admin/BirdHealth";
 import Medications from "./admin/Medications";
 import Attendance from "./admin/Attendance";
+import StaffAccounts from "./admin/StaffAccounts";
+import Profile from "./admin/Profile";
+
 import Expenses from "./pages/Expenses";
 
 function App() {
   return (
     <BrowserRouter>
+      {" "}
       <Routes>
         {/* PUBLIC ROUTES */}
         <Route path="/" element={<Home />} />
@@ -35,7 +39,7 @@ function App() {
         <Route path="/contact" element={<Contact />} />
         <Route path="/login" element={<Login />} />
         <Route path="/unauthorized" element={<Unauthorized />} />
-
+        ```
         {/* ADMIN PANEL */}
         <Route
           path="/admin"
@@ -45,21 +49,30 @@ function App() {
             </ProtectedRoute>
           }
         >
-          {/* BOTH ADMIN & STAFF */}
+          {/* ALL ROLES */}
           <Route index element={<Dashboard />} />
+
           <Route path="orders" element={<Orders />} />
+
           <Route path="production" element={<Production />} />
+
           <Route path="attendance" element={<Attendance />} />
+
           <Route path="vaccinations" element={<Vaccinations />} />
+
           <Route path="bird-health" element={<BirdHealth />} />
+
           <Route path="medications" element={<Medications />} />
+
           <Route path="mortality" element={<Mortality />} />
 
-          {/* ADMIN ONLY */}
+          <Route path="profile" element={<Profile />} />
+
+          {/* MANAGER + SUPERADMIN */}
           <Route
             path="workers"
             element={
-              <ProtectedRoute allowedRoles={["admin"]}>
+              <ProtectedRoute allowedRoles={["superadmin", "manager"]}>
                 <Workers />
               </ProtectedRoute>
             }
@@ -68,7 +81,7 @@ function App() {
           <Route
             path="expenses"
             element={
-              <ProtectedRoute allowedRoles={["admin"]}>
+              <ProtectedRoute allowedRoles={["superadmin", "manager"]}>
                 <Expenses />
               </ProtectedRoute>
             }
@@ -77,7 +90,7 @@ function App() {
           <Route
             path="feeds"
             element={
-              <ProtectedRoute allowedRoles={["admin"]}>
+              <ProtectedRoute allowedRoles={["superadmin", "manager"]}>
                 <FeedInventory />
               </ProtectedRoute>
             }
@@ -86,7 +99,7 @@ function App() {
           <Route
             path="feed-invoices"
             element={
-              <ProtectedRoute allowedRoles={["admin"]}>
+              <ProtectedRoute allowedRoles={["superadmin", "manager"]}>
                 <FeedInvoices />
               </ProtectedRoute>
             }
@@ -95,13 +108,22 @@ function App() {
           <Route
             path="warehouse"
             element={
-              <ProtectedRoute allowedRoles={["admin"]}>
+              <ProtectedRoute allowedRoles={["superadmin", "manager"]}>
                 <Warehouse />
               </ProtectedRoute>
             }
           />
-        </Route>
 
+          {/* SUPERADMIN ONLY */}
+          <Route
+            path="staff"
+            element={
+              <ProtectedRoute allowedRoles={["superadmin"]}>
+                <StaffAccounts />
+              </ProtectedRoute>
+            }
+          />
+        </Route>
         {/* 404 */}
         <Route
           path="*"

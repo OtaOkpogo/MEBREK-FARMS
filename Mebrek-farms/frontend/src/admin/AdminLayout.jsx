@@ -33,7 +33,30 @@ export default function AdminLayout() {
 
             <div>
               <h2 className="text-2xl font-bold">Mebrek Farms</h2>
+
               <p className="text-green-200 text-sm">Farm Management System</p>
+
+              {/* ROLE BADGE */}
+              <div
+                className={`
+                  mt-3
+                  inline-block
+                  px-3
+                  py-1
+                  rounded-full
+                  text-sm
+                  font-semibold
+                  ${
+                    role === "superadmin"
+                      ? "bg-red-500"
+                      : role === "manager"
+                        ? "bg-blue-500"
+                        : "bg-green-500"
+                  }
+                `}
+              >
+                {role?.toUpperCase()}
+              </div>
             </div>
           </div>
         </div>
@@ -42,7 +65,9 @@ export default function AdminLayout() {
         <div className="bg-green-700 rounded-lg p-4 mb-6">
           <p className="font-semibold text-lg">{name || "User"}</p>
 
-          <p className="text-green-200 text-sm uppercase">{role || "staff"}</p>
+          <p className="text-green-200 text-sm">
+            Logged in as {role || "staff"}
+          </p>
         </div>
 
         {/* BACK TO WEBSITE */}
@@ -108,12 +133,15 @@ export default function AdminLayout() {
             Attendance 📅
           </Link>
 
-          <Link
-            to="/admin/production"
-            className="block hover:bg-green-700 p-3 rounded-lg transition"
-          >
-            Production 🥚
-          </Link>
+          {/* PRODUCTION - ALL ROLES */}
+          {["superadmin", "manager", "staff"].includes(role) && (
+            <Link
+              to="/admin/production"
+              className="block hover:bg-green-700 p-3 rounded-lg transition"
+            >
+              Production 🥚
+            </Link>
+          )}
 
           <Link
             to="/admin/vaccinations"
@@ -143,27 +171,27 @@ export default function AdminLayout() {
             Mortality Tracking ☠️
           </Link>
 
-          {/* ADMIN ONLY */}
-          {role === "admin" && (
+          {/* MANAGEMENT */}
+          {["superadmin", "manager"].includes(role) && (
             <>
               <hr className="border-green-600 my-4" />
 
               <div className="text-green-200 text-xs uppercase tracking-wider mb-2">
-                Administration
+                Management
               </div>
-
-              <Link
-                to="/admin/workers"
-                className="block hover:bg-green-700 p-3 rounded-lg transition"
-              >
-                Workers 👨‍🌾
-              </Link>
 
               <Link
                 to="/admin/expenses"
                 className="block hover:bg-green-700 p-3 rounded-lg transition"
               >
                 Expenses 💰
+              </Link>
+
+              <Link
+                to="/admin/workers"
+                className="block hover:bg-green-700 p-3 rounded-lg transition"
+              >
+                Workers 👨‍🌾
               </Link>
 
               <Link
@@ -188,12 +216,62 @@ export default function AdminLayout() {
               </Link>
             </>
           )}
+
+          {/* SUPERADMIN ONLY */}
+          {role === "superadmin" && (
+            <>
+              <hr className="border-green-600 my-4" />
+
+              <div className="text-green-200 text-xs uppercase tracking-wider mb-2">
+                System Administration
+              </div>
+
+              <Link
+                to="/admin/staff"
+                className="block hover:bg-green-700 p-3 rounded-lg transition"
+              >
+                Staff Accounts 👥
+              </Link>
+            </>
+          )}
         </nav>
       </aside>
 
-      {/* MAIN CONTENT */}
-      <main className="flex-1 p-8 bg-gray-100 text-black overflow-y-auto">
-        <Outlet />
+      {/* MAIN AREA */}
+      <main className="flex-1 bg-gray-100 overflow-y-auto">
+        {/* TOP HEADER */}
+        <div className="bg-white shadow-sm px-8 py-4 flex justify-end items-center">
+          <div className="flex items-center gap-3">
+            <div className="text-right">
+              <p className="font-semibold">{name || "User"}</p>
+
+              <p className="text-sm text-gray-500">{role || "staff"}</p>
+            </div>
+
+            <button
+              onClick={() => navigate("/admin/profile")}
+              className="
+                w-10
+                h-10
+                rounded-full
+                bg-green-700
+                text-white
+                flex
+                items-center
+                justify-center
+                hover:bg-green-800
+                transition
+              "
+            >
+              👤
+            </button>
+          </div>
+        </div>
+
+        {/* PAGE CONTENT */}
+        <div className="p-8">
+          <Outlet />
+        </div>
       </main>
     </div>
   );
