@@ -91,7 +91,7 @@ export default function Dashboard() {
   const estimatedRevenue = totalEggs * 5000;
 
   const totalFeedStock = feeds.reduce(
-    (sum, item) => sum + (item.stock || 0),
+    (sum, item) => sum + Number(item.quantity || 0),
     0,
   );
 
@@ -118,8 +118,8 @@ export default function Dashboard() {
   }));
 
   const inventoryChart = feeds.map((item) => ({
-    name: item.feedName || "Feed",
-    stock: item.stock || 0,
+    name: item.name,
+    stock: Number(item.quantity || 0),
   }));
 
   const workerPerformance = workers.map((worker) => ({
