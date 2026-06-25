@@ -88,7 +88,7 @@ export default function Dashboard() {
     0,
   );
 
-  const estimatedRevenue = totalEggs * 160;
+  const estimatedRevenue = totalEggs * 5000;
 
   const totalFeedStock = feeds.reduce(
     (sum, item) => sum + (item.stock || 0),
@@ -96,9 +96,11 @@ export default function Dashboard() {
   );
 
   const totalMortality = mortality.reduce(
-    (sum, item) => sum + Number(item.numberOfBirds || 0),
+    (sum, item) => sum + Number(item.numberDead || 0),
     0,
   );
+  console.log("Mortality Records:", mortality);
+  console.log("Total Mortality:", totalMortality);
 
   // ================= ATTENDANCE =================
 
@@ -122,17 +124,25 @@ export default function Dashboard() {
 
   const workerPerformance = workers.map((worker) => ({
     name: worker.name,
-    performance: worker.performance || Math.floor(Math.random() * 100),
+    performance: worker.performance || 0,
   }));
 
   const farmOverview = [
+    {
+      name: "Orders",
+      value: totalOrders,
+    },
     {
       name: "Workers",
       value: totalWorkers,
     },
     {
-      name: "Orders",
-      value: totalOrders,
+      name: "Eggs",
+      value: totalEggs,
+    },
+    {
+      name: "Mortality",
+      value: totalMortality,
     },
   ];
 
