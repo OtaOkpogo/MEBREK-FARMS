@@ -1,36 +1,47 @@
 import apiClient from "./apiClient";
 
+// ================= GET ALL STAFF =================
+
 export const fetchStaff = async () => {
-  const res = await apiClient.get(
-    "/staff"
-  );
-
-  return res?.data || [];
+  return await apiClient.get("/auth/admins");
 };
 
-export const createStaff = async (
-  data
-) => {
-  return await apiClient.post(
-    "/staff",
-    data
-  );
+// ================= CREATE STAFF =================
+
+export const createStaff = async (data) => {
+  return await apiClient.post("/auth/register", data);
 };
 
-export const updateStaff = async (
-  id,
-  data
-) => {
-  return await apiClient.put(
-    `/staff/${id}`,
-    data
-  );
+// ================= UPDATE STAFF =================
+
+export const updateStaff = async (id, data) => {
+  return await apiClient.put(`/staff/${id}`, data);
 };
 
-export const deleteStaff = async (
-  id
-) => {
-  return await apiClient.delete(
-    `/staff/${id}`
-  );
+// ================= DELETE STAFF =================
+
+export const deleteStaff = async (id) => {
+  return await apiClient.delete(`/auth/admins/${id}`);
+};
+
+// ================= UPDATE ROLE =================
+
+export const updateRole = async (id, role) => {
+  return await apiClient.put(`/auth/admins/${id}/role`, {
+    role,
+  });
+};
+
+// ================= TOGGLE STATUS =================
+
+export const toggleStatus = async (id) => {
+  return await apiClient.put(`/auth/admins/${id}/status`);
+};
+
+// ================= RESET PASSWORD =================
+
+export const resetPassword = async (id, password) => {
+  return await apiClient.put(`/auth/admins/${id}/password`, {
+    password,
+  });
 };
