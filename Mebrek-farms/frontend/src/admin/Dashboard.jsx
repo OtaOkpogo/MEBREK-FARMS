@@ -84,7 +84,7 @@ export default function Dashboard() {
   const totalWorkers = workers.length;
 
   const totalEggs = production.reduce(
-    (sum, item) => sum + (item.eggsCollected || 0),
+    (sum, item) => sum + Number(item.totalEggs || 0),
     0,
   );
 
@@ -96,7 +96,7 @@ export default function Dashboard() {
   );
 
   const totalMortality = mortality.reduce(
-    (sum, item) => sum + (item.quantity || 0),
+    (sum, item) => sum + Number(item.numberOfBirds || 0),
     0,
   );
 
@@ -111,11 +111,8 @@ export default function Dashboard() {
   // ================= CHART DATA =================
 
   const productionChart = production.map((item) => ({
-    date: item.createdAt
-      ? new Date(item.createdAt).toLocaleDateString()
-      : "N/A",
-
-    eggs: item.eggsCollected || 0,
+    date: new Date(item.date).toLocaleDateString(),
+    eggs: Number(item.totalEggs || 0),
   }));
 
   const inventoryChart = feeds.map((item) => ({
