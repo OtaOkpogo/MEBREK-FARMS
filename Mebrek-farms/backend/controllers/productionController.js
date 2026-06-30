@@ -7,9 +7,21 @@ const getProductions = async (req, res) => {
   try {
     console.log("GET PRODUCTIONS HIT");
 
-    const productions = await Production.find().sort({
-      date: -1,
-    });
+    let productions;
+
+    // Super Admin sees everything
+    if (req.user.role === "superadmin") {
+      productions = await Production.find().sort({
+        date: -1,
+      });
+    } else {
+      // Staff & Manager don't see deleted records
+      productions = await Production.find({
+        isDeleted: false,
+      }).sort({
+        date: -1,
+      });
+    }
 
     console.log("FOUND:", productions.length);
 
@@ -29,12 +41,9 @@ const getProductions = async (req, res) => {
 const createProduction = async (req, res) => {
   try {
     console.log(req.body);
-    const {
-	    openingStock, 
-	    mortality, 
-	    cratesProduced, 
-	    extraEggPieces 
-    } = req.body;
+
+    const { openingStock, mortality, cratesProduced, extraEggPieces } =
+      req.body;
 
     const closingStock = Number(openingStock || 0) - Number(mortality || 0);
 
@@ -62,7 +71,7 @@ const createProduction = async (req, res) => {
 };
 
 // ==========================
-// DELETE RECORD
+// SOFT DELETE RECORD
 // ==========================
 const deleteProduction = async (req, res) => {
   try {
@@ -74,10 +83,30 @@ const deleteProduction = async (req, res) => {
       });
     }
 
-    await Production.findByIdAndDelete(req.params.id);
+    // Super admin permanently deletes
+    if (req.user.role === "superadmin") {
+      await Production.findByIdAndDelete(req.params.id);
+
+      return res.json({
+        message: "Production permanently deleted",
+      });
+    }
+
+    // Staff/Manager -> Soft delete
+    production.isDeleted = true;
+
+    production.deletedBy = {
+      id: req.user.id,
+      name: req.user.name,
+      role: req.user.role,
+    };
+
+    production.deletedAt = new Date();
+
+    await production.save();
 
     res.json({
-      message: "Production record deleted successfully",
+      message: "Production deleted successfully",
     });
   } catch (err) {
     res.status(500).json({
@@ -85,7 +114,6 @@ const deleteProduction = async (req, res) => {
     });
   }
 };
-
 module.exports = {
   getProductions,
   createProduction,

@@ -96,6 +96,35 @@ const productionSchema = new mongoose.Schema(
       type: String,
       default: "",
     },
+
+    // ================= SOFT DELETE =================
+
+    isDeleted: {
+      type: Boolean,
+      default: false,
+    },
+
+    deletedBy: {
+      id: {
+        type: mongoose.Schema.Types.ObjectId,
+        ref: "Admin",
+      },
+
+      name: {
+        type: String,
+        default: "",
+      },
+
+      role: {
+        type: String,
+        default: "",
+      },
+    },
+
+    deletedAt: {
+      type: Date,
+      default: null,
+    },
   },
   { timestamps: true },
 );

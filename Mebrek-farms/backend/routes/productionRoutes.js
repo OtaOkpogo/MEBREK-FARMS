@@ -3,12 +3,15 @@ const router = require("express").Router();
 const {
   getProductions,
   createProduction,
+  deleteProduction,
 } = require("../controllers/productionController");
 
 const protect = require("../middleware/authMiddleware");
 
+// Get all production records
 router.get("/", protect, getProductions);
 
+// Create production record
 router.post(
   "/",
   protect,
@@ -18,5 +21,8 @@ router.post(
   },
   createProduction,
 );
+
+// Soft delete production record
+router.delete("/:id", protect, deleteProduction);
 
 module.exports = router;

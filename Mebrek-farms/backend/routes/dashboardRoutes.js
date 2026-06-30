@@ -1,50 +1,42 @@
 const express = require("express");
-
 const router = express.Router();
 
-const auth = require(
-  "../middleware/authMiddleware"
-);
+const auth = require("../middleware/authMiddleware");
 
 const Order = require("../models/Order");
 const Worker = require("../models/Worker");
 const Production = require("../models/Production");
+const Feed = require("../models/Feed");
+const Attendance = require("../models/Attendance");
 const Mortality = require("../models/Mortality");
 
-router.get(
-  "/",
-  auth,
-  async (req, res) => {
+router.get("/", auth, async (req, res) => {
+  try {
+    const [orders, workers, production, feeds, attendance, mortality] =
+      await Promise.all([
+        Order.find(),
+        Worker.find(),
+        Production.find(),
+        Feed.find(),
+        Attendance.find(),
+        Mortality.find(),
+      ]);
 
-    try {
+    res.json({
+      orders,
+      workers,
+      production,
+      feeds,
+      attendance,
+      mortality,
+    });
+  } catch (err) {
+    console.error("Dashboard Error:", err);
 
-      const orders =
-        await Order.find();
-
-      const workers =
-        await Worker.find();
-
-      const production =
-        await Production.find();
-
-      const mortality =
-        await Mortality.find();
-
-      res.json({
-        orders,
-        workers,
-        production,
-        mortality,
-      });
-
-    } catch (err) {
-
-      res.status(500).json({
-        error: err.message,
-      });
-
-    }
+    res.status(500).json({
+      message: err.message,
+    });
   }
-);
+});
 
 module.exports = router;
