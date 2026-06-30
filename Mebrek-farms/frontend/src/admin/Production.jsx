@@ -6,6 +6,9 @@ import {
   deleteProduction,
 } from "../services/productionService";
 
+const user = JSON.parse(localStorage.getItem("user") || "{}");
+const role = user?.role || localStorage.getItem("role");
+
 const pens = [
   "Battery Cage Row 1",
   "Battery Cage Row 2",
@@ -333,7 +336,10 @@ const Production = () => {
             <tbody>
               {filteredProductions.length > 0 ? (
                 filteredProductions.map((item) => (
-                  <tr key={item._id}>
+                  <tr
+                    key={item._id}
+                    className={item.isDeleted ? "bg-red-50 opacity-70" : ""}
+                  >
                     <td className="border p-2">{item.pen}</td>
 
                     <td className="border p-2">
@@ -355,12 +361,34 @@ const Production = () => {
                     <td className="border p-2">{item.productionPercentage}%</td>
 
                     <td className="border p-2">
-                      <button
-                        onClick={() => handleDelete(item._id)}
-                        className="bg-red-600 text-white px-3 py-1 rounded"
-                      >
-                        Delete
-                      </button>
+                      {item.isDeleted ? (
+                        <div className="space-y-1">
+                          <span className="inline-block bg-red-100 text-red-700 px-2 py-1 rounded font-medium">
+                            Deleted
+                          </span>
+
+                          <p className="text-xs text-gray-600">
+                            By:{" "}
+                            {item.deletedBy?.name ||
+                              item.deletedBy ||
+                              "Unknown"}
+                          </p>
+
+                          <p className="text-xs text-gray-500">
+                            Role:{" "}
+                            {item.deletedBy?.role ||
+                              item.deletedByRole ||
+                              "N/A"}
+                          </p>
+                        </div>
+                      ) : (
+                        <button
+                          onClick={() => handleDelete(item._id)}
+                          className="bg-red-600 hover:bg-red-700 text-white px-3 py-1 rounded"
+                        >
+                          Delete
+                        </button>
+                      )}
                     </td>
                   </tr>
                 ))
