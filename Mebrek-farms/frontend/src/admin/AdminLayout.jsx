@@ -180,18 +180,31 @@ export default function AdminLayout() {
                 Management
               </div>
 
-              <Link
-                to="/admin/expenses"
-                className="block hover:bg-green-700 p-3 rounded-lg transition"
-              >
-                Expenses 💰
-              </Link>
+              {/* SUPER ADMIN ONLY */}
+              {role === "superadmin" && (
+                <>
+                  <Link
+                    to="/admin/expenses"
+                    className="block hover:bg-green-700 p-3 rounded-lg transition"
+                  >
+                    Expenses 💰
+                  </Link>
 
+                  <Link
+                    to="/admin/workers"
+                    className="block hover:bg-green-700 p-3 rounded-lg transition"
+                  >
+                    Workers 👨‍🌾
+                  </Link>
+                </>
+              )}
+
+              {/* SUPER ADMIN + MANAGER */}
               <Link
-                to="/admin/workers"
+                to="/admin/egg-sales"
                 className="block hover:bg-green-700 p-3 rounded-lg transition"
               >
-                Workers 👨‍🌾
+                Egg Sales 🥚
               </Link>
 
               <Link
@@ -238,7 +251,7 @@ export default function AdminLayout() {
       </aside>
 
       {/* MAIN AREA */}
-      <main className="flex-1 bg-gray-100 overflow-y-auto">
+      <main className="flex-1 min-w-0 bg-gray-100 overflow-y-auto">
         {/* TOP HEADER */}
         <div className="bg-white shadow-sm px-8 py-4 flex justify-end items-center">
           <div className="flex items-center gap-3">
@@ -269,7 +282,7 @@ export default function AdminLayout() {
         </div>
 
         {/* PAGE CONTENT */}
-        <div className="p-8">
+        <div className="w-full min-w-0 p-8">
           <Outlet />
         </div>
       </main>
