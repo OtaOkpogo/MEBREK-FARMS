@@ -1,20 +1,59 @@
-const router = require("express").Router();
+const Notification = require("../models/Notification");
 
-const auth = require("../middleware/authMiddleware");
+// ======================
+// Send Notification
+// ======================
+exports.sendNotification = async (req, res) => {
+  try {
+    const notification = await Notification.create({
+      sender: req.user.id,
+      senderName: req.user.name,
+      senderRole: req.user.role,
+      message: req.body.message,
+    });
 
-const {
-  sendNotification,
-  getNotifications,
-  markAsRead,
-  deleteNotification,
-} = require("../controllers/notificationController");
+    res.status(201).json(notification);
+  } catch (err) {
+    res.status(500).json({
+      message: err.message,
+    });
+  }
+};
 
-router.post("/", auth, sendNotification);
+// ======================
+// Get Notifications
+// ======================
+exports.getNotifications = async (req, res) => {
+  try {
+    const notifications = await Notification.find().sort({ createdAt: -1 });
 
-router.get("/", auth, getNotifications);
+    res.json(notifications);
+  } catch (err) {
+    res.status(500).json({
+      message: err.message,
+    });
+  }
+};
 
-router.put("/:id/read", auth, markAsRead);
+// ======================
+// Mark as Read
+// ======================
+exports.markAsRead = async (req, res) => {
+  try {
+    const notification = await Notification.findByIdAndUpdate(
+      req.params.id,
+      {
+        read: true,
+      },
+      {
+        new: true,
+      },
+    );
 
-router.delete("/:id", auth, deleteNotification);
-
-module.exports = router;
+    res.json(notification);
+  } catch (err) {
+    res.status(500).json({
+      message: err.message,
+    });
+  }
+};
