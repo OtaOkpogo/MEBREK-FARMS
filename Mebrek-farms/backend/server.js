@@ -8,6 +8,7 @@ const eggSaleRoutes = require("./routes/eggSaleRoutes");
 const mortalityRoutes = require("./routes/mortalityRoutes");
 const dashboardRoutes = require("./routes/dashboardRoutes");
 const attendanceRoutes = require("./routes/attendanceRoutes");
+const notificationRoutes = require("./routes/notification");
 
 dotenv.config();
 const app = express();
@@ -44,6 +45,7 @@ app.use("/api/warehouse", warehouseRoutes);
 app.use("/api/vaccinations", vaccinationRoutes);
 app.use("/api/mortality", mortalityRoutes);
 app.use("/api/dashboard", dashboardRoutes);
+app.use("/api/notifications", notificationRoutes);
 
 const PORT = process.env.PORT || 5000;
 app.listen(PORT, () => console.log(`Server running on port ${PORT}`));
