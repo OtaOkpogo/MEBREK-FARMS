@@ -144,6 +144,12 @@ export default function AdminLayout() {
           )}
 
           <Link
+            to="/admin/notifications"
+            className="block hover:bg-green-700 p-3 rounded-lg transition"
+          >
+            Notifications 🔔
+          </Link>
+          <Link
             to="/admin/vaccinations"
             className="block hover:bg-green-700 p-3 rounded-lg transition"
           >
