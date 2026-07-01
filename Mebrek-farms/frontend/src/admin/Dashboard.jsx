@@ -1,4 +1,5 @@
 import { useEffect, useState } from "react";
+import { getNotifications } from "../services/notificationService";
 import { getCurrentUser } from "../services/authService";
 import {
   ResponsiveContainer,
@@ -32,10 +33,13 @@ export default function Dashboard() {
 
   const [error, setError] = useState("");
   const [user, setUser] = useState(null);
+  const [notificationShown, setNotificationShown] = useState(false);
 
   useEffect(() => {
     loadDashboard();
     loadUser();
+
+    checkNotifications();
   }, []);
 
   const loadDashboard = async () => {
@@ -64,6 +68,29 @@ export default function Dashboard() {
     try {
       const data = await getCurrentUser();
       setUser(data);
+    } catch (err) {
+      console.error(err);
+    }
+  };
+  const checkNotifications = async () => {
+    try {
+      const user = JSON.parse(localStorage.getItem("user") || "{}");
+
+      if (user.role !== "superadmin") return;
+
+      const notifications = await getNotifications();
+
+      const unread = notifications.filter((n) => !n.read);
+
+      if (unread.length > 0 && !notificationShown) {
+        const latest = unread[0];
+
+        alert(
+          `🔔 New Message\n\nFrom: ${latest.senderName}\nRole: ${latest.senderRole}\n\n${latest.message}`,
+        );
+
+        setNotificationShown(true);
+      }
     } catch (err) {
       console.error(err);
     }
