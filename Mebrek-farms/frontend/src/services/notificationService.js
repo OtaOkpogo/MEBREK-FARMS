@@ -1,39 +1,19 @@
 import apiClient from "./apiClient";
 
-// ==========================
-// SEND MESSAGE TO SUPER ADMIN
-// ==========================
-export const sendNotification = async (message) => {
-  const { data } = await apiClient.post("/notifications", {
-    message,
-  });
-
-  return data;
-};
-
-// ==========================
-// GET MY NOTIFICATIONS
-// ==========================
+// Get notifications
 export const getNotifications = async () => {
-  const { data } = await apiClient.get("/notifications");
-
-  return data;
+  const res = await apiClient.get("/notifications");
+  return res.data;
 };
 
-// ==========================
-// MARK AS READ
-// ==========================
-export const markNotificationAsRead = async (id) => {
-  const { data } = await apiClient.put(`/notifications/${id}/read`);
-
-  return data;
+// Send notification
+export const sendNotification = async (data) => {
+  const res = await apiClient.post("/notifications", data);
+  return res.data;
 };
 
-// ==========================
-// DELETE NOTIFICATION
-// ==========================
-export const deleteNotification = async (id) => {
-  const { data } = await apiClient.delete(`/notifications/${id}`);
-
-  return data;
+// Mark one notification as read
+export const markNotificationRead = async (id) => {
+  const res = await apiClient.put(`/notifications/${id}/read`);
+  return res.data;
 };
