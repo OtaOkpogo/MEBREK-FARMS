@@ -6,8 +6,9 @@ import About from "./pages/About";
 import Products from "./pages/Products";
 import Contact from "./pages/Contact";
 import Unauthorized from "./pages/Unauthorized";
-
+import Notifications from "./admin/Notifications";
 import ProtectedRoute from "./routes/ProtectedRoute";
+import EggSales from "./pages/EggSales";
 
 import AdminLayout from "./admin/AdminLayout";
 import Dashboard from "./admin/Dashboard";
@@ -39,7 +40,7 @@ function App() {
         <Route path="/contact" element={<Contact />} />
         <Route path="/login" element={<Login />} />
         <Route path="/unauthorized" element={<Unauthorized />} />
-        ```
+
         {/* ADMIN PANEL */}
         <Route
           path="/admin"
@@ -49,6 +50,16 @@ function App() {
             </ProtectedRoute>
           }
         >
+	  <Route
+  path="notifications"
+  element={
+    <ProtectedRoute
+      allowedRoles={["superadmin", "manager", "staff"]}
+    >
+      <Notifications />
+    </ProtectedRoute>
+  }
+/>
           {/* ALL ROLES */}
           <Route index element={<Dashboard />} />
 
@@ -83,6 +94,15 @@ function App() {
             element={
               <ProtectedRoute allowedRoles={["superadmin", "manager"]}>
                 <Expenses />
+              </ProtectedRoute>
+            }
+          />
+
+          <Route
+            path="egg-sales"
+            element={
+              <ProtectedRoute allowedRoles={["superadmin", "manager"]}>
+                <EggSales />
               </ProtectedRoute>
             }
           />
