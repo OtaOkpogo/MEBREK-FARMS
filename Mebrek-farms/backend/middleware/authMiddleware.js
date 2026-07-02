@@ -22,7 +22,7 @@ module.exports = (req, res, next) => {
 
     console.log("Decoded:", decoded);
 
-    req.admin = decoded;
+    req.user = decoded;
 
     next();
   } catch (err) {
