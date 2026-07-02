@@ -1,4 +1,5 @@
 import { useEffect, useMemo, useState } from "react";
+import InvoiceModal from "../components/InvoiceModal";
 
 import {
   fetchSales,
@@ -30,6 +31,10 @@ export default function EggSales() {
   const [loading, setLoading] = useState(true);
 
   const [search, setSearch] = useState("");
+
+  const [selectedSale, setSelectedSale] = useState(null);
+
+  const [showInvoice, setShowInvoice] = useState(false);
 
   const [statusFilter, setStatusFilter] = useState("All");
 
@@ -189,6 +194,16 @@ export default function EggSales() {
     } catch (err) {
       console.error(err);
     }
+  };
+
+  const openInvoice = (sale) => {
+    setSelectedSale(sale);
+    setShowInvoice(true);
+  };
+
+  const closeInvoice = () => {
+    setShowInvoice(false);
+    setSelectedSale(null);
   };
 
   // ==========================================
@@ -656,6 +671,7 @@ export default function EggSales() {
           </div>
         </form>
       </div>
+
       {/* ================= SALES TABLE ================= */}
 
       <div className="bg-white rounded-xl shadow p-6 mb-10">
@@ -747,19 +763,20 @@ export default function EggSales() {
 
                     <td className="p-3 text-center">{sale.paymentMethod}</td>
 
-                    <td className="p-3">
-                      <div className="flex justify-center gap-2">
-                        <button className="bg-blue-600 hover:bg-blue-700 text-white px-3 py-1 rounded">
-                          View
-                        </button>
+                    <td className="p-3 space-x-2">
+                      <button
+                        onClick={() => openInvoice(sale)}
+                        className="bg-green-600 hover:bg-green-700 text-white px-3 py-1 rounded"
+                      >
+                        Invoice
+                      </button>
 
-                        <button
-                          onClick={() => handleDelete(sale._id)}
-                          className="bg-red-600 hover:bg-red-700 text-white px-3 py-1 rounded"
-                        >
-                          Delete
-                        </button>
-                      </div>
+                      <button
+                        onClick={() => handleDelete(sale._id)}
+                        className="bg-red-600 hover:bg-red-700 text-white px-3 py-1 rounded"
+                      >
+                        Delete
+                      </button>
                     </td>
                   </tr>
                 ))
@@ -816,6 +833,11 @@ export default function EggSales() {
 
         <p className="mt-1">Built for efficient poultry farm sales tracking.</p>
       </div>
+      <InvoiceModal
+        open={showInvoice}
+        sale={selectedSale}
+        onClose={closeInvoice}
+      />
     </div>
   );
 }

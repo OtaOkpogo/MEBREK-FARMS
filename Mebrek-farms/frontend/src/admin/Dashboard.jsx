@@ -1,5 +1,9 @@
 import { useEffect, useState } from "react";
-import { getNotifications } from "../services/notificationService";
+import {
+  getNotifications,
+  markNotificationRead,
+} from "../services/notificationService";
+import NotificationPopup from "../components/NotificationPopup";
 import { getCurrentUser } from "../services/authService";
 import {
   ResponsiveContainer,
@@ -34,6 +38,9 @@ export default function Dashboard() {
   const [error, setError] = useState("");
   const [user, setUser] = useState(null);
   const [notificationShown, setNotificationShown] = useState(false);
+  const [popupVisible, setPopupVisible] = useState(false);
+
+  const [unreadNotifications, setUnreadNotifications] = useState([]);
 
   useEffect(() => {
     loadDashboard();
@@ -80,17 +87,21 @@ export default function Dashboard() {
 
       const notifications = await getNotifications();
 
-      const unread = notifications.filter((n) => !n.read);
+      const unread = (notifications || []).filter((n) => !n.isRead);
 
-      if (unread.length > 0 && !notificationShown) {
-        const latest = unread[0];
-
-        alert(
-          `🔔 New Message\n\nFrom: ${latest.senderName}\nRole: ${latest.senderRole}\n\n${latest.message}`,
-        );
-
-        setNotificationShown(true);
+      if (unread.length > 0) {
+        setUnreadNotifications(unread);
+        setPopupVisible(true);
       }
+    } catch (err) {
+      console.error(err);
+    }
+  };
+  const markRead = async (id) => {
+    try {
+      await markNotificationRead(id);
+
+      setUnreadNotifications((prev) => prev.filter((item) => item._id !== id));
     } catch (err) {
       console.error(err);
     }
@@ -394,6 +405,14 @@ export default function Dashboard() {
           </ResponsiveContainer>
         </div>
       </div>
+
+      {popupVisible && (
+        <NotificationPopup
+          notifications={unreadNotifications}
+          onClose={() => setPopupVisible(false)}
+          onMarkRead={markRead}
+        />
+      )}
     </div>
   );
 }

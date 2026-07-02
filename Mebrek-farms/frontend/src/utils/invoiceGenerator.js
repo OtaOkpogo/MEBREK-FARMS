@@ -1,108 +1,149 @@
 import jsPDF from "jspdf";
 import autoTable from "jspdf-autotable";
+import logo from "../assets/logo.png";
+
+const getBase64Image = (img) => {
+  const canvas = document.createElement("canvas");
+  canvas.width = img.width;
+  canvas.height = img.height;
+
+  const ctx = canvas.getContext("2d");
+  ctx.drawImage(img, 0, 0);
+
+  return canvas.toDataURL("image/png");
+};
 
 export const generateInvoice = (sale) => {
   const doc = new jsPDF();
 
-  // ================= HEADER =================
+  const img = new Image();
+  img.src = logo;
 
-  doc.setFontSize(22);
-  doc.text("MEBREK FARMS", 14, 18);
+  img.onload = () => {
+    const logoBase64 = getBase64Image(img);
 
-  doc.setFontSize(11);
-  doc.text("Egg Production & Livestock", 14, 25);
-  doc.text("Phone: +234 XXX XXX XXXX", 14, 31);
-  doc.text("Email: info@mebrekfarms.com", 14, 37);
+    // ================= LOGO =================
 
-  doc.setFontSize(18);
-  doc.text("INVOICE", 150, 18);
+    doc.addImage(logoBase64, "PNG", 14, 10, 24, 24);
 
-  // ================= CUSTOMER =================
+    // ================= HEADER =================
 
-  doc.setFontSize(11);
+    doc.setFont("helvetica", "bold");
+    doc.setFontSize(22);
+    doc.setTextColor(22, 101, 52);
 
-  doc.text(`Customer: ${sale.customer}`, 14, 55);
+    doc.text("MEBREK FARMS", 45, 18);
 
-  doc.text(
-    `Date: ${new Date(sale.date).toLocaleDateString()}`,
-    14,
-    62
-  );
+    doc.setFont("helvetica", "normal");
+    doc.setFontSize(11);
+    doc.setTextColor(80);
 
-  // ================= TABLE =================
+    doc.text("Poultry Farm Management System", 45, 25);
+    doc.text("Egg Sales Invoice", 45, 31);
 
-  autoTable(doc, {
-    startY: 75,
+    doc.setDrawColor(22, 101, 52);
+    doc.setLineWidth(0.5);
+    doc.line(14, 40, 196, 40);
 
-    head: [[
-      "Item",
-      "Quantity",
-      "Unit Price",
-      "Total"
-    ]],
+    // ================= CUSTOMER =================
 
-    body: [
-      [
-        "Egg Crates",
-        sale.cratesSold,
-        `₦${sale.pricePerCrate}`,
-        `₦${sale.cratesSold * sale.pricePerCrate}`
+    doc.setTextColor(0);
+    doc.setFontSize(11);
+
+    doc.text(`Customer: ${sale.customer || "-"}`, 14, 50);
+    doc.text(
+      `Date: ${sale.date ? new Date(sale.date).toLocaleDateString() : "-"}`,
+      14,
+      57,
+    );
+
+    // ================= CALCULATIONS =================
+
+    const crates = Number(sale.cratesSold || 0);
+    const cratePrice = Number(sale.cratePrice || 0);
+
+    const loose = Number(sale.looseEggs || 0);
+    const eggPrice = Number(sale.eggPrice || 0);
+
+    const transport = Number(sale.transportCharge || 0);
+    const discount = Number(sale.discount || 0);
+
+    const crateTotal = crates * cratePrice;
+    const looseTotal = loose * eggPrice;
+
+    const grandTotal =
+      sale.totalAmount ?? crateTotal + looseTotal + transport - discount;
+
+    // ================= TABLE =================
+
+    autoTable(doc, {
+      startY: 68,
+      head: [["Item", "Quantity", "Unit Price", "Amount"]],
+      body: [
+        [
+          "Egg Crates",
+          crates,
+          `₦${cratePrice.toLocaleString()}`,
+          `₦${crateTotal.toLocaleString()}`,
+        ],
+        [
+          "Loose Eggs",
+          loose,
+          `₦${eggPrice.toLocaleString()}`,
+          `₦${looseTotal.toLocaleString()}`,
+        ],
+        ["Transport", "", "", `₦${transport.toLocaleString()}`],
+        ["Discount", "", "", `- ₦${discount.toLocaleString()}`],
       ],
+      theme: "grid",
+      headStyles: {
+        fillColor: [22, 101, 52],
+        textColor: 255,
+        fontStyle: "bold",
+      },
+      styles: {
+        fontSize: 10,
+        cellPadding: 4,
+      },
+    });
 
-      [
-        "Loose Eggs",
-        sale.looseEggs,
-        `₦${sale.pricePerEgg}`,
-        `₦${sale.looseEggs * sale.pricePerEgg}`
-      ]
-    ]
-  });
+    let y = doc.lastAutoTable.finalY + 15;
 
-  let finalY = doc.lastAutoTable.finalY + 15;
+    doc.setFont("helvetica", "bold");
+    doc.setFontSize(12);
 
-  doc.setFontSize(12);
+    doc.text(`Grand Total: ₦${Number(grandTotal).toLocaleString()}`, 125, y);
 
-  doc.text(
-    `Subtotal: ₦${sale.totalAmount.toLocaleString()}`,
-    140,
-    finalY
-  );
+    y += 8;
+    doc.text(
+      `Amount Paid: ₦${Number(sale.amountPaid || 0).toLocaleString()}`,
+      125,
+      y,
+    );
 
-  finalY += 8;
+    y += 8;
+    doc.text(`Balance: ₦${Number(sale.balance || 0).toLocaleString()}`, 125, y);
 
-  doc.text(
-    `Discount: ₦${sale.discount.toLocaleString()}`,
-    140,
-    finalY
-  );
+    y += 8;
+    doc.text(`Status: ${sale.status || "UNPAID"}`, 125, y);
 
-  finalY += 8;
+    // ================= FOOTER =================
 
-  doc.text(
-    `Paid: ₦${sale.amountPaid.toLocaleString()}`,
-    140,
-    finalY
-  );
+    y += 25;
 
-  finalY += 8;
+    doc.setFont("helvetica", "normal");
+    doc.setFontSize(10);
+    doc.setTextColor(100);
 
-  doc.setFontSize(15);
+    doc.text("Thank you for choosing Mebrek Farms.", 14, y);
+    doc.text("Generated by Mebrek Farm Management System", 14, y + 7);
 
-  doc.text(
-    `Balance: ₦${sale.balance.toLocaleString()}`,
-    140,
-    finalY
-  );
+    // ================= SAVE =================
 
-  finalY += 25;
+    doc.save(`Invoice-${sale.customer || "Customer"}.pdf`);
+  };
 
-  doc.setFontSize(10);
-
-  doc.text(
-    "Thank you for doing business with Mebrek Farms.",
-    14,
-    finalY
-  );
-
-  doc.save(`Invoice-${sale.customer}.pdf`);
+  img.onerror = () => {
+    console.error("Failed to load logo.");
+  };
 };
