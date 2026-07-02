@@ -8,7 +8,7 @@ const {
 
 const protect = require("../middleware/authMiddleware");
 
-// Get all production records
+// Get all production record
 router.get("/", protect, getProductions);
 
 // Create production record

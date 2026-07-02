@@ -8,34 +8,47 @@ const notificationSchema = new mongoose.Schema(
       required: true,
     },
 
-    senderName: {
-      type: String,
-      required: true,
-    },
+    senderName: String,
 
-    senderRole: {
-      type: String,
-      required: true,
-    },
+    senderRole: String,
 
-    subject: {
-      type: String,
-      required: true,
-    },
+    subject: String,
 
-    message: {
-      type: String,
-      required: true,
-    },
+    message: String,
 
     isRead: {
       type: Boolean,
       default: false,
     },
+
+    replies: [
+      {
+        senderId: {
+          type: mongoose.Schema.Types.ObjectId,
+          ref: "Admin",
+        },
+
+        senderName: String,
+
+        senderRole: String,
+
+        message: String,
+
+        isRead: {
+          type: Boolean,
+          default: false,
+        },
+
+        createdAt: {
+          type: Date,
+          default: Date.now,
+        },
+      },
+    ],
   },
   {
     timestamps: true,
-  }
+  },
 );
 
 module.exports = mongoose.model("Notification", notificationSchema);

@@ -6,9 +6,12 @@ const {
   sendNotification,
   getNotifications,
   markAsRead,
+  replyNotification,
 } = require("../controllers/notificationController");
 
 router.post("/", protect, sendNotification);
+
+router.post("/:id/reply", protect, replyNotification);
 
 router.get("/", protect, getNotifications);
 
