@@ -1,14 +1,17 @@
-import { useEffect, useState } from "react";
+import socket from "../services/socket";
+import { useEffect, useState, useRef } from "react";
 import {
   sendNotification,
   getNotifications,
   markNotificationRead,
   replyNotification,
 } from "../services/notificationService";
+import notificationSound from "../assets/notification.mp3";
 
 export default function Notifications() {
   const user = JSON.parse(localStorage.getItem("user") || "{}");
   const role = user?.role;
+  const bottomRef = useRef(null);
 
   const [notifications, setNotifications] = useState([]);
   const [message, setMessage] = useState("");
@@ -16,6 +19,11 @@ export default function Notifications() {
   const [replyingId, setReplyingId] = useState(null);
   const [replyMessages, setReplyMessages] = useState({});
   const [replyLoading, setReplyLoading] = useState(false);
+
+  const playNotificationSound = () => {
+    const audio = new Audio(notificationSound);
+    audio.play();
+  };
 
   const loadNotifications = async () => {
     try {
@@ -39,13 +47,40 @@ export default function Notifications() {
 
   useEffect(() => {
     loadNotifications();
-
-    const interval = setInterval(() => {
-      loadNotifications();
-    }, 5000);
-
-    return () => clearInterval(interval);
   }, []);
+
+  useEffect(() => {
+    socket.on("notificationCreated", () => {
+      loadNotifications();
+
+      if (role === "superadmin") {
+        playNotificationSound();
+      }
+    });
+
+    socket.on("notificationUpdated", (notification) => {
+      loadNotifications();
+
+      if (
+        role !== "superadmin" &&
+        (notification.senderId?.toString() === user.id ||
+          notification.senderId?._id?.toString() === user.id)
+      ) {
+        playNotificationSound();
+        alert("📩 Super Admin replied to your message.");
+      }
+    });
+
+    return () => {
+      socket.off("notificationCreated");
+      socket.off("notificationUpdated");
+    };
+  }, [role, user.id]);
+  useEffect(() => {
+    bottomRef.current?.scrollIntoView({
+      behavior: "smooth",
+    });
+  }, [notifications]);
 
   const handleSend = async (e) => {
     e.preventDefault();
@@ -65,7 +100,6 @@ export default function Notifications() {
       alert("Message sent successfully.");
 
       setMessage("");
-      await loadNotifications();
     } catch (err) {
       console.error(err);
       alert("Failed to send message.");
@@ -78,16 +112,7 @@ export default function Notifications() {
     try {
       await markNotificationRead(id);
 
-      setNotifications((prev) =>
-        prev.map((item) =>
-          item._id === id
-            ? {
-                ...item,
-                isRead: true,
-              }
-            : item,
-        ),
-      );
+      await loadNotifications();
     } catch (err) {
       console.error(err);
     }
@@ -161,7 +186,11 @@ export default function Notifications() {
 
           <div className="space-y-6">
             {notifications
-              .filter((item) => item.senderId === user.id)
+              .filter(
+                (item) =>
+                  item.senderId?.toString() === user.id ||
+                  item.senderId?._id === user.id,
+              )
               .map((item) => (
                 <div key={item._id} className="bg-white rounded-xl shadow p-5">
                   <div className="font-bold text-green-700">You</div>
@@ -220,6 +249,7 @@ export default function Notifications() {
                     : "bg-yellow-100 border-l-8 border-yellow-500"
                 }`}
               >
+                {/* Your existing notification card content remains exactly the same */}
                 <div className="flex justify-between items-start gap-6">
                   <div className="flex-1">
                     <h3 className="font-bold text-lg">{item.senderName}</h3>
@@ -227,7 +257,7 @@ export default function Notifications() {
                     <p className="text-sm text-green-700 font-semibold">
                       {item.senderRole}
                     </p>
-
+                    <div ref={bottomRef}></div>
                     {item.subject && (
                       <p className="font-semibold mt-3">{item.subject}</p>
                     )}

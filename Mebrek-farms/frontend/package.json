@@ -21,7 +21,8 @@
     "react-scroll": "^1.9.3",
     "react-to-print": "^3.3.0",
     "react-twemoji": "^0.7.2",
-    "recharts": "^3.8.1"
+    "recharts": "^3.8.1",
+    "socket.io-client": "^4.8.3"
   },
   "devDependencies": {
     "@eslint/js": "^9.39.1",
