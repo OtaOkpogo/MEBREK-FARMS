@@ -22,6 +22,10 @@ exports.sendNotification = async (req, res) => {
       message: req.body.message,
     });
 
+    const io = req.app.get("io");
+
+    io.emit("notificationCreated", notification);
+
     res.status(201).json(notification);
   } catch (err) {
     console.error(err);
@@ -62,6 +66,10 @@ exports.markAsRead = async (req, res) => {
       },
     );
 
+    const io = req.app.get("io");
+
+    io.emit("notificationUpdated", notification);
+
     res.json(notification);
   } catch (err) {
     res.status(500).json({
@@ -76,6 +84,12 @@ exports.markAsRead = async (req, res) => {
 exports.replyNotification = async (req, res) => {
   try {
     const admin = await Admin.findById(req.user.id);
+
+    if (!admin) {
+      return res.status(404).json({
+        message: "User not found",
+      });
+    }
 
     const notification = await Notification.findById(req.params.id);
 
@@ -92,10 +106,17 @@ exports.replyNotification = async (req, res) => {
       message: req.body.message,
     });
 
+    // Save the updated notification
     await notification.save();
+
+    // Notify all connected clients
+    const io = req.app.get("io");
+    io.emit("notificationUpdated", notification);
 
     res.json(notification);
   } catch (err) {
+    console.error(err);
+
     res.status(500).json({
       message: err.message,
     });
