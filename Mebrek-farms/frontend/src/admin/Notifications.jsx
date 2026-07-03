@@ -85,9 +85,6 @@ export default function Notifications() {
     };
   }, []);
 
-  // Memoized: only produces a new reference when notifications or role
-  // actually change, not on every unrelated render (typing, loading, etc).
-  // This is what stops the sync effect below from looping forever.
   const conversations = useMemo(() => {
     if (role !== "superadmin") return [];
 
@@ -234,7 +231,9 @@ export default function Notifications() {
 
   return (
     <div className="p-6">
-      {(role === "manager" || role === "staff") && (
+      {/* ================= MANAGER ONLY ================= */}
+
+      {role === "manager" && (
         <>
           <div className="bg-white rounded-xl shadow p-6 mb-8">
             <h2 className="text-2xl font-bold text-green-700 mb-4">
@@ -299,6 +298,8 @@ export default function Notifications() {
           </div>
         </>
       )}
+
+      {/* ================= SUPER ADMIN ================= */}
 
       {role === "superadmin" && (
         <>
@@ -448,6 +449,14 @@ export default function Notifications() {
             </div>
           </div>
         </>
+      )}
+
+      {/* ================= STAFF (NO ACCESS) ================= */}
+
+      {role === "staff" && (
+        <div className="bg-white rounded-xl shadow p-6 text-gray-500 text-center">
+          You don't have access to notifications.
+        </div>
       )}
     </div>
   );
