@@ -1,5 +1,5 @@
 import socket from "../services/socket";
-import { useEffect, useState, useRef } from "react";
+import { useEffect, useState, useRef, useMemo } from "react";
 import {
   sendNotification,
   getNotifications,
@@ -12,11 +12,12 @@ export default function Notifications() {
   const user = JSON.parse(localStorage.getItem("user") || "{}");
   const role = user?.role;
   const bottomRef = useRef(null);
+  const markingReadRef = useRef(new Set());
 
   const [notifications, setNotifications] = useState([]);
+  const [selectedConversation, setSelectedConversation] = useState(null);
   const [message, setMessage] = useState("");
   const [loading, setLoading] = useState(false);
-  const [replyingId, setReplyingId] = useState(null);
   const [replyMessages, setReplyMessages] = useState({});
   const [replyLoading, setReplyLoading] = useState(false);
 
@@ -29,18 +30,15 @@ export default function Notifications() {
     try {
       const data = await getNotifications();
 
-      console.log("Notifications API Response:", data);
+      const list = Array.isArray(data)
+        ? data
+        : Array.isArray(data?.notifications)
+          ? data.notifications
+          : [];
 
-      // Always keep notifications as an array
-      if (Array.isArray(data)) {
-        setNotifications(data);
-      } else if (Array.isArray(data?.notifications)) {
-        setNotifications(data.notifications);
-      } else {
-        setNotifications([]);
-      }
+      setNotifications(list);
     } catch (err) {
-      console.error("Load Notifications Error:", err);
+      console.error(err);
       setNotifications([]);
     }
   };
@@ -49,38 +47,121 @@ export default function Notifications() {
     loadNotifications();
   }, []);
 
+  const roleRef = useRef(role);
+  const userIdRef = useRef(user.id);
   useEffect(() => {
-    socket.on("notificationCreated", () => {
+    roleRef.current = role;
+    userIdRef.current = user.id;
+  }, [role, user.id]);
+
+  useEffect(() => {
+    const handleCreated = () => {
       loadNotifications();
 
-      if (role === "superadmin") {
+      if (roleRef.current === "superadmin") {
         playNotificationSound();
       }
-    });
+    };
 
-    socket.on("notificationUpdated", (notification) => {
+    const handleUpdated = (notification) => {
       loadNotifications();
 
       if (
-        role !== "superadmin" &&
-        (notification.senderId?.toString() === user.id ||
-          notification.senderId?._id?.toString() === user.id)
+        roleRef.current !== "superadmin" &&
+        (notification.senderId?.toString() === userIdRef.current ||
+          notification.senderId?._id?.toString() === userIdRef.current)
       ) {
         playNotificationSound();
-        alert("📩 Super Admin replied to your message.");
+        alert("Super Admin replied to your message.");
       }
-    });
+    };
+
+    socket.on("notificationCreated", handleCreated);
+    socket.on("notificationUpdated", handleUpdated);
 
     return () => {
-      socket.off("notificationCreated");
-      socket.off("notificationUpdated");
+      socket.off("notificationCreated", handleCreated);
+      socket.off("notificationUpdated", handleUpdated);
     };
-  }, [role, user.id]);
+  }, []);
+
+  // Memoized: only produces a new reference when notifications or role
+  // actually change, not on every unrelated render (typing, loading, etc).
+  // This is what stops the sync effect below from looping forever.
+  const conversations = useMemo(() => {
+    if (role !== "superadmin") return [];
+
+    return Object.values(
+      notifications.reduce((acc, notification) => {
+        const id =
+          notification.senderId?._id ||
+          notification.senderId?.toString() ||
+          notification.senderId;
+
+        if (!acc[id]) {
+          acc[id] = {
+            id,
+            senderName: notification.senderName,
+            senderRole: notification.senderRole,
+            messages: [],
+            unread: 0,
+            latest: notification.createdAt,
+          };
+        }
+
+        acc[id].messages.push(notification);
+
+        if (!notification.isRead) {
+          acc[id].unread++;
+        }
+
+        if (new Date(notification.createdAt) > new Date(acc[id].latest)) {
+          acc[id].latest = notification.createdAt;
+        }
+
+        return acc;
+      }, {}),
+    ).sort((a, b) => new Date(b.latest) - new Date(a.latest));
+  }, [notifications, role]);
+
+  useEffect(() => {
+    if (role !== "superadmin") return;
+
+    if (!selectedConversation && conversations.length > 0) {
+      setSelectedConversation(conversations[0]);
+      return;
+    }
+
+    if (selectedConversation) {
+      const updated = conversations.find(
+        (c) => c.id === selectedConversation.id,
+      );
+
+      if (updated) {
+        setSelectedConversation(updated);
+      }
+    }
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [conversations, role]);
+
+  useEffect(() => {
+    if (!selectedConversation) return;
+
+    selectedConversation.messages.forEach((msg) => {
+      if (!msg.isRead && !markingReadRef.current.has(msg._id)) {
+        markingReadRef.current.add(msg._id);
+        handleRead(msg._id).finally(() => {
+          markingReadRef.current.delete(msg._id);
+        });
+      }
+    });
+  }, [selectedConversation]);
+
   useEffect(() => {
     bottomRef.current?.scrollIntoView({
       behavior: "smooth",
     });
-  }, [notifications]);
+  }, [selectedConversation, notifications]);
 
   const handleSend = async (e) => {
     e.preventDefault();
@@ -98,7 +179,6 @@ export default function Notifications() {
       });
 
       alert("Message sent successfully.");
-
       setMessage("");
     } catch (err) {
       console.error(err);
@@ -111,39 +191,37 @@ export default function Notifications() {
   const handleRead = async (id) => {
     try {
       await markNotificationRead(id);
-
       await loadNotifications();
     } catch (err) {
       console.error(err);
     }
   };
 
-  const handleReplyChange = (id, value) => {
+  const handleReplyChange = (conversationId, value) => {
     setReplyMessages((prev) => ({
       ...prev,
-      [id]: value,
+      [conversationId]: value,
     }));
   };
-  const handleReply = async (id) => {
-    const message = replyMessages[id];
 
-    if (!message || !message.trim()) {
+  const handleReply = async (conversationId, targetNotificationId) => {
+    const replyText = replyMessages[conversationId];
+
+    if (!replyText || !replyText.trim()) {
       return alert("Enter a reply.");
     }
 
     try {
       setReplyLoading(true);
 
-      await replyNotification(id, {
-        message,
-      });
+      await replyNotification(targetNotificationId, { message: replyText });
+
+      await loadNotifications();
 
       setReplyMessages((prev) => ({
         ...prev,
-        [id]: "",
+        [conversationId]: "",
       }));
-
-      await loadNotifications();
 
       alert("Reply sent successfully.");
     } catch (err) {
@@ -156,8 +234,6 @@ export default function Notifications() {
 
   return (
     <div className="p-6">
-      {/* ================= MANAGER / STAFF ================= */}
-
       {(role === "manager" || role === "staff") && (
         <>
           <div className="bg-white rounded-xl shadow p-6 mb-8">
@@ -194,9 +270,7 @@ export default function Notifications() {
               .map((item) => (
                 <div key={item._id} className="bg-white rounded-xl shadow p-5">
                   <div className="font-bold text-green-700">You</div>
-
                   <div className="mt-3">{item.message}</div>
-
                   <small className="text-gray-500">
                     {new Date(item.createdAt).toLocaleString()}
                   </small>
@@ -209,13 +283,10 @@ export default function Notifications() {
                           className="ml-8 bg-green-50 border-l-4 border-green-700 p-3 rounded"
                         >
                           <div className="font-bold">{reply.senderName}</div>
-
                           <div className="text-sm text-gray-500">
                             {reply.senderRole}
                           </div>
-
                           <div className="mt-2">{reply.message}</div>
-
                           <small className="text-gray-400">
                             {new Date(reply.createdAt).toLocaleString()}
                           </small>
@@ -229,112 +300,153 @@ export default function Notifications() {
         </>
       )}
 
-      {/* ================= SUPER ADMIN ================= */}
-
       {role === "superadmin" && (
         <>
-          <h2 className="text-3xl font-bold mb-6">Notifications</h2>
+          <div className="grid grid-cols-12 gap-6 h-[80vh]">
+            {/* LEFT PANEL */}
 
-          {notifications.length === 0 ? (
-            <div className="bg-white rounded-xl p-6 shadow text-gray-500">
-              No notifications found.
+            <div className="col-span-4 bg-white rounded-xl shadow overflow-y-auto">
+              <div className="p-5 border-b">
+                <h2 className="text-2xl font-bold">Inbox</h2>
+              </div>
+
+              {conversations.length === 0 ? (
+                <div className="p-6 text-gray-500 text-center">
+                  No conversations yet.
+                </div>
+              ) : (
+                conversations.map((conversation) => (
+                  <div
+                    key={conversation.id}
+                    onClick={() => setSelectedConversation(conversation)}
+                    className={`cursor-pointer p-5 border-b transition
+                      ${conversation.unread > 0 ? "bg-yellow-50" : "bg-white"}
+                      hover:bg-gray-100
+                      ${
+                        selectedConversation?.id === conversation.id
+                          ? " bg-green-100"
+                          : ""
+                      }`}
+                  >
+                    <div className="flex justify-between">
+                      <div>
+                        <div className="font-bold">
+                          {conversation.senderName}
+                        </div>
+
+                        <>
+                          <div className="text-sm text-gray-500">
+                            {conversation.senderRole}
+                          </div>
+
+                          <div className="text-sm text-gray-400 truncate mt-1">
+                            {
+                              conversation.messages[
+                                conversation.messages.length - 1
+                              ]?.message
+                            }
+                          </div>
+                        </>
+                      </div>
+
+                      {conversation.unread > 0 && (
+                        <div className="bg-red-600 text-white rounded-full w-7 h-7 flex items-center justify-center text-sm">
+                          {conversation.unread}
+                        </div>
+                      )}
+                    </div>
+                  </div>
+                ))
+              )}
             </div>
-          ) : (
-            notifications.map((item) => (
-              <div
-                key={item._id}
-                className={`rounded-xl shadow p-5 mb-4 transition ${
-                  item.isRead
-                    ? "bg-gray-100"
-                    : "bg-yellow-100 border-l-8 border-yellow-500"
-                }`}
-              >
-                {/* Your existing notification card content remains exactly the same */}
-                <div className="flex justify-between items-start gap-6">
-                  <div className="flex-1">
-                    <h3 className="font-bold text-lg">{item.senderName}</h3>
 
-                    <p className="text-sm text-green-700 font-semibold">
-                      {item.senderRole}
-                    </p>
-                    <div ref={bottomRef}></div>
-                    {item.subject && (
-                      <p className="font-semibold mt-3">{item.subject}</p>
-                    )}
+            {/* RIGHT PANEL */}
 
-                    <p className="mt-2 text-gray-700">{item.message}</p>
+            <div className="col-span-8 bg-white rounded-xl shadow flex flex-col">
+              {!selectedConversation ? (
+                <div className="flex-1 flex items-center justify-center text-gray-400 text-xl">
+                  Select a conversation
+                </div>
+              ) : (
+                <>
+                  <div className="border-b p-5">
+                    <div className="text-xl font-bold">
+                      {selectedConversation.senderName}
+                    </div>
 
-                    <small className="text-gray-500">
-                      {new Date(item.createdAt).toLocaleString()}
-                    </small>
-                    {/* Replies */}
+                    <div className="text-gray-500">
+                      {selectedConversation.senderRole}
+                    </div>
+                  </div>
 
-                    {item.replies?.length > 0 && (
-                      <div className="mt-4 space-y-2">
-                        {item.replies.map((reply) => (
+                  <div className="flex-1 overflow-y-auto p-6 space-y-5">
+                    {selectedConversation.messages.map((item) => (
+                      <div key={item._id}>
+                        <div className="bg-gray-100 rounded-xl p-4">
+                          <div className="font-bold">{item.senderName}</div>
+
+                          <div className="mt-2">{item.message}</div>
+
+                          <small className="text-gray-500">
+                            {new Date(item.createdAt).toLocaleString()}
+                          </small>
+                        </div>
+
+                        {item.replies?.map((reply) => (
                           <div
                             key={reply._id}
-                            className="bg-green-50 border-l-4 border-green-600 rounded p-3"
+                            className="ml-10 mt-3 bg-green-100 rounded-xl p-4"
                           >
-                            <div className="font-semibold">
-                              {reply.senderName}
-                            </div>
-
-                            <div className="text-sm text-gray-500">
-                              {reply.senderRole}
-                            </div>
+                            <div className="font-bold">{reply.senderName}</div>
 
                             <div className="mt-2">{reply.message}</div>
 
-                            <small className="text-gray-400">
+                            <small className="text-gray-500">
                               {new Date(reply.createdAt).toLocaleString()}
                             </small>
                           </div>
                         ))}
                       </div>
-                    )}
-                  </div>
+                    ))}
 
-                  <button
-                    onClick={() =>
-                      setReplyingId(replyingId === item._id ? null : item._id)
-                    }
-                    className="bg-blue-600 text-white px-4 py-2 rounded-lg hover:bg-blue-700"
-                  >
-                    Reply
-                  </button>
-                  {replyingId === item._id && (
-                    <div className="mt-4">
+                    <div ref={bottomRef} />
+
+                    <div className="border-t pt-5 mt-4">
                       <textarea
                         rows={3}
-                        value={replyMessages[item._id] || ""}
+                        value={replyMessages[selectedConversation.id] || ""}
                         onChange={(e) =>
-                          handleReplyChange(item._id, e.target.value)
+                          handleReplyChange(
+                            selectedConversation.id,
+                            e.target.value,
+                          )
                         }
-                        placeholder="Write your reply..."
-                        className="w-full border rounded-lg p-3"
+                        placeholder="Type your reply..."
+                        className="w-full border rounded-lg p-3 resize-none focus:outline-none focus:ring-2 focus:ring-green-600"
                       />
 
-                      <button
-                        onClick={() => handleReply(item._id)}
-                        className="mt-3 bg-green-700 text-white px-5 py-2 rounded-lg"
-                      >
-                        Send Reply
-                      </button>
+                      <div className="flex justify-end mt-3">
+                        <button
+                          disabled={replyLoading}
+                          onClick={() =>
+                            handleReply(
+                              selectedConversation.id,
+                              selectedConversation.messages[
+                                selectedConversation.messages.length - 1
+                              ]._id,
+                            )
+                          }
+                          className="bg-green-700 text-white px-6 py-2 rounded-lg hover:bg-green-800 disabled:opacity-50"
+                        >
+                          {replyLoading ? "Sending..." : "Send Reply"}
+                        </button>
+                      </div>
                     </div>
-                  )}
-                  {!item.isRead && (
-                    <button
-                      onClick={() => handleRead(item._id)}
-                      className="bg-green-700 text-white px-4 py-2 rounded-lg hover:bg-green-800"
-                    >
-                      Mark Read
-                    </button>
-                  )}
-                </div>
-              </div>
-            ))
-          )}
+                  </div>
+                </>
+              )}
+            </div>
+          </div>
         </>
       )}
     </div>
