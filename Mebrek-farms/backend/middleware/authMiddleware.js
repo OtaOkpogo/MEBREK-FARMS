@@ -1,12 +1,8 @@
 const jwt = require("jsonwebtoken");
 
-module.exports = (req, res, next) => {
+const protect = (req, res, next) => {
   try {
-    console.log("==== AUTH CHECK ====");
-
     const authHeader = req.headers.authorization;
-
-    console.log("Authorization:", authHeader);
 
     if (!authHeader) {
       return res.status(401).json({
@@ -16,20 +12,33 @@ module.exports = (req, res, next) => {
 
     const token = authHeader.split(" ")[1];
 
-    console.log("Token:", token);
+    if (!token) {
+      return res.status(401).json({
+        message: "Malformed authorization header",
+      });
+    }
 
     const decoded = jwt.verify(token, process.env.JWT_SECRET);
-
-    console.log("Decoded:", decoded);
 
     req.user = decoded;
 
     next();
   } catch (err) {
-    console.log("JWT ERROR:", err);
-
-    return res.status(400).json({
+    return res.status(401).json({
       message: err.message,
     });
   }
 };
+
+const allowRoles = (...roles) => {
+  return (req, res, next) => {
+    if (!req.user || !roles.includes(req.user.role)) {
+      return res.status(403).json({
+        message: "You do not have permission to perform this action",
+      });
+    }
+    next();
+  };
+};
+
+module.exports = { protect, allowRoles };

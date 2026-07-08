@@ -6,7 +6,7 @@ const {
   deleteProduction,
 } = require("../controllers/productionController");
 
-const protect = require("../middleware/authMiddleware");
+const { protect } = require("../middleware/authMiddleware");
 
 // Get all production record
 router.get("/", protect, getProductions);

@@ -1,6 +1,6 @@
 const router = require("express").Router();
 
-const protect = require("../middleware/authMiddleware");
+const { protect } = require("../middleware/authMiddleware");
 
 const {
   createFeed,
@@ -8,7 +8,6 @@ const {
   updateFeed,
   deleteFeed,
 } = require("../controllers/feedController");
-
 
 // CREATE
 router.post("/", protect, createFeed);

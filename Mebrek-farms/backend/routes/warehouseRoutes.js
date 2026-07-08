@@ -2,42 +2,21 @@ const express = require("express");
 
 const router = express.Router();
 
-const auth = require(
-  "../middleware/authMiddleware"
-);
+const { protect } = require("../middleware/authMiddleware");
 
 const {
   getWarehouseItems,
   createWarehouseItem,
   updateWarehouseItem,
   deleteWarehouseItem,
-} = require(
-  "../controllers/warehouseController"
-);
+} = require("../controllers/warehouseController");
 
+router.get("/", protect, getWarehouseItems);
 
-router.get(
-  "/",
-  auth,
-  getWarehouseItems
-);
+router.post("/", protect, createWarehouseItem);
 
-router.post(
-  "/",
-  auth,
-  createWarehouseItem
-);
+router.put("/:id", protect, updateWarehouseItem);
 
-router.put(
-  "/:id",
-  auth,
-  updateWarehouseItem
-);
-
-router.delete(
-  "/:id",
-  auth,
-  deleteWarehouseItem
-);
+router.delete("/:id", protect, deleteWarehouseItem);
 
 module.exports = router;

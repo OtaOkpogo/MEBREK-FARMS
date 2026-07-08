@@ -6,39 +6,20 @@ const {
   getAttendance,
   createAttendance,
   deleteAttendance,
-} = require(
-  "../controllers/attendanceController"
-);
+} = require("../controllers/attendanceController");
 
-const authMiddleware = require(
-  "../middleware/authMiddleware"
-);
-
+const { protect: authMiddleware } = require("../middleware/authMiddleware");
 
 // GET ALL
 
-router.get(
-  "/",
-  authMiddleware,
-  getAttendance
-);
-
+router.get("/", authMiddleware, getAttendance);
 
 // CREATE
 
-router.post(
-  "/",
-  authMiddleware,
-  createAttendance
-);
-
+router.post("/", authMiddleware, createAttendance);
 
 // DELETE
 
-router.delete(
-  "/:id",
-  authMiddleware,
-  deleteAttendance
-);
+router.delete("/:id", authMiddleware, deleteAttendance);
 
 module.exports = router;

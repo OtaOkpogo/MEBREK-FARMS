@@ -119,7 +119,7 @@ exports.loginAdmin = async (req, res) => {
 
 exports.getMe = async (req, res) => {
   try {
-    const admin = await Admin.findById(req.admin.id).select("-password");
+    const admin = await Admin.findById(req.user.id).select("-password");
 
     if (!admin) {
       return res.status(404).json({

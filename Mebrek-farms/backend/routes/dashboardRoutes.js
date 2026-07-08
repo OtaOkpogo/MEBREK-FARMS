@@ -1,26 +1,35 @@
 const express = require("express");
 const router = express.Router();
 
-const auth = require("../middleware/authMiddleware");
+const { protect: auth } = require("../middleware/authMiddleware");
 
 const Order = require("../models/Order");
 const Worker = require("../models/Worker");
 const Production = require("../models/Production");
 const Feed = require("../models/Feed");
 const Attendance = require("../models/Attendance");
+const RoomInventory = require("../models/RoomInventory");
 const Mortality = require("../models/Mortality");
 
 router.get("/", auth, async (req, res) => {
   try {
-    const [orders, workers, production, feeds, attendance, mortality] =
-      await Promise.all([
-        Order.find(),
-        Worker.find(),
-        Production.find(),
-        Feed.find(),
-        Attendance.find(),
-        Mortality.find(),
-      ]);
+    const [
+      orders,
+      workers,
+      production,
+      feeds,
+      attendance,
+      mortality,
+      roomInventory,
+    ] = await Promise.all([
+      Order.find(),
+      Worker.find(),
+      Production.find(),
+      Feed.find(),
+      Attendance.find(),
+      Mortality.find(),
+      RoomInventory.find(),
+    ]);
 
     res.json({
       orders,
@@ -29,6 +38,7 @@ router.get("/", auth, async (req, res) => {
       feeds,
       attendance,
       mortality,
+      roomInventory,
     });
   } catch (err) {
     console.error("Dashboard Error:", err);
