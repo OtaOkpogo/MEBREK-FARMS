@@ -1,103 +1,133 @@
 import { useEffect, useState } from "react";
-
 import {
   getRooms,
   addItem,
   updateItem,
   deleteItem,
-  transferItem,
-  submitRoomAudit,
-  getRoomReport,
-  uploadItemPhoto,
-  deleteItemPhoto,
 } from "../services/roomInventoryService";
 
-const CONDITIONS = ["excellent", "good", "fair", "poor", "damaged"];
-const STATUSES = ["in_use", "in_storage", "missing", "transferred"];
+const CONDITIONS = ["Excellent", "Good", "Fair", "Damaged", "Needs Repair"];
+
+const ROOM_TYPES = [
+  "Staff Quarters",
+  "Manager Residence",
+  "Guest House",
+  "Office",
+  "Store",
+  "Security Post",
+  "Other",
+];
+
+const CATEGORIES = [
+  "Furniture",
+  "Electronics",
+  "Appliances",
+  "Kitchen",
+  "Cleaning",
+  "Bedding",
+  "Tools",
+  "Other",
+];
+
+// ===================== HELPERS =====================
+
+function Badge({ children, color }) {
+  const colors = {
+    green: "bg-green-100 text-green-700",
+    blue: "bg-blue-100 text-blue-700",
+    yellow: "bg-yellow-100 text-yellow-700",
+    red: "bg-red-100 text-red-700",
+    gray: "bg-gray-100 text-gray-700",
+  };
+
+  return (
+    <span
+      className={`px-2 py-1 rounded-full text-xs font-semibold ${
+        colors[color] || colors.gray
+      }`}
+    >
+      {children}
+    </span>
+  );
+}
+
+function StatCard({ title, value, icon }) {
+  return (
+    <div className="bg-white rounded-xl shadow border p-5">
+      <div className="flex items-center justify-between">
+        <div>
+          <p className="text-gray-500 text-sm">{title}</p>
+
+          <h2 className="text-3xl font-bold mt-2">{value}</h2>
+        </div>
+
+        <div className="text-4xl">{icon}</div>
+      </div>
+    </div>
+  );
+}
 
 export default function RoomInventory() {
   const [rooms, setRooms] = useState([]);
   const [selectedRoom, setSelectedRoom] = useState(null);
+
   const [loading, setLoading] = useState(true);
-  const [error, setError] = useState(null);
+  const [error, setError] = useState("");
 
-  const [itemModalOpen, setItemModalOpen] = useState(false);
+  const [modalOpen, setModalOpen] = useState(false);
   const [editingItem, setEditingItem] = useState(null);
-  const [itemForm, setItemForm] = useState({
-    name: "",
-    category: "",
-    condition: "good",
-    status: "in_use",
+
+  const [form, setForm] = useState({
+    roomName: "",
+    roomType: "Staff Quarters",
+    itemName: "",
+    category: "Furniture",
     quantity: 1,
-  });
-  const [photoUploading, setPhotoUploading] = useState(false);
-
-  const [transferModalOpen, setTransferModalOpen] = useState(false);
-  const [transferTarget, setTransferTarget] = useState(null);
-  const [transferForm, setTransferForm] = useState({
-    toRoomId: "",
-    reason: "",
+    condition: "Good",
+    serialNumber: "",
+    purchaseDate: "",
+    purchaseValue: "",
+    remarks: "",
   });
 
-  const [auditModalOpen, setAuditModalOpen] = useState(false);
-  const [auditForm, setAuditForm] = useState({ score: "", notes: "" });
+  // =========================
+  // LOAD ROOMS
+  // =========================
 
   const loadRooms = async () => {
-    setLoading(true);
     try {
-      // Your backend returns a flat array of inventory items
+      setLoading(true);
+
       const items = await getRooms();
 
-      // Group items into rooms
-      const groupedRooms = [];
+      const grouped = {};
 
-      items.forEach((item) => {
-        let room = groupedRooms.find((r) => r.name === item.roomName);
-
-        if (!room) {
-          room = {
-            _id: item.roomName,
+      (Array.isArray(items) ? items : []).forEach((item) => {
+        if (!grouped[item.roomName]) {
+          grouped[item.roomName] = {
             name: item.roomName,
-            type: item.roomType || "Room",
+            type: item.roomType,
             items: [],
           };
-
-          groupedRooms.push(room);
         }
 
-        room.items.push({
-          _id: item._id,
-          name: item.itemName,
-          category: item.category,
-          quantity: item.quantity,
-          condition: item.condition,
-          status: item.status,
-          serialNumber: item.serialNumber,
-          purchaseDate: item.purchaseDate,
-          purchaseValue: item.purchaseValue,
-          remarks: item.remarks,
-          assignedTo: item.assignedTo,
-          history: item.history || [],
-          photos: item.photos || [],
-        });
+        grouped[item.roomName].items.push(item);
       });
 
-      setRooms(groupedRooms);
+      const roomArray = Object.values(grouped);
 
-      if (groupedRooms.length > 0) {
-        setSelectedRoom((prev) => {
-          if (!prev) return groupedRooms[0];
+      setRooms(roomArray);
 
-          return (
-            groupedRooms.find((r) => r._id === prev._id) || groupedRooms[0]
-          );
-        });
+      if (roomArray.length > 0) {
+        setSelectedRoom(roomArray[0]);
       } else {
         setSelectedRoom(null);
       }
+
+      setError("");
     } catch (err) {
       console.error(err);
-      setError("Couldn't load rooms. Try refreshing the page.");
+      setError("Failed to load room inventory.");
     } finally {
       setLoading(false);
     }
@@ -107,602 +137,566 @@ export default function RoomInventory() {
     loadRooms();
   }, []);
 
-  // Keep the modal's editingItem in sync after a reload (e.g. after photo upload)
-  useEffect(() => {
-    if (editingItem && selectedRoom) {
-      const fresh = (selectedRoom.items || []).find(
-        (i) => i._id === editingItem._id,
-      );
-      if (fresh) setEditingItem(fresh);
-    }
-    // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [selectedRoom]);
+  // =========================
+  // ADD ITEM
+  // =========================
 
-  // ---------- Item handlers ----------
-
-  const openAddItem = () => {
+  const openAddModal = () => {
     setEditingItem(null);
-    setItemForm({
-      name: "",
-      category: "",
-      condition: "good",
-      status: "in_use",
+
+    setForm({
+      roomName: selectedRoom?.name || "",
+      roomType: selectedRoom?.type || "Staff Quarters",
+      itemName: "",
+      category: "Furniture",
       quantity: 1,
+      condition: "Good",
+      serialNumber: "",
+      purchaseDate: "",
+      purchaseValue: "",
+      remarks: "",
     });
-    setItemModalOpen(true);
+
+    setModalOpen(true);
   };
 
-  const openEditItem = (item) => {
+  // =========================
+  // EDIT ITEM
+  // =========================
+
+  const openEditModal = (item) => {
     setEditingItem(item);
-    setItemForm({
-      name: item.name,
-      category: item.category || "",
+
+    setForm({
+      roomName: item.roomName,
+      roomType: item.roomType,
+      itemName: item.itemName,
+      category: item.category,
+      quantity: item.quantity,
       condition: item.condition,
-      status: item.status,
-      quantity: item.quantity ?? 1,
+      serialNumber: item.serialNumber || "",
+      purchaseDate: item.purchaseDate ? item.purchaseDate.substring(0, 10) : "",
+      purchaseValue: item.purchaseValue || "",
+      remarks: item.remarks || "",
     });
-    setItemModalOpen(true);
+
+    setModalOpen(true);
   };
 
-  const handleItemSubmit = async (e) => {
+  // =========================
+  // SAVE ITEM
+  // =========================
+
+  const handleSubmit = async (e) => {
     e.preventDefault();
-    if (!selectedRoom) return;
 
     try {
       if (editingItem) {
-        await updateItem(selectedRoom._id, editingItem._id, itemForm);
+        await updateItem(editingItem._id, form);
       } else {
-        await addItem(selectedRoom._id, itemForm);
+        await addItem(form);
       }
-      setItemModalOpen(false);
+
+      setModalOpen(false);
+
       await loadRooms();
     } catch (err) {
       console.error(err);
-      setError("Couldn't save the item. Check the details and try again.");
+      alert(err.response?.data?.message || "Unable to save item.");
     }
   };
 
-  const handleDeleteItem = async (itemId) => {
-    if (!selectedRoom) return;
-    if (!window.confirm("Remove this item from the room?")) return;
+  // =========================
+  // DELETE ITEM
+  // =========================
+
+  const handleDelete = async (id) => {
+    if (!window.confirm("Delete this item?")) return;
 
     try {
-      await deleteItem(selectedRoom._id, itemId);
+      await deleteItem(id);
+
       await loadRooms();
     } catch (err) {
       console.error(err);
-      setError("Couldn't delete the item.");
+      alert(err.response?.data?.message || "Unable to delete item.");
     }
   };
 
-  // ---------- Photo handlers ----------
+  // =========================
+  // SUMMARY STATS
+  // (moved inside the component so they can read `rooms` state)
+  // =========================
 
-  const handlePhotoSelect = async (e) => {
-    const file = e.target.files?.[0];
-    e.target.value = ""; // allow re-selecting the same file later
-    if (!file || !selectedRoom || !editingItem) return;
+  const totalRooms = rooms.length;
 
-    setPhotoUploading(true);
-    try {
-      await uploadItemPhoto(selectedRoom._id, editingItem._id, file);
-      await loadRooms();
-    } catch (err) {
-      console.error(err);
-      setError(
-        "Couldn't upload the photo. Try a smaller image or a different format.",
-      );
-    } finally {
-      setPhotoUploading(false);
-    }
-  };
+  const totalItems = rooms.reduce((sum, room) => sum + room.items.length, 0);
 
-  const handleDeletePhoto = async (photoId) => {
-    if (!selectedRoom || !editingItem) return;
-    if (!window.confirm("Remove this photo?")) return;
-
-    try {
-      await deleteItemPhoto(selectedRoom._id, editingItem._id, photoId);
-      await loadRooms();
-    } catch (err) {
-      console.error(err);
-      setError("Couldn't delete the photo.");
-    }
-  };
-
-  // ---------- Transfer handlers ----------
-
-  const openTransfer = (item) => {
-    setTransferTarget(item);
-    setTransferForm({ toRoomId: "", reason: "" });
-    setTransferModalOpen(true);
-  };
-
-  const handleTransferSubmit = async (e) => {
-    e.preventDefault();
-    if (!selectedRoom || !transferTarget) return;
-
-    try {
-      await transferItem(transferTarget._id, {
-        fromRoomId: selectedRoom._id,
-        toRoomId: transferForm.toRoomId,
-        reason: transferForm.reason,
-      });
-      setTransferModalOpen(false);
-      await loadRooms();
-    } catch (err) {
-      console.error(err);
-      setError("Couldn't transfer the item.");
-    }
-  };
-
-  // ---------- Audit handlers ----------
-
-  const handleAuditSubmit = async (e) => {
-    e.preventDefault();
-    if (!selectedRoom) return;
-
-    try {
-      await submitRoomAudit(selectedRoom._id, {
-        score: Number(auditForm.score),
-        notes: auditForm.notes,
-      });
-      setAuditModalOpen(false);
-      setAuditForm({ score: "", notes: "" });
-      await loadRooms();
-    } catch (err) {
-      console.error(err);
-      setError("Couldn't submit the audit.");
-    }
-  };
-
-  // ---------- Report ----------
-
-  const handlePrintReport = async () => {
-    if (!selectedRoom) return;
-    try {
-      const blob = await getRoomReport(selectedRoom._id);
-      const url = URL.createObjectURL(blob);
-      window.open(url, "_blank");
-    } catch (err) {
-      console.error(err);
-      setError("Couldn't generate the report.");
-    }
-  };
+  const totalValue = rooms.reduce(
+    (sum, room) =>
+      sum +
+      room.items.reduce(
+        (itemTotal, item) => itemTotal + Number(item.purchaseValue || 0),
+        0,
+      ),
+    0,
+  );
 
   if (loading) {
-    return <div className="p-6 text-gray-500">Loading rooms...</div>;
+    return <div className="p-6 text-gray-500">Loading inventory...</div>;
   }
 
   return (
-    <div className="p-6 flex flex-col gap-4">
-      <div className="flex items-center justify-between">
-        <h1 className="text-2xl font-semibold text-gray-800">Room Inventory</h1>
-        {selectedRoom && (
-          <div className="flex gap-2">
-            <button
-              onClick={() => setAuditModalOpen(true)}
-              className="px-3 py-2 rounded-lg border border-gray-300 text-sm text-gray-700 hover:bg-gray-50"
-            >
-              Log audit
-            </button>
-            <button
-              onClick={handlePrintReport}
-              className="px-3 py-2 rounded-lg border border-gray-300 text-sm text-gray-700 hover:bg-gray-50"
-            >
-              Print report
-            </button>
-          </div>
-        )}
+    <div className="p-6">
+      <div className="flex items-center justify-between mb-6">
+        <div>
+          <h1 className="text-3xl font-bold text-gray-800">Room Inventory</h1>
+
+          <p className="text-gray-500">Manage all room assets.</p>
+        </div>
+
+        <button
+          onClick={openAddModal}
+          className="bg-emerald-600 text-white px-5 py-2 rounded-lg hover:bg-emerald-700"
+        >
+          + Add Item
+        </button>
       </div>
 
       {error && (
-        <div className="px-4 py-2 bg-red-50 border border-red-200 text-red-700 rounded-lg text-sm flex justify-between">
-          <span>{error}</span>
-          <button onClick={() => setError(null)} className="font-medium">
-            Dismiss
-          </button>
-        </div>
+        <div className="mb-4 bg-red-100 text-red-700 p-3 rounded">{error}</div>
       )}
 
-      <div className="grid grid-cols-1 md:grid-cols-4 gap-4">
-        {/* Room list */}
-        <div className="md:col-span-1 bg-white border border-gray-200 rounded-xl overflow-hidden">
-          <div className="px-4 py-3 border-b border-gray-100 text-sm font-medium text-gray-500">
-            Rooms ({rooms.length})
+      {/* ================= SUMMARY STATS ================= */}
+
+      <div className="grid grid-cols-1 md:grid-cols-3 gap-5 mb-6">
+        <StatCard title="Rooms" value={totalRooms} icon="🏠" />
+
+        <StatCard title="Inventory Items" value={totalItems} icon="📦" />
+
+        <StatCard
+          title="Inventory Value"
+          value={`₦${totalValue.toLocaleString()}`}
+          icon="💰"
+        />
+      </div>
+
+      <div className="grid grid-cols-12 gap-6">
+        {/* ================= ROOMS ================= */}
+
+        <div className="col-span-12 md:col-span-3 bg-white rounded-xl shadow border">
+          <div className="p-4 border-b">
+            <h2 className="font-semibold text-gray-700">Rooms</h2>
           </div>
-          <ul className="divide-y divide-gray-100 max-h-[70vh] overflow-y-auto">
-            {rooms.map((room) => (
-              <li key={room._id}>
+
+          <div className="divide-y max-h-[650px] overflow-y-auto">
+            {rooms.length === 0 ? (
+              <div className="p-6 text-center text-gray-400">
+                No rooms found.
+              </div>
+            ) : (
+              rooms.map((room) => (
                 <button
+                  key={room.name}
                   onClick={() => setSelectedRoom(room)}
-                  className={`w-full text-left px-4 py-3 text-sm transition ${
-                    selectedRoom?._id === room._id
-                      ? "bg-emerald-50 text-emerald-700 font-medium"
-                      : "hover:bg-gray-50 text-gray-700"
-                  }`}
+                  className={`w-full text-left p-4 transition
+
+                    ${
+                      selectedRoom?.name === room.name
+                        ? "bg-emerald-50 border-l-4 border-emerald-600"
+                        : "hover:bg-gray-50"
+                    }
+
+                  `}
                 >
-                  <div>{room.name}</div>
-                  <div className="text-xs text-gray-400">
-                    {room.type} · {room.items?.length || 0} items
-                  </div>
+                  <h3 className="font-semibold text-gray-800">{room.name}</h3>
+
+                  <p className="text-xs text-gray-500">{room.type}</p>
+
+                  <p className="text-xs text-gray-400 mt-1">
+                    {room.items.length} item(s)
+                  </p>
                 </button>
-              </li>
-            ))}
-            {rooms.length === 0 && (
-              <li className="px-4 py-6 text-sm text-gray-400 text-center">
-                No rooms yet.
-              </li>
+              ))
             )}
-          </ul>
+          </div>
         </div>
 
-        {/* Room detail */}
-        <div className="md:col-span-3 bg-white border border-gray-200 rounded-xl">
+        {/* ================= ITEMS ================= */}
+
+        <div className="col-span-12 md:col-span-9 bg-white rounded-xl shadow border">
           {selectedRoom ? (
             <>
-              <div className="px-5 py-4 border-b border-gray-100 flex items-center justify-between">
+              <div className="flex justify-between items-center p-5 border-b">
                 <div>
-                  <h2 className="text-lg font-semibold text-gray-800">
-                    {selectedRoom.name}
-                  </h2>
-                  <p className="text-xs text-gray-400 capitalize">
-                    {selectedRoom.type}
-                  </p>
+                  <h2 className="text-xl font-semibold">{selectedRoom.name}</h2>
+
+                  <p className="text-sm text-gray-500">{selectedRoom.type}</p>
                 </div>
+
                 <button
-                  onClick={openAddItem}
-                  className="px-3 py-2 rounded-lg bg-emerald-600 text-white text-sm hover:bg-emerald-700"
+                  onClick={openAddModal}
+                  className="bg-emerald-600 hover:bg-emerald-700 text-white px-4 py-2 rounded-lg"
                 >
-                  Add item
+                  Add Item
                 </button>
               </div>
 
               <div className="overflow-x-auto">
-                <table className="w-full text-sm">
-                  <thead>
-                    <tr className="text-left text-gray-400 border-b border-gray-100">
-                      <th className="px-5 py-2 font-medium">Item</th>
-                      <th className="px-5 py-2 font-medium">Category</th>
-                      <th className="px-5 py-2 font-medium">Condition</th>
-                      <th className="px-5 py-2 font-medium">Status</th>
-                      <th className="px-5 py-2 font-medium">Qty</th>
-                      <th className="px-5 py-2 font-medium">Photos</th>
-                      <th className="px-5 py-2 font-medium text-right">
-                        Actions
-                      </th>
+                <table className="w-full">
+                  <thead className="bg-gray-50">
+                    <tr>
+                      <th className="text-left p-3">Item</th>
+
+                      <th className="text-left p-3">Category</th>
+
+                      <th className="text-left p-3">Condition</th>
+
+                      <th className="text-left p-3">Qty</th>
+
+                      <th className="text-left p-3">Purchase Value</th>
+
+                      <th className="text-center p-3">Actions</th>
                     </tr>
                   </thead>
-                  <tbody className="divide-y divide-gray-50">
-                    {(selectedRoom.items || []).map((item) => (
-                      <tr key={item._id} className="text-gray-700">
-                        <td className="px-5 py-3">{item.name}</td>
-                        <td className="px-5 py-3 text-gray-500">
-                          {item.category || "—"}
-                        </td>
-                        <td className="px-5 py-3 capitalize">
-                          {item.condition}
-                        </td>
-                        <td className="px-5 py-3 capitalize">
-                          {item.status?.replace("_", " ")}
-                        </td>
-                        <td className="px-5 py-3">{item.quantity}</td>
-                        <td className="px-5 py-3">
-                          {item.photos?.length ? (
-                            <div className="flex -space-x-2">
-                              {item.photos.slice(0, 3).map((p) => (
-                                <img
-                                  key={p._id || p.url}
-                                  src={p.url}
-                                  alt=""
-                                  className="w-7 h-7 rounded-full border-2 border-white object-cover"
-                                />
-                              ))}
-                              {item.photos.length > 3 && (
-                                <span className="w-7 h-7 rounded-full border-2 border-white bg-gray-100 text-[10px] flex items-center justify-center text-gray-500">
-                                  +{item.photos.length - 3}
-                                </span>
-                              )}
-                            </div>
-                          ) : (
-                            <span className="text-gray-300 text-xs">None</span>
-                          )}
-                        </td>
-                        <td className="px-5 py-3">
-                          <div className="flex justify-end gap-3 text-xs">
-                            <button
-                              onClick={() => openEditItem(item)}
-                              className="text-emerald-600 hover:underline"
-                            >
-                              Edit
-                            </button>
-                            <button
-                              onClick={() => openTransfer(item)}
-                              className="text-blue-600 hover:underline"
-                            >
-                              Transfer
-                            </button>
-                            <button
-                              onClick={() => handleDeleteItem(item._id)}
-                              className="text-red-500 hover:underline"
-                            >
-                              Delete
-                            </button>
-                          </div>
-                        </td>
-                      </tr>
-                    ))}
-                    {(!selectedRoom.items ||
-                      selectedRoom.items.length === 0) && (
+
+                  <tbody>
+                    {selectedRoom.items.length === 0 ? (
                       <tr>
                         <td
-                          colSpan={7}
-                          className="px-5 py-8 text-center text-gray-400"
+                          colSpan="6"
+                          className="text-center py-8 text-gray-400"
                         >
-                          No items logged for this room yet.
+                          No inventory items found.
                         </td>
                       </tr>
+                    ) : (
+                      selectedRoom.items.map((item) => (
+                        <tr
+                          key={item._id}
+                          className="border-t hover:bg-gray-50"
+                        >
+                          <td className="p-3">
+                            <div className="font-medium">{item.itemName}</div>
+
+                            <div className="text-xs text-gray-500">
+                              {item.serialNumber || "No Serial Number"}
+                            </div>
+                          </td>
+
+                          <td className="p-3">{item.category}</td>
+
+                          <td className="p-3">
+                            <span
+                              className={`px-2 py-1 rounded text-xs font-semibold
+
+                              ${
+                                item.condition === "Excellent"
+                                  ? "bg-green-100 text-green-700"
+                                  : item.condition === "Good"
+                                    ? "bg-blue-100 text-blue-700"
+                                    : item.condition === "Fair"
+                                      ? "bg-yellow-100 text-yellow-700"
+                                      : "bg-red-100 text-red-700"
+                              }
+
+                              `}
+                            >
+                              {item.condition}
+                            </span>
+                          </td>
+
+                          <td className="p-3">{item.quantity}</td>
+
+                          <td className="p-3">
+                            ₦{Number(item.purchaseValue || 0).toLocaleString()}
+                          </td>
+
+                          <td className="p-3">
+                            <div className="flex justify-center gap-3">
+                              <button
+                                onClick={() => openEditModal(item)}
+                                className="text-blue-600 hover:underline"
+                              >
+                                Edit
+                              </button>
+
+                              <button
+                                onClick={() => handleDelete(item._id)}
+                                className="text-red-600 hover:underline"
+                              >
+                                Delete
+                              </button>
+                            </div>
+                          </td>
+                        </tr>
+                      ))
                     )}
                   </tbody>
                 </table>
               </div>
             </>
           ) : (
-            <div className="p-8 text-center text-gray-400">
-              Select a room to view its inventory.
+            <div className="p-12 text-center text-gray-400">
+              Select a room from the left.
             </div>
           )}
         </div>
       </div>
+      {/* ================= ADD / EDIT MODAL ================= */}
 
-      {/* Add/Edit item modal */}
-      {itemModalOpen && (
-        <Modal onClose={() => setItemModalOpen(false)}>
-          <h3 className="text-lg font-semibold mb-4">
-            {editingItem ? "Edit item" : "Add item"}
-          </h3>
-          <form onSubmit={handleItemSubmit} className="flex flex-col gap-3">
-            <Field label="Name">
-              <input
-                required
-                value={itemForm.name}
-                onChange={(e) =>
-                  setItemForm({ ...itemForm, name: e.target.value })
-                }
-                className="input"
-              />
-            </Field>
-            <Field label="Category">
-              <input
-                value={itemForm.category}
-                onChange={(e) =>
-                  setItemForm({ ...itemForm, category: e.target.value })
-                }
-                className="input"
-              />
-            </Field>
-            <Field label="Condition">
-              <select
-                value={itemForm.condition}
-                onChange={(e) =>
-                  setItemForm({ ...itemForm, condition: e.target.value })
-                }
-                className="input"
-              >
-                {CONDITIONS.map((c) => (
-                  <option key={c} value={c}>
-                    {c}
-                  </option>
-                ))}
-              </select>
-            </Field>
-            <Field label="Status">
-              <select
-                value={itemForm.status}
-                onChange={(e) =>
-                  setItemForm({ ...itemForm, status: e.target.value })
-                }
-                className="input"
-              >
-                {STATUSES.map((s) => (
-                  <option key={s} value={s}>
-                    {s.replace("_", " ")}
-                  </option>
-                ))}
-              </select>
-            </Field>
-            <Field label="Quantity">
-              <input
-                type="number"
-                min={1}
-                value={itemForm.quantity}
-                onChange={(e) =>
-                  setItemForm({ ...itemForm, quantity: e.target.value })
-                }
-                className="input"
-              />
-            </Field>
+      {modalOpen && (
+        <div className="fixed inset-0 bg-black/40 flex items-center justify-center z-50">
+          <div className="bg-white rounded-xl shadow-xl w-full max-w-2xl p-6 max-h-[90vh] overflow-y-auto">
+            <div className="flex justify-between items-center mb-6">
+              <h2 className="text-2xl font-bold text-gray-800">
+                {editingItem ? "Edit Item" : "Add New Item"}
+              </h2>
 
-            {/* Photos — only available once the item exists */}
-            {editingItem ? (
-              <div className="flex flex-col gap-2">
-                <span className="text-sm text-gray-600">Photos</span>
-                <div className="flex flex-wrap gap-2">
-                  {(editingItem.photos || []).map((p) => (
-                    <div key={p._id || p.url} className="relative">
-                      <img
-                        src={p.url}
-                        alt=""
-                        className="w-16 h-16 rounded-lg object-cover border border-gray-200"
-                      />
-                      <button
-                        type="button"
-                        onClick={() => handleDeletePhoto(p._id)}
-                        className="absolute -top-1.5 -right-1.5 w-5 h-5 rounded-full bg-red-500 text-white text-xs flex items-center justify-center hover:bg-red-600"
-                        title="Remove photo"
-                      >
-                        ✕
-                      </button>
-                    </div>
-                  ))}
-                  <label className="w-16 h-16 rounded-lg border border-dashed border-gray-300 flex items-center justify-center text-gray-400 text-xs cursor-pointer hover:border-emerald-400 hover:text-emerald-500">
-                    {photoUploading ? "…" : "+ Add"}
-                    <input
-                      type="file"
-                      accept="image/*"
-                      className="hidden"
-                      onChange={handlePhotoSelect}
-                      disabled={photoUploading}
-                    />
-                  </label>
-                </div>
+              <button
+                onClick={() => setModalOpen(false)}
+                className="text-gray-500 hover:text-red-500 text-xl"
+              >
+                ✕
+              </button>
+            </div>
+
+            <form onSubmit={handleSubmit} className="grid grid-cols-2 gap-4">
+              {/* ROOM */}
+
+              <div>
+                <label className="block mb-1 text-sm font-medium">
+                  Room Name
+                </label>
+
+                <input
+                  required
+                  value={form.roomName}
+                  onChange={(e) =>
+                    setForm({
+                      ...form,
+                      roomName: e.target.value,
+                    })
+                  }
+                  className="w-full border rounded-lg px-3 py-2"
+                />
               </div>
-            ) : (
-              <p className="text-xs text-gray-400">
-                Save the item first to attach photos.
-              </p>
-            )}
 
-            <ModalActions
-              onCancel={() => setItemModalOpen(false)}
-              submitLabel={editingItem ? "Save changes" : "Add item"}
-            />
-          </form>
-        </Modal>
-      )}
+              {/* ROOM TYPE */}
 
-      {/* Transfer modal */}
-      {transferModalOpen && (
-        <Modal onClose={() => setTransferModalOpen(false)}>
-          <h3 className="text-lg font-semibold mb-4">
-            Transfer "{transferTarget?.name}"
-          </h3>
-          <form onSubmit={handleTransferSubmit} className="flex flex-col gap-3">
-            <Field label="Move to room">
-              <select
-                required
-                value={transferForm.toRoomId}
-                onChange={(e) =>
-                  setTransferForm({
-                    ...transferForm,
-                    toRoomId: e.target.value,
-                  })
-                }
-                className="input"
-              >
-                <option value="">Select a room</option>
-                {rooms
-                  .filter((r) => r._id !== selectedRoom?._id)
-                  .map((r) => (
-                    <option key={r._id} value={r._id}>
-                      {r.name}
+              <div>
+                <label className="block mb-1 text-sm font-medium">
+                  Room Type
+                </label>
+
+                <select
+                  value={form.roomType}
+                  onChange={(e) =>
+                    setForm({
+                      ...form,
+                      roomType: e.target.value,
+                    })
+                  }
+                  className="w-full border rounded-lg px-3 py-2"
+                >
+                  {ROOM_TYPES.map((type) => (
+                    <option key={type} value={type}>
+                      {type}
                     </option>
                   ))}
-              </select>
-            </Field>
-            <Field label="Reason (optional)">
-              <input
-                value={transferForm.reason}
-                onChange={(e) =>
-                  setTransferForm({
-                    ...transferForm,
-                    reason: e.target.value,
-                  })
-                }
-                className="input"
-              />
-            </Field>
-            <ModalActions
-              onCancel={() => setTransferModalOpen(false)}
-              submitLabel="Confirm transfer"
-            />
-          </form>
-        </Modal>
+                </select>
+              </div>
+
+              {/* ITEM */}
+
+              <div>
+                <label className="block mb-1 text-sm font-medium">
+                  Item Name
+                </label>
+
+                <input
+                  required
+                  value={form.itemName}
+                  onChange={(e) =>
+                    setForm({
+                      ...form,
+                      itemName: e.target.value,
+                    })
+                  }
+                  className="w-full border rounded-lg px-3 py-2"
+                />
+              </div>
+
+              {/* CATEGORY */}
+
+              <div>
+                <label className="block mb-1 text-sm font-medium">
+                  Category
+                </label>
+
+                <select
+                  value={form.category}
+                  onChange={(e) =>
+                    setForm({
+                      ...form,
+                      category: e.target.value,
+                    })
+                  }
+                  className="w-full border rounded-lg px-3 py-2"
+                >
+                  {CATEGORIES.map((category) => (
+                    <option key={category} value={category}>
+                      {category}
+                    </option>
+                  ))}
+                </select>
+              </div>
+
+              {/* QUANTITY */}
+
+              <div>
+                <label className="block mb-1 text-sm font-medium">
+                  Quantity
+                </label>
+
+                <input
+                  type="number"
+                  min="1"
+                  value={form.quantity}
+                  onChange={(e) =>
+                    setForm({
+                      ...form,
+                      quantity: Number(e.target.value),
+                    })
+                  }
+                  className="w-full border rounded-lg px-3 py-2"
+                />
+              </div>
+
+              {/* CONDITION */}
+
+              <div>
+                <label className="block mb-1 text-sm font-medium">
+                  Condition
+                </label>
+
+                <select
+                  value={form.condition}
+                  onChange={(e) =>
+                    setForm({
+                      ...form,
+                      condition: e.target.value,
+                    })
+                  }
+                  className="w-full border rounded-lg px-3 py-2"
+                >
+                  {CONDITIONS.map((condition) => (
+                    <option key={condition} value={condition}>
+                      {condition}
+                    </option>
+                  ))}
+                </select>
+              </div>
+
+              {/* SERIAL */}
+
+              <div>
+                <label className="block mb-1 text-sm font-medium">
+                  Serial Number
+                </label>
+
+                <input
+                  value={form.serialNumber}
+                  onChange={(e) =>
+                    setForm({
+                      ...form,
+                      serialNumber: e.target.value,
+                    })
+                  }
+                  className="w-full border rounded-lg px-3 py-2"
+                />
+              </div>
+
+              {/* PURCHASE DATE */}
+
+              <div>
+                <label className="block mb-1 text-sm font-medium">
+                  Purchase Date
+                </label>
+
+                <input
+                  type="date"
+                  value={form.purchaseDate}
+                  onChange={(e) =>
+                    setForm({
+                      ...form,
+                      purchaseDate: e.target.value,
+                    })
+                  }
+                  className="w-full border rounded-lg px-3 py-2"
+                />
+              </div>
+
+              {/* PURCHASE VALUE */}
+
+              <div>
+                <label className="block mb-1 text-sm font-medium">
+                  Purchase Value
+                </label>
+
+                <input
+                  type="number"
+                  value={form.purchaseValue}
+                  onChange={(e) =>
+                    setForm({
+                      ...form,
+                      purchaseValue: e.target.value,
+                    })
+                  }
+                  className="w-full border rounded-lg px-3 py-2"
+                />
+              </div>
+
+              {/* REMARKS */}
+
+              <div className="col-span-2">
+                <label className="block mb-1 text-sm font-medium">
+                  Remarks
+                </label>
+
+                <textarea
+                  rows={4}
+                  value={form.remarks}
+                  onChange={(e) =>
+                    setForm({
+                      ...form,
+                      remarks: e.target.value,
+                    })
+                  }
+                  className="w-full border rounded-lg px-3 py-2"
+                />
+              </div>
+
+              <div className="col-span-2 flex justify-end gap-3 mt-4">
+                <button
+                  type="button"
+                  onClick={() => setModalOpen(false)}
+                  className="px-5 py-2 rounded-lg border"
+                >
+                  Cancel
+                </button>
+
+                <button
+                  type="submit"
+                  className="px-5 py-2 rounded-lg bg-emerald-600 hover:bg-emerald-700 text-white"
+                >
+                  {editingItem ? "Update Item" : "Add Item"}
+                </button>
+              </div>
+            </form>
+          </div>
+        </div>
       )}
-
-      {/* Audit modal */}
-      {auditModalOpen && (
-        <Modal onClose={() => setAuditModalOpen(false)}>
-          <h3 className="text-lg font-semibold mb-4">
-            Log audit for "{selectedRoom?.name}"
-          </h3>
-          <form onSubmit={handleAuditSubmit} className="flex flex-col gap-3">
-            <Field label="Score (0-100)">
-              <input
-                required
-                type="number"
-                min={0}
-                max={100}
-                value={auditForm.score}
-                onChange={(e) =>
-                  setAuditForm({ ...auditForm, score: e.target.value })
-                }
-                className="input"
-              />
-            </Field>
-            <Field label="Notes">
-              <textarea
-                rows={3}
-                value={auditForm.notes}
-                onChange={(e) =>
-                  setAuditForm({ ...auditForm, notes: e.target.value })
-                }
-                className="input"
-              />
-            </Field>
-            <ModalActions
-              onCancel={() => setAuditModalOpen(false)}
-              submitLabel="Submit audit"
-            />
-          </form>
-        </Modal>
-      )}
-    </div>
-  );
-}
-
-// ---------- Small shared pieces ----------
-
-function Modal({ children, onClose }) {
-  return (
-    <div className="fixed inset-0 bg-black/30 flex items-center justify-center z-50 p-4">
-      <div className="bg-white rounded-xl shadow-lg w-full max-w-md p-5 relative max-h-[90vh] overflow-y-auto">
-        <button
-          onClick={onClose}
-          className="absolute top-3 right-3 text-gray-400 hover:text-gray-600"
-        >
-          ✕
-        </button>
-        {children}
-      </div>
-    </div>
-  );
-}
-
-function Field({ label, children }) {
-  return (
-    <label className="flex flex-col gap-1 text-sm text-gray-600">
-      {label}
-      {children}
-    </label>
-  );
-}
-
-function ModalActions({ onCancel, submitLabel }) {
-  return (
-    <div className="flex justify-end gap-2 mt-2">
-      <button
-        type="button"
-        onClick={onCancel}
-        className="px-3 py-2 rounded-lg border border-gray-300 text-sm text-gray-600 hover:bg-gray-50"
-      >
-        Cancel
-      </button>
-      <button
-        type="submit"
-        className="px-3 py-2 rounded-lg bg-emerald-600 text-white text-sm hover:bg-emerald-700"
-      >
-        {submitLabel}
-      </button>
     </div>
   );
 }
