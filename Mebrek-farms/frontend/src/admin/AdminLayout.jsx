@@ -233,6 +233,13 @@ export default function AdminLayout() {
               >
                 Warehouse 🏬
               </Link>
+
+              <Link
+                to="/admin/room-inventory"
+                className="block hover:bg-green-700 p-3 rounded-lg transition"
+              >
+                Room Inventory 🛏️
+              </Link>
             </>
           )}
 

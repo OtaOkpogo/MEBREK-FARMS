@@ -31,6 +31,7 @@ export default function Dashboard() {
     feeds: [],
     attendance: [],
     mortality: [],
+    RoomInventory: [],
   });
 
   const [loading, setLoading] = useState(true);
@@ -62,6 +63,7 @@ export default function Dashboard() {
         feeds: res?.feeds || [],
         attendance: res?.attendance || [],
         mortality: res?.mortality || [],
+        roomInventory: res?.roomInventory || [],
       });
     } catch (err) {
       console.error(err);
@@ -114,6 +116,7 @@ export default function Dashboard() {
   const feeds = data.feeds;
   const attendance = data.attendance;
   const mortality = data.mortality;
+  const roomInventory = data.roomInventory || [];
 
   // ================= KPI =================
 
@@ -139,6 +142,21 @@ export default function Dashboard() {
   );
   console.log("Mortality Records:", mortality);
   console.log("Total Mortality:", totalMortality);
+  const totalRooms = new Set(roomInventory.map((item) => item.room)).size;
+
+  const totalRoomItems = roomInventory.length;
+
+  const damagedItems = roomInventory.filter(
+    (item) => item.condition === "Damaged",
+  ).length;
+
+  const missingItems = roomInventory.filter(
+    (item) => item.condition === "Missing",
+  ).length;
+
+  const goodItems = roomInventory.filter(
+    (item) => item.condition === "Good",
+  ).length;
 
   // ================= ATTENDANCE =================
 
@@ -199,6 +217,20 @@ export default function Dashboard() {
     },
   ];
 
+  const roomChart = [
+    {
+      name: "Good",
+      value: goodItems,
+    },
+    {
+      name: "Damaged",
+      value: damagedItems,
+    },
+    {
+      name: "Missing",
+      value: missingItems,
+    },
+  ];
   const COLORS = ["#16a34a", "#2563eb", "#f59e0b", "#dc2626"];
 
   // ================= STATES =================
@@ -306,6 +338,39 @@ export default function Dashboard() {
           <p className="text-3xl font-bold text-red-600">{totalMortality}</p>
         </div>
       </div>
+      {/* ROOM INVENTORY KPI */}
+
+      <div className="grid md:grid-cols-5 gap-6 mb-8">
+        <div className="bg-white p-5 rounded-2xl shadow">
+          <h3 className="text-gray-500">Rooms</h3>
+
+          <p className="text-3xl font-bold text-indigo-600">{totalRooms}</p>
+        </div>
+
+        <div className="bg-white p-5 rounded-2xl shadow">
+          <h3 className="text-gray-500">Inventory Items</h3>
+
+          <p className="text-3xl font-bold text-green-700">{totalRoomItems}</p>
+        </div>
+
+        <div className="bg-white p-5 rounded-2xl shadow">
+          <h3 className="text-gray-500">Good Items</h3>
+
+          <p className="text-3xl font-bold text-green-500">{goodItems}</p>
+        </div>
+
+        <div className="bg-white p-5 rounded-2xl shadow">
+          <h3 className="text-gray-500">Damaged</h3>
+
+          <p className="text-3xl font-bold text-yellow-500">{damagedItems}</p>
+        </div>
+
+        <div className="bg-white p-5 rounded-2xl shadow">
+          <h3 className="text-gray-500">Missing</h3>
+
+          <p className="text-3xl font-bold text-red-600">{missingItems}</p>
+        </div>
+      </div>
 
       {/* FIRST ROW */}
 
@@ -406,6 +471,66 @@ export default function Dashboard() {
         </div>
       </div>
 
+      {/* ROOM INVENTORY */}
+
+      <div className="grid md:grid-cols-2 gap-6 mt-8">
+        <div className="bg-white rounded-2xl shadow p-6">
+          <h2 className="text-xl font-bold mb-4">Room Inventory Status 🏠</h2>
+
+          <ResponsiveContainer width="100%" height={320}>
+            <PieChart>
+              <Pie data={roomChart} dataKey="value" outerRadius={110} label>
+                <Cell fill="#22c55e" />
+                <Cell fill="#f59e0b" />
+                <Cell fill="#ef4444" />
+              </Pie>
+
+              <Tooltip />
+              <Legend />
+            </PieChart>
+          </ResponsiveContainer>
+        </div>
+
+        <div className="bg-white rounded-2xl shadow p-6">
+          <h2 className="text-xl font-bold mb-4">Recent Room Inventory</h2>
+
+          <div className="overflow-auto max-h-80">
+            <table className="w-full">
+              <thead>
+                <tr className="border-b">
+                  <th className="text-left py-2">Room</th>
+
+                  <th className="text-left py-2">Item</th>
+
+                  <th className="text-left py-2">Condition</th>
+                </tr>
+              </thead>
+
+              <tbody>
+                {roomInventory.slice(0, 10).map((item) => (
+                  <tr key={item._id} className="border-b">
+                    <td className="py-2">{item.room}</td>
+
+                    <td className="py-2">{item.itemName}</td>
+
+                    <td
+                      className={`py-2 font-semibold ${
+                        item.condition === "Good"
+                          ? "text-green-600"
+                          : item.condition === "Damaged"
+                            ? "text-yellow-600"
+                            : "text-red-600"
+                      }`}
+                    >
+                      {item.condition}
+                    </td>
+                  </tr>
+                ))}
+              </tbody>
+            </table>
+          </div>
+        </div>
+      </div>
       {popupVisible && (
         <NotificationPopup
           notifications={unreadNotifications}
