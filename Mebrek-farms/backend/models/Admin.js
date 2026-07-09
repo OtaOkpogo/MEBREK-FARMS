@@ -41,4 +41,10 @@ const adminSchema = new mongoose.Schema(
   },
 );
 
+adminSchema.index({
+  name: "text",
+  email: "text",
+  role: "text",
+});
+
 module.exports = mongoose.model("Admin", adminSchema);

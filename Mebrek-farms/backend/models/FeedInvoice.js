@@ -33,10 +33,12 @@ const feedInvoiceSchema = new mongoose.Schema(
       default: "Pending",
     },
   },
-  { timestamps: true }
+  { timestamps: true },
 );
 
-module.exports = mongoose.model(
-  "FeedInvoice",
-  feedInvoiceSchema
-);
+feedSchema.index({
+  name: "text",
+  supplier: "text",
+});
+
+module.exports = mongoose.model("FeedInvoice", feedInvoiceSchema);

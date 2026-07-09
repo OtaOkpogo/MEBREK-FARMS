@@ -1,67 +1,86 @@
-const Staff = require('../models/Staff'); // adjust name to your actual model
-const Production = require('../models/Production');
-const EggSale = require('../models/EggSale');
-const FeedInventory = require('../models/FeedInventory');
-const RoomInventory = require('../models/RoomInventory');
-const Notification = require('../models/Notification');
-
-const escapeRegex = (str) => str.replace(/[.*+?^${}()|[\]\\]/g, '\\$&');
+const Admin = require("../models/Admin");
+const Production = require("../models/Production");
+const EggSale = require("../models/EggSale");
+const Feed = require("../models/Feed");
+const Notification = require("../models/Notification");
+const RoomInventory = require("../models/RoomInventory");
 
 exports.globalSearch = async (req, res) => {
   try {
-    const q = (req.query.q || '').trim();
+    const q = (req.query.q || "").trim();
+
     if (q.length < 2) {
       return res.json({
-        workers: [], production: [], eggSales: [],
-        feedInventory: [], roomInventory: [], notifications: []
+        workers: [],
+        production: [],
+        eggSales: [],
+        feedInventory: [],
+        roomInventory: [],
+        notifications: [],
       });
     }
 
-    const rx = new RegExp(escapeRegex(q), 'i');
-    const role = req.user.role; // from protect middleware
-    const LIMIT = 5;
+    const textQuery = { $text: { $search: q } };
+    const textScore = { score: { $meta: "textScore" } };
+    const sortByScore = { score: { $meta: "textScore" } };
 
-    // Build query list conditionally based on role
-    const queries = {
-      workers: role === 'staff' ? null : Staff.find({
-        $or: [{ name: rx }, { email: rx }, { role: rx }]
-      }).select('name email role').limit(LIMIT),
+    const [
+      workers,
+      production,
+      eggSales,
+      feedInventory,
+      roomInventory,
+      notifications,
+    ] = await Promise.all([
+      // STAFF
+      Admin.find(textQuery, textScore)
+        .select("name email role status score")
+        .sort(sortByScore)
+        .limit(10),
 
-      production: Production.find({
-        $or: [{ pen: rx }, { remarks: rx }]
-      }).select('pen date remarks').limit(LIMIT),
+      // PRODUCTION
+      Production.find(textQuery, textScore)
+        .select("pen date cratesProduced productionPercentage score")
+        .sort(sortByScore)
+        .limit(10),
 
-      eggSales: EggSale.find({
-        $or: [{ customerName: rx }, { phone: rx }, { paymentStatus: rx }, { remarks: rx }]
-      }).select('customerName phone paymentStatus amount').limit(LIMIT),
+      // EGG SALES
+      EggSale.find(textQuery, textScore)
+        .select("customer phone totalAmount status date score")
+        .sort(sortByScore)
+        .limit(10),
 
-      feedInventory: FeedInventory.find({
-        $or: [{ feedName: rx }, { category: rx }, { supplier: rx }]
-      }).select('feedName category supplier').limit(LIMIT),
+      // FEED
+      Feed.find(textQuery, textScore)
+        .select("name quantity unit supplier pricePerUnit score")
+        .sort(sortByScore)
+        .limit(10),
 
-      roomInventory: RoomInventory.find({
-        isDeleted: { $ne: true },
-        $or: [{ roomName: rx }, { itemName: rx }, { category: rx }, { serialNumber: rx }]
-      }).select('roomName itemName category serialNumber').limit(LIMIT),
+      // ROOM INVENTORY
+      RoomInventory.find(textQuery, textScore)
+        .select("roomName itemName category quantity condition score")
+        .limit(10),
 
-      notifications: Notification.find({
-        $or: [{ subject: rx }, { message: rx }, { senderName: rx }],
-        ...(role === 'staff' ? { recipients: req.user._id } : {})
-      }).select('subject message senderName createdAt').limit(LIMIT),
-    };
+      // NOTIFICATIONS
+      Notification.find(textQuery, textScore)
+        .select("subject message senderName senderRole createdAt score")
+        .sort(sortByScore)
+        .limit(10),
+    ]);
 
-    const keys = Object.keys(queries).filter(k => queries[k] !== null);
-    const results = await Promise.all(keys.map(k => queries[k]));
-
-    const response = {
-      workers: [], production: [], eggSales: [],
-      feedInventory: [], roomInventory: [], notifications: []
-    };
-    keys.forEach((k, i) => { response[k] = results[i]; });
-
-    res.json(response);
+    res.json({
+      workers,
+      production,
+      eggSales,
+      feedInventory,
+      roomInventory,
+      notifications,
+    });
   } catch (err) {
-    console.error('Global search error:', err);
-    res.status(500).json({ message: 'Search failed' });
+    console.error("GLOBAL SEARCH ERROR:", err);
+
+    res.status(500).json({
+      message: "Search failed.",
+    });
   }
 };

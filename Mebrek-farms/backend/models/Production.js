@@ -129,4 +129,9 @@ const productionSchema = new mongoose.Schema(
   { timestamps: true },
 );
 
+productionSchema.index({
+  pen: "text",
+  remarks: "text",
+});
+
 module.exports = mongoose.model("Production", productionSchema);

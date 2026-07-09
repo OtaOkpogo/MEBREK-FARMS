@@ -118,5 +118,11 @@ const roomInventorySchema = new mongoose.Schema(
     timestamps: true,
   },
 );
+roomInventorySchema.index({
+  roomName: "text",
+  itemName: "text",
+  category: "text",
+  serialNumber: "text",
+});
 
 module.exports = mongoose.model("RoomInventory", roomInventorySchema);

@@ -12,6 +12,7 @@ const dashboardRoutes = require("./routes/dashboardRoutes");
 const attendanceRoutes = require("./routes/attendanceRoutes");
 const notificationRoutes = require("./routes/notification");
 const roomInventoryRoutes = require("./routes/roomInventoryRoutes");
+const searchRoutes = require("./routes/search");
 
 dotenv.config();
 const app = express();
@@ -60,6 +61,7 @@ app.use("/api/mortality", mortalityRoutes);
 app.use("/api/dashboard", dashboardRoutes);
 app.use("/api/notifications", notificationRoutes);
 app.use("/api/room-inventory", roomInventoryRoutes);
+app.use("/api/search", searchRoutes);
 
 const PORT = process.env.PORT || 5000;
 io.on("connection", (socket) => {

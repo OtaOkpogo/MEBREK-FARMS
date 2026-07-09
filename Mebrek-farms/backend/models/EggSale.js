@@ -92,7 +92,13 @@ const eggSaleSchema = new mongoose.Schema(
   },
   {
     timestamps: true,
-  }
+  },
 );
+
+eggSaleSchema.index({
+  customer: "text",
+  phone: "text",
+  remarks: "text",
+});
 
 module.exports = mongoose.model("EggSale", eggSaleSchema);

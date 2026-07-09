@@ -51,4 +51,10 @@ const notificationSchema = new mongoose.Schema(
   },
 );
 
+notificationSchema.index({
+  subject: "text",
+  message: "text",
+  senderName: "text",
+});
+
 module.exports = mongoose.model("Notification", notificationSchema);
