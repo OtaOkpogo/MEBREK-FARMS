@@ -10,6 +10,7 @@ const feedSchema = new mongoose.Schema(
     quantity: {
       type: Number,
       required: true,
+      min: [0, "quantity cannot be negative"],
     },
 
     unit: {
@@ -20,6 +21,7 @@ const feedSchema = new mongoose.Schema(
     pricePerUnit: {
       type: Number,
       required: true,
+      min: [0, "pricePerUnit cannot be negative"],
     },
 
     supplier: {
@@ -29,9 +31,19 @@ const feedSchema = new mongoose.Schema(
     lowStockThreshold: {
       type: Number,
       default: 5,
+      min: [0, "lowStockThreshold cannot be negative"],
     },
   },
-  { timestamps: true }
+  { timestamps: true },
 );
+
+// ================= INDEXES =================
+
+// Sort by most recently added
+feedSchema.index({ createdAt: -1 });
+
+// Free-text search on name and supplier (the two string fields —
+// quantity/pricePerUnit are numeric and don't belong in a text index)
+feedSchema.index({ name: "text", supplier: "text" });
 
 module.exports = mongoose.model("Feed", feedSchema);
