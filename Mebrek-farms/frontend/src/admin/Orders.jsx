@@ -11,9 +11,15 @@ export default function Orders() {
   const fetchOrders = async () => {
     try {
       const token = localStorage.getItem("token");
+
+      if (!token) {
+        console.error("No token found. User may not be logged in.");
+        return;
+      }
+
       const res = await axios.get("http://localhost:5000/api/orders", {
         headers: {
-          Authorization: token,
+          Authorization: `Bearer ${token}`,
         },
       });
       setOrders(res.data);

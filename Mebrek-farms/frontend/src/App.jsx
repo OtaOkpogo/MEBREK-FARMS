@@ -18,6 +18,7 @@ import Production from "./admin/Production";
 import FeedInventory from "./admin/FeedInventory";
 import FeedInvoices from "./admin/FeedInvoices";
 import Warehouse from "./admin/Warehouse";
+import RoomInventory from "./admin/RoomInventory";
 import Vaccinations from "./admin/Vaccinations";
 import Mortality from "./admin/Mortality";
 import BirdHealth from "./admin/BirdHealth";
@@ -50,16 +51,14 @@ function App() {
             </ProtectedRoute>
           }
         >
-	  <Route
-  path="notifications"
-  element={
-    <ProtectedRoute
-      allowedRoles={["superadmin", "manager", "staff"]}
-    >
-      <Notifications />
-    </ProtectedRoute>
-  }
-/>
+          <Route
+            path="notifications"
+            element={
+              <ProtectedRoute allowedRoles={["superadmin", "manager", "staff"]}>
+                <Notifications />
+              </ProtectedRoute>
+            }
+          />
           {/* ALL ROLES */}
           <Route index element={<Dashboard />} />
 
@@ -130,6 +129,15 @@ function App() {
             element={
               <ProtectedRoute allowedRoles={["superadmin", "manager"]}>
                 <Warehouse />
+              </ProtectedRoute>
+            }
+          />
+
+          <Route
+            path="room-inventory"
+            element={
+              <ProtectedRoute allowedRoles={["superadmin", "manager"]}>
+                <RoomInventory />
               </ProtectedRoute>
             }
           />

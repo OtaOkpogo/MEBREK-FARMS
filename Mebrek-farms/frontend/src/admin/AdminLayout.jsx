@@ -1,5 +1,6 @@
 import { Outlet, Link, useNavigate } from "react-router-dom";
 import logo from "../assets/logo.png";
+import GlobalSearch from "../components/GlobalSearch";
 
 export default function AdminLayout() {
   const navigate = useNavigate();
@@ -266,8 +267,15 @@ export default function AdminLayout() {
       {/* MAIN AREA */}
       <main className="flex-1 min-w-0 bg-gray-100 overflow-y-auto">
         {/* TOP HEADER */}
-        <div className="bg-white shadow-sm px-8 py-4 flex justify-end items-center">
-          <div className="flex items-center gap-3">
+        {/* TOP HEADER */}
+        <div className="bg-white shadow-sm px-8 py-4 flex items-center justify-between">
+          {/* GLOBAL SEARCH */}
+          <div className="w-full max-w-xl">
+            <GlobalSearch />
+          </div>
+
+          {/* USER */}
+          <div className="flex items-center gap-3 ml-6">
             <div className="text-right">
               <p className="font-semibold">{name || "User"}</p>
 
@@ -277,17 +285,17 @@ export default function AdminLayout() {
             <button
               onClick={() => navigate("/admin/profile")}
               className="
-                w-10
-                h-10
-                rounded-full
-                bg-green-700
-                text-white
-                flex
-                items-center
-                justify-center
-                hover:bg-green-800
-                transition
-              "
+        w-10
+        h-10
+        rounded-full
+        bg-green-700
+        text-white
+        flex
+        items-center
+        justify-center
+        hover:bg-green-800
+        transition
+      "
             >
               👤
             </button>
