@@ -378,7 +378,12 @@ export default function Dashboard() {
         <div className="bg-white p-6 rounded-2xl shadow">
           <h2 className="text-xl font-bold mb-4">Egg Production Trend 🥚</h2>
 
-          <ResponsiveContainer width="100%" height={300}>
+          <ResponsiveContainer
+            width="100%"
+            height={300}
+            minWidth={0}
+            minHeight={200}
+          >
             <LineChart data={productionChart}>
               <CartesianGrid strokeDasharray="3 3" />
               <XAxis dataKey="date" />
@@ -398,7 +403,12 @@ export default function Dashboard() {
         <div className="bg-white p-6 rounded-2xl shadow">
           <h2 className="text-xl font-bold mb-4">Farm Overview 📊</h2>
 
-          <ResponsiveContainer width="100%" height={300}>
+          <ResponsiveContainer
+            width="100%"
+            height={300}
+            minWidth={0}
+            minHeight={200}
+          >
             <PieChart>
               <Pie data={farmOverview} dataKey="value" outerRadius={110} label>
                 {farmOverview.map((_, index) => (
@@ -418,7 +428,12 @@ export default function Dashboard() {
       <div className="bg-white p-6 rounded-2xl shadow mb-8">
         <h2 className="text-xl font-bold mb-4">Feed Inventory 🌽</h2>
 
-        <ResponsiveContainer width="100%" height={350}>
+        <ResponsiveContainer
+          width="100%"
+          height={350}
+          minWidth={0}
+          minHeight={200}
+        >
           <BarChart data={inventoryChart}>
             <CartesianGrid strokeDasharray="3 3" />
             <XAxis dataKey="name" />
@@ -436,7 +451,12 @@ export default function Dashboard() {
         <div className="bg-white p-6 rounded-2xl shadow">
           <h2 className="text-xl font-bold mb-4">Attendance Analytics 📅</h2>
 
-          <ResponsiveContainer width="100%" height={320}>
+          <ResponsiveContainer
+            width="100%"
+            height={320}
+            minWidth={0}
+            minHeight={200}
+          >
             <PieChart>
               <Pie
                 data={attendanceChart}
@@ -458,7 +478,12 @@ export default function Dashboard() {
         <div className="bg-white p-6 rounded-2xl shadow">
           <h2 className="text-xl font-bold mb-4">Worker Performance 📈</h2>
 
-          <ResponsiveContainer width="100%" height={320}>
+          <ResponsiveContainer
+            width="100%"
+            height={320}
+            minWidth={0}
+            minHeight={200}
+          >
             <BarChart data={workerPerformance}>
               <CartesianGrid strokeDasharray="3 3" />
               <XAxis dataKey="name" />
@@ -477,7 +502,12 @@ export default function Dashboard() {
         <div className="bg-white rounded-2xl shadow p-6">
           <h2 className="text-xl font-bold mb-4">Room Inventory Status 🏠</h2>
 
-          <ResponsiveContainer width="100%" height={320}>
+          <ResponsiveContainer
+            width="100%"
+            height={320}
+            minWidth={0}
+            minHeight={200}
+          >
             <PieChart>
               <Pie data={roomChart} dataKey="value" outerRadius={110} label>
                 <Cell fill="#22c55e" />
