@@ -432,6 +432,10 @@ export default function Warehouse() {
 
                   <th className="px-6 py-4 font-semibold">Status</th>
 
+                  {role === "superadmin" && (
+                    <th className="px-6 py-4 font-semibold">Deleted By</th>
+                  )}
+
                   <th className="px-6 py-4 font-semibold text-center">
                     Actions
                   </th>
@@ -466,17 +470,37 @@ export default function Warehouse() {
                     <td className="px-6 py-4">
                       <span
                         className={`px-3 py-1 rounded-full text-sm font-medium
-                          ${
-                            item.status === "In Stock"
-                              ? "bg-green-100 text-green-700"
-                              : item.status === "Low Stock"
-                                ? "bg-yellow-100 text-yellow-700"
-                                : "bg-red-100 text-red-700"
-                          }`}
+      ${
+        item.status === "In Stock"
+          ? "bg-green-100 text-green-700"
+          : item.status === "Low Stock"
+            ? "bg-yellow-100 text-yellow-700"
+            : "bg-red-100 text-red-700"
+      }`}
                       >
                         {item.status}
                       </span>
                     </td>
+
+                    {role === "superadmin" && (
+                      <td className="px-6 py-4">
+                        {item.isDeleted ? (
+                          <div>
+                            <div className="font-semibold text-red-600 capitalize">
+                              {item.deletedBy}
+                            </div>
+
+                            <div className="text-xs text-gray-500">
+                              {item.deletedAt
+                                ? new Date(item.deletedAt).toLocaleString()
+                                : "-"}
+                            </div>
+                          </div>
+                        ) : (
+                          <span className="text-gray-400">-</span>
+                        )}
+                      </td>
+                    )}
 
                     <td className="px-6 py-4">
                       <div className="flex justify-center gap-3">
