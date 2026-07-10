@@ -5,6 +5,7 @@ import {
   createWarehouseItem,
   updateWarehouseItem,
   deleteWarehouseItem,
+  restoreWarehouseItem,
 } from "../services/warehouseService";
 
 export default function Warehouse() {
@@ -149,6 +150,26 @@ export default function Warehouse() {
 
       setError(
         err.response?.data?.message || "Failed to delete warehouse item.",
+      );
+    }
+  };
+
+  // ================= RESTORE =================
+
+  const handleRestore = async (id) => {
+    if (!window.confirm("Restore this warehouse item?")) return;
+
+    try {
+      await restoreWarehouseItem(id);
+
+      setSuccess("Warehouse item restored.");
+
+      await loadWarehouse();
+    } catch (err) {
+      console.error(err);
+
+      setError(
+        err.response?.data?.message || "Failed to restore warehouse item.",
       );
     }
   };
@@ -421,9 +442,18 @@ export default function Warehouse() {
                 {filteredItems.map((item) => (
                   <tr
                     key={item._id}
-                    className="border-t hover:bg-gray-50 transition"
+                    className={`border-t hover:bg-gray-50 transition ${
+                      item.isDeleted ? "bg-red-50 text-gray-500" : ""
+                    }`}
                   >
-                    <td className="px-6 py-4 font-medium">{item.itemName}</td>
+                    <td className="px-6 py-4 font-medium">
+                      {item.itemName}
+                      {item.isDeleted && (
+                        <span className="ml-2 bg-red-600 text-white px-2 py-1 rounded text-xs">
+                          Deleted
+                        </span>
+                      )}
+                    </td>
 
                     <td className="px-6 py-4">{item.category}</td>
 
@@ -450,19 +480,30 @@ export default function Warehouse() {
 
                     <td className="px-6 py-4">
                       <div className="flex justify-center gap-3">
-                        <button
-                          onClick={() => handleEdit(item)}
-                          className="bg-blue-600 hover:bg-blue-700 text-white px-4 py-2 rounded-lg transition"
-                        >
-                          Edit
-                        </button>
+                        {!item.isDeleted && (
+                          <button
+                            onClick={() => handleEdit(item)}
+                            className="bg-blue-600 hover:bg-blue-700 text-white px-4 py-2 rounded-lg transition"
+                          >
+                            Edit
+                          </button>
+                        )}
 
-                        {canDelete && (
+                        {canDelete && !item.isDeleted && (
                           <button
                             onClick={() => handleDelete(item._id)}
                             className="bg-red-600 hover:bg-red-700 text-white px-4 py-2 rounded-lg transition"
                           >
                             Delete
+                          </button>
+                        )}
+
+                        {role === "superadmin" && item.isDeleted && (
+                          <button
+                            onClick={() => handleRestore(item._id)}
+                            className="bg-green-600 hover:bg-green-700 text-white px-4 py-2 rounded-lg transition"
+                          >
+                            Restore
                           </button>
                         )}
                       </div>

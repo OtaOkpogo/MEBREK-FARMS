@@ -16,3 +16,6 @@ export const updateWarehouseItem = (id, data) =>
 // ================= DELETE =================
 
 export const deleteWarehouseItem = (id) => apiClient.delete(`/warehouse/${id}`);
+
+export const restoreWarehouseItem = (id) =>
+  apiClient.put(`/warehouse/${id}/restore`);
