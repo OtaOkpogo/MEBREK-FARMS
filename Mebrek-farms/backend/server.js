@@ -27,6 +27,14 @@ const io = new Server(server, {
 
 app.set("io", io);
 
+io.on("connection", (socket) => {
+  console.log("Socket Connected:", socket.id);
+
+  socket.on("disconnect", () => {
+    console.log("Socket Disconnected:", socket.id);
+  });
+});
+
 app.use(
   cors({
     origin: ["http://localhost:5173"],
