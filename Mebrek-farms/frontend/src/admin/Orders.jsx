@@ -28,6 +28,18 @@ export default function Orders() {
     }
   };
 
+  useEffect(() => {
+    const refreshOrders = () => {
+      fetchOrders();
+    };
+
+    window.addEventListener("orderCreated", refreshOrders);
+
+    return () => {
+      window.removeEventListener("orderCreated", refreshOrders);
+    };
+  }, []);
+
   return (
     <div className="p-6">
       <h2 className="text-2xl font-bold mb-6"> Customer Orders 📦</h2>
@@ -40,7 +52,7 @@ export default function Orders() {
             <thead className="bg-green-600 text-white">
               <tr>
                 <th className="p-3 text-left">Name</th>
-                <th className="p-3 text-left">Email</th>
+                <th className="p-3 text-left">Contact</th>
                 <th className="p-3 text-left">Message</th>
                 <th className="p-3 text-left">Date</th>
               </tr>
@@ -50,7 +62,7 @@ export default function Orders() {
               {orders.map((order) => (
                 <tr key={order._id} className="border-b hover:bg-gray-100">
                   <td className="p-3">{order.name}</td>
-                  <td className="p-3">{order.email || "—"}</td>
+                  <td className="p-3">{order.contact || "—"}</td>
                   <td className="p-3">{order.message}</td>
 
                   <td className="p-3">

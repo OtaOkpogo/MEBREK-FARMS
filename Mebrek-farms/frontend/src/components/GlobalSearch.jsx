@@ -9,7 +9,8 @@ function highlightText(text, search) {
     return text;
   }
 
-  const regex = new RegExp(`(${search})`, "ig");
+  const escaped = search.replace(/[.*+?^${}()|[\]\\]/g, "\\$&");
+  const regex = new RegExp(`(${escaped})`, "ig");
   const parts = String(text).split(regex);
 
   return parts.map((part, index) =>
@@ -249,18 +250,21 @@ export default function GlobalSearch() {
   // ==========================
 
   useEffect(() => {
-    setSelectedIndex(flatResults.length > 0 ? 0 : -1);
-  }, [flatResults]);
-
+    if (open) {
+      setSelectedIndex(flatResults.length > 0 ? 0 : -1);
+    }
+  }, [flatResults, open]);
   // ==========================
   // AUTO-SCROLL SELECTED ITEM INTO VIEW
   // ==========================
 
   useEffect(() => {
-    selectedRef.current?.scrollIntoView({
-      block: "nearest",
-      behavior: "smooth",
-    });
+    if (selectedIndex >= 0 && document.activeElement === inputRef.current) {
+      selectedRef.current?.scrollIntoView({
+        block: "nearest",
+        behavior: "smooth",
+      });
+    }
   }, [selectedIndex]);
 
   // ==========================
@@ -337,7 +341,6 @@ export default function GlobalSearch() {
       <div className="relative">
         <input
           ref={inputRef}
-          disabled={loading}
           value={query}
           onChange={(e) => setQuery(e.target.value)}
           onFocus={() => {

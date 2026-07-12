@@ -47,7 +47,7 @@ export default function Home() {
   // ✅ STATE
   const [form, setForm] = useState({
     name: "",
-    email: "",
+    contact: "",
     message: "",
   });
 
@@ -69,7 +69,7 @@ export default function Home() {
       await axios.post("http://localhost:5000/api/orders", form);
 
       setSuccess("✅ Order sent successfully!");
-      setForm({ name: "", email: "", message: "" });
+      setForm({ name: "", contact: "", message: "" });
     } catch (err) {
       console.error(err);
       setSuccess("❌ Failed to send order");
@@ -216,9 +216,9 @@ export default function Home() {
           />
 
           <input
-            type="email"
-            name="email"
-            placeholder="Email"
+            type="text"
+            name="contact"
+            placeholder="Email or Phone Number"
             value={form.email}
             onChange={handleChange}
             className="w-full p-3 border rounded-lg"
