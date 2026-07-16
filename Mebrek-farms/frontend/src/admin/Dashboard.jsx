@@ -24,9 +24,10 @@ import {
 import { fetchDashboardData } from "../services/dashboardService";
 
 // ================= ROLE PERMISSIONS =================
-// Edit this map to match your actual business rules.
-// true  = section/card is visible to that role
-// false = section/card is hidden
+// UI-layer mirror of the backend's ROLE_PERMISSIONS in routes/dashboard.js.
+// The backend is the actual enforcement point — fields a role can't see
+// are never sent in the response at all. This map only controls which
+// cards/charts render, and should stay in sync with the backend copy.
 const ROLE_PERMISSIONS = {
   superadmin: {
     revenue: true,
@@ -85,6 +86,7 @@ export default function Dashboard() {
     attendance: [],
     mortality: [],
     roomInventory: [],
+    estimatedRevenue: 0,
   });
 
   const [loading, setLoading] = useState(true);
@@ -117,6 +119,9 @@ export default function Dashboard() {
         attendance: res?.attendance || [],
         mortality: res?.mortality || [],
         roomInventory: res?.roomInventory || [],
+        // Backend only includes this field for roles permitted to see it.
+        // Non-superadmins will get undefined here, hence the fallback.
+        estimatedRevenue: res?.estimatedRevenue ?? 0,
       });
     } catch (err) {
       console.error(err);
@@ -188,7 +193,9 @@ export default function Dashboard() {
     0,
   );
 
-  const estimatedRevenue = totalEggs * 5000;
+  // Revenue now comes from the backend, computed only for permitted roles.
+  // No client-side computation from totalEggs anymore.
+  const estimatedRevenue = data.estimatedRevenue || 0;
 
   const totalFeedStock = feeds.reduce(
     (sum, item) => sum + Number(item.quantity || 0),
@@ -449,6 +456,7 @@ export default function Dashboard() {
                 height={300}
                 minWidth={0}
                 minHeight={200}
+                debounce={200}
               >
                 <LineChart data={productionChart}>
                   <CartesianGrid strokeDasharray="3 3" />
@@ -476,6 +484,7 @@ export default function Dashboard() {
                 height={300}
                 minWidth={0}
                 minHeight={200}
+                debounce={200}
               >
                 <PieChart>
                   <Pie
@@ -509,6 +518,7 @@ export default function Dashboard() {
             height={350}
             minWidth={0}
             minHeight={200}
+            debounce={200}
           >
             <BarChart data={inventoryChart}>
               <CartesianGrid strokeDasharray="3 3" />
@@ -537,6 +547,7 @@ export default function Dashboard() {
                 height={320}
                 minWidth={0}
                 minHeight={200}
+                debounce={200}
               >
                 <PieChart>
                   <Pie
@@ -566,6 +577,7 @@ export default function Dashboard() {
                 height={320}
                 minWidth={0}
                 minHeight={200}
+                debounce={200}
               >
                 <BarChart data={workerPerformance}>
                   <CartesianGrid strokeDasharray="3 3" />
@@ -593,6 +605,7 @@ export default function Dashboard() {
               height={320}
               minWidth={0}
               minHeight={200}
+              debounce={200}
             >
               <PieChart>
                 <Pie data={roomChart} dataKey="value" outerRadius={110} label>

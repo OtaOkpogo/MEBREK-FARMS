@@ -1,57 +1,127 @@
-import { useState } from "react";
+import { useEffect, useState } from "react";
+import {
+  getMedications,
+  createMedication,
+  deleteMedication,
+  restoreMedication,
+} from "../services/medicationService";
+import { getCurrentUser } from "../services/authService";
 
 export default function Medications() {
+  const [medications, setMedications] = useState([]);
 
-  const [medications, setMedications] =
-    useState([]);
+  const [formData, setFormData] = useState({
+    medicationName: "",
+    dosage: "",
+    purpose: "",
+    administeredTo: "",
+  });
 
-  const [formData, setFormData] =
-    useState({
-      medicationName: "",
-      dosage: "",
-      purpose: "",
-      administeredTo: "",
-    });
+  const [user, setUser] = useState(null);
+  const [loading, setLoading] = useState(true);
+  const [error, setError] = useState("");
+  const [submitting, setSubmitting] = useState(false);
 
-  const handleSubmit = (e) => {
+  useEffect(() => {
+    loadUser();
+    loadMedications();
+  }, []);
+
+  const loadUser = async () => {
+    try {
+      const data = await getCurrentUser();
+      setUser(data);
+    } catch (err) {
+      console.error(err);
+    }
+  };
+
+  const loadMedications = async () => {
+    try {
+      setLoading(true);
+      // Backend returns deleted records inline for superadmin,
+      // and only active records for everyone else.
+      const data = await getMedications();
+      setMedications(data || []);
+    } catch (err) {
+      console.error(err);
+      setError("Failed to load medication records");
+    } finally {
+      setLoading(false);
+    }
+  };
+
+  const handleSubmit = async (e) => {
     e.preventDefault();
 
-    setMedications([
-      ...medications,
-      {
-        ...formData,
-        id: Date.now(),
-      },
-    ]);
+    if (!formData.medicationName.trim()) return;
 
-    setFormData({
-      medicationName: "",
-      dosage: "",
-      purpose: "",
-      administeredTo: "",
-    });
+    try {
+      setSubmitting(true);
+
+      const created = await createMedication(formData);
+
+      setMedications((prev) => [created, ...prev]);
+
+      setFormData({
+        medicationName: "",
+        dosage: "",
+        purpose: "",
+        administeredTo: "",
+      });
+    } catch (err) {
+      console.error(err);
+      setError("Failed to save medication record");
+    } finally {
+      setSubmitting(false);
+    }
   };
+
+  const handleDelete = async (id) => {
+    if (!window.confirm("Delete this medication record?")) return;
+
+    try {
+      await deleteMedication(id);
+      // Superadmin keeps seeing the record (now marked deleted), so
+      // refetch instead of removing it from state. Other roles never
+      // requested a deleted record in the first place.
+      loadMedications();
+    } catch (err) {
+      console.error(err);
+      setError("Failed to delete medication record");
+    }
+  };
+
+  const handleRestore = async (id) => {
+    try {
+      await restoreMedication(id);
+      loadMedications();
+    } catch (err) {
+      console.error(err);
+      setError("Failed to restore medication record");
+    }
+  };
+
+  const isSuperadmin = user?.role === "superadmin";
 
   return (
     <div className="p-6 bg-gray-100 min-h-screen">
-
       <h1 className="text-4xl font-bold text-blue-700 mb-8">
         Bird Medications 💊
       </h1>
 
+      {error && (
+        <div className="bg-red-100 text-red-700 px-4 py-3 rounded-lg mb-6">
+          {error}
+        </div>
+      )}
+
       {/* FORM */}
 
       <div className="bg-white p-6 rounded-2xl shadow mb-10">
+        <h2 className="text-2xl font-bold mb-6">Add Medication</h2>
 
-        <h2 className="text-2xl font-bold mb-6">
-          Add Medication
-        </h2>
-
-        <form
-          onSubmit={handleSubmit}
-          className="grid md:grid-cols-2 gap-4"
-        >
-
+        <form onSubmit={handleSubmit} className="grid md:grid-cols-2 gap-4">
           <input
             type="text"
             placeholder="Medication Name"
@@ -59,8 +129,7 @@ export default function Medications() {
             onChange={(e) =>
               setFormData({
                 ...formData,
-                medicationName:
-                  e.target.value,
+                medicationName: e.target.value,
               })
             }
             className="border p-3 rounded-lg"
@@ -100,94 +169,118 @@ export default function Medications() {
             onChange={(e) =>
               setFormData({
                 ...formData,
-                administeredTo:
-                  e.target.value,
+                administeredTo: e.target.value,
               })
             }
             className="border p-3 rounded-lg"
           />
 
-          <button className="bg-blue-600 hover:bg-blue-700 text-white rounded-lg py-3 transition">
-            Save Medication
+          <button
+            disabled={submitting}
+            className="bg-blue-600 hover:bg-blue-700 disabled:opacity-60 text-white rounded-lg py-3 transition md:col-span-2"
+          >
+            {submitting ? "Saving..." : "Save Medication"}
           </button>
-
         </form>
-
       </div>
-
-
 
       {/* TABLE */}
 
       <div className="bg-white p-6 rounded-2xl shadow">
+        <h2 className="text-2xl font-bold mb-6">Medication Records</h2>
 
-        <h2 className="text-2xl font-bold mb-6">
-          Medication Records
-        </h2>
-
-        {medications.length === 0 ? (
-
+        {loading ? (
+          <p>Loading medication records...</p>
+        ) : medications.length === 0 ? (
           <p>No medication records yet</p>
-
         ) : (
-
           <div className="overflow-x-auto">
-
             <table className="w-full">
-
               <thead>
-
                 <tr className="border-b text-left">
-
-                  <th className="py-3">
-                    Medication
-                  </th>
-
+                  <th className="py-3">Medication</th>
                   <th>Dosage</th>
-
                   <th>Purpose</th>
-
                   <th>Administered To</th>
-
+                  <th>Date</th>
+                  {isSuperadmin && <th>Status</th>}
+                  <th></th>
                 </tr>
-
               </thead>
 
               <tbody>
-
                 {medications.map((med) => (
-
                   <tr
-                    key={med.id}
-                    className="border-b hover:bg-gray-50"
+                    key={med._id}
+                    className={`border-b hover:bg-gray-50 ${
+                      med.isDeleted ? "bg-red-50" : ""
+                    }`}
                   >
-
-                    <td className="py-3">
-                      {med.medicationName}
+                    <td className="py-3">{med.medicationName}</td>
+                    <td>{med.dosage}</td>
+                    <td>{med.purpose}</td>
+                    <td>{med.administeredTo}</td>
+                    <td>
+                      {med.dateAdministered
+                        ? new Date(med.dateAdministered).toLocaleDateString()
+                        : "—"}
                     </td>
 
-                    <td>{med.dosage}</td>
-
-                    <td>{med.purpose}</td>
+                    {/* Only superadmin's payload ever includes deleted
+                        records, so this column only makes sense for them */}
+                    {isSuperadmin && (
+                      <td>
+                        {med.isDeleted ? (
+                          <div className="text-xs">
+                            <span className="inline-block bg-red-100 text-red-700 font-semibold px-2 py-1 rounded-full mb-1">
+                              Deleted
+                            </span>
+                            <div className="text-gray-500">
+                              by{" "}
+                              {med.deletedBy?.role
+                                ? med.deletedBy.role.charAt(0).toUpperCase() +
+                                  med.deletedBy.role.slice(1)
+                                : "Unknown"}
+                              {med.deletedAt &&
+                                ` on ${new Date(
+                                  med.deletedAt,
+                                ).toLocaleDateString()}`}
+                            </div>
+                          </div>
+                        ) : (
+                          <span className="inline-block bg-green-100 text-green-700 font-semibold px-2 py-1 rounded-full text-xs">
+                            Active
+                          </span>
+                        )}
+                      </td>
+                    )}
 
                     <td>
-                      {med.administeredTo}
+                      {med.isDeleted ? (
+                        isSuperadmin && (
+                          <button
+                            onClick={() => handleRestore(med._id)}
+                            className="text-green-600 hover:text-green-800 text-sm font-semibold"
+                          >
+                            Restore
+                          </button>
+                        )
+                      ) : (
+                        <button
+                          onClick={() => handleDelete(med._id)}
+                          className="text-red-600 hover:text-red-800 text-sm font-semibold"
+                        >
+                          Delete
+                        </button>
+                      )}
                     </td>
-
                   </tr>
-
                 ))}
-
               </tbody>
-
             </table>
-
           </div>
-
         )}
-
       </div>
-
     </div>
   );
 }
