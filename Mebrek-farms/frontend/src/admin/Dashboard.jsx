@@ -23,6 +23,59 @@ import {
 
 import { fetchDashboardData } from "../services/dashboardService";
 
+// ================= ROLE PERMISSIONS =================
+// Edit this map to match your actual business rules.
+// true  = section/card is visible to that role
+// false = section/card is hidden
+const ROLE_PERMISSIONS = {
+  superadmin: {
+    revenue: true,
+    orders: true,
+    workers: true,
+    production: true,
+    feedStock: true,
+    mortality: true,
+    attendance: true,
+    roomInventory: true,
+    workerPerformance: true,
+  },
+  manager: {
+    revenue: false, // revenue is superadmin-only per spec
+    orders: true,
+    workers: true,
+    production: true,
+    feedStock: true,
+    mortality: true,
+    attendance: true,
+    roomInventory: true,
+    workerPerformance: true,
+  },
+  staff: {
+    revenue: false,
+    orders: false,
+    workers: false,
+    production: true,
+    feedStock: true,
+    mortality: false,
+    attendance: true,
+    roomInventory: true,
+    workerPerformance: false,
+  },
+};
+
+// Maps a count of visible cards to a balanced Tailwind grid-cols class
+const GRID_COLS_MAP = {
+  0: "",
+  1: "md:grid-cols-1",
+  2: "md:grid-cols-2",
+  3: "md:grid-cols-3",
+  4: "md:grid-cols-4",
+  5: "md:grid-cols-5",
+  6: "md:grid-cols-6",
+};
+
+const gridColsClass = (count) => GRID_COLS_MAP[count] || "md:grid-cols-6";
+
 export default function Dashboard() {
   const [data, setData] = useState({
     orders: [],
@@ -31,7 +84,7 @@ export default function Dashboard() {
     feeds: [],
     attendance: [],
     mortality: [],
-    RoomInventory: [],
+    roomInventory: [],
   });
 
   const [loading, setLoading] = useState(true);
@@ -108,6 +161,12 @@ export default function Dashboard() {
       console.error(err);
     }
   };
+
+  // ================= PERMISSIONS =================
+
+  const role = user?.role || "staff";
+  const perms = ROLE_PERMISSIONS[role] || ROLE_PERMISSIONS.staff;
+
   // ================= DATA =================
 
   const orders = data.orders;
@@ -140,8 +199,7 @@ export default function Dashboard() {
     (sum, item) => sum + Number(item.numberDead || 0),
     0,
   );
-  console.log("Mortality Records:", mortality);
-  console.log("Total Mortality:", totalMortality);
+
   const totalRooms = new Set(roomInventory.map((item) => item.room)).size;
 
   const totalRoomItems = roomInventory.length;
@@ -183,55 +241,77 @@ export default function Dashboard() {
     performance: worker.performance || 0,
   }));
 
+  // Farm Overview pie only includes metrics this role can see
   const farmOverview = [
-    {
-      name: "Orders",
-      value: totalOrders,
-    },
-    {
-      name: "Workers",
-      value: totalWorkers,
-    },
-    {
-      name: "Eggs",
-      value: totalEggs,
-    },
-    {
-      name: "Mortality",
-      value: totalMortality,
-    },
-  ];
+    perms.orders && { name: "Orders", value: totalOrders },
+    perms.workers && { name: "Workers", value: totalWorkers },
+    perms.production && { name: "Eggs", value: totalEggs },
+    perms.mortality && { name: "Mortality", value: totalMortality },
+  ].filter(Boolean);
 
   const attendanceChart = [
-    {
-      name: "Present",
-      value: presentCount,
-    },
-    {
-      name: "Absent",
-      value: absentCount,
-    },
-    {
-      name: "Late",
-      value: lateCount,
-    },
+    { name: "Present", value: presentCount },
+    { name: "Absent", value: absentCount },
+    { name: "Late", value: lateCount },
   ];
 
   const roomChart = [
-    {
-      name: "Good",
-      value: goodItems,
-    },
-    {
-      name: "Damaged",
-      value: damagedItems,
-    },
-    {
-      name: "Missing",
-      value: missingItems,
-    },
+    { name: "Good", value: goodItems },
+    { name: "Damaged", value: damagedItems },
+    { name: "Missing", value: missingItems },
   ];
+
   const COLORS = ["#16a34a", "#2563eb", "#f59e0b", "#dc2626"];
+
+  // ================= PERMISSION-DRIVEN KPI CARDS =================
+
+  const kpiCards = [
+    perms.orders && {
+      key: "orders",
+      label: "Orders",
+      value: totalOrders,
+      color: "text-green-600",
+    },
+    perms.workers && {
+      key: "workers",
+      label: "Workers",
+      value: totalWorkers,
+      color: "text-blue-600",
+    },
+    perms.production && {
+      key: "production",
+      label: "Egg Production",
+      value: totalEggs,
+      color: "text-yellow-500",
+    },
+    perms.revenue && {
+      key: "revenue",
+      label: "Revenue",
+      value: `₦${estimatedRevenue.toLocaleString()}`,
+      color: "text-purple-600",
+    },
+    perms.feedStock && {
+      key: "feedStock",
+      label: "Feed Stock",
+      value: totalFeedStock,
+      color: "text-green-700",
+    },
+    perms.mortality && {
+      key: "mortality",
+      label: "Mortality",
+      value: totalMortality,
+      color: "text-red-600",
+    },
+  ].filter(Boolean);
+
+  // Which chart rows are visible, used to keep grids balanced
+  const showEggTrend = perms.production;
+  const showFarmOverview = farmOverview.length > 0;
+  const row1Count = [showEggTrend, showFarmOverview].filter(Boolean).length;
+
+  const showAttendance = perms.attendance;
+  const showWorkerPerf = perms.workerPerformance;
+  const row2Count = [showAttendance, showWorkerPerf].filter(Boolean).length;
 
   // ================= STATES =================
 
@@ -303,264 +383,272 @@ export default function Dashboard() {
         </div>
       </div>
 
-      {/* KPI CARDS */}
+      {/* KPI CARDS — permission-driven, grid auto-sizes to card count */}
 
-      <div className="grid md:grid-cols-6 gap-6 mb-8">
-        <div className="bg-white p-5 rounded-2xl shadow">
-          <h3 className="text-gray-500">Orders</h3>
-          <p className="text-3xl font-bold text-green-600">{totalOrders}</p>
+      {kpiCards.length > 0 && (
+        <div className={`grid ${gridColsClass(kpiCards.length)} gap-6 mb-8`}>
+          {kpiCards.map((card) => (
+            <div key={card.key} className="bg-white p-5 rounded-2xl shadow">
+              <h3 className="text-gray-500">{card.label}</h3>
+              <p className={`text-3xl font-bold ${card.color}`}>{card.value}</p>
+            </div>
+          ))}
         </div>
+      )}
 
-        <div className="bg-white p-5 rounded-2xl shadow">
-          <h3 className="text-gray-500">Workers</h3>
-          <p className="text-3xl font-bold text-blue-600">{totalWorkers}</p>
-        </div>
-
-        <div className="bg-white p-5 rounded-2xl shadow">
-          <h3 className="text-gray-500">Egg Production</h3>
-          <p className="text-3xl font-bold text-yellow-500">{totalEggs}</p>
-        </div>
-
-        <div className="bg-white p-5 rounded-2xl shadow">
-          <h3 className="text-gray-500">Revenue</h3>
-          <p className="text-3xl font-bold text-purple-600">
-            ₦{estimatedRevenue.toLocaleString()}
-          </p>
-        </div>
-
-        <div className="bg-white p-5 rounded-2xl shadow">
-          <h3 className="text-gray-500">Feed Stock</h3>
-          <p className="text-3xl font-bold text-green-700">{totalFeedStock}</p>
-        </div>
-
-        <div className="bg-white p-5 rounded-2xl shadow">
-          <h3 className="text-gray-500">Mortality</h3>
-          <p className="text-3xl font-bold text-red-600">{totalMortality}</p>
-        </div>
-      </div>
       {/* ROOM INVENTORY KPI */}
 
-      <div className="grid md:grid-cols-5 gap-6 mb-8">
-        <div className="bg-white p-5 rounded-2xl shadow">
-          <h3 className="text-gray-500">Rooms</h3>
+      {perms.roomInventory && (
+        <div className="grid md:grid-cols-5 gap-6 mb-8">
+          <div className="bg-white p-5 rounded-2xl shadow">
+            <h3 className="text-gray-500">Rooms</h3>
 
-          <p className="text-3xl font-bold text-indigo-600">{totalRooms}</p>
+            <p className="text-3xl font-bold text-indigo-600">{totalRooms}</p>
+          </div>
+
+          <div className="bg-white p-5 rounded-2xl shadow">
+            <h3 className="text-gray-500">Inventory Items</h3>
+
+            <p className="text-3xl font-bold text-green-700">
+              {totalRoomItems}
+            </p>
+          </div>
+
+          <div className="bg-white p-5 rounded-2xl shadow">
+            <h3 className="text-gray-500">Good Items</h3>
+
+            <p className="text-3xl font-bold text-green-500">{goodItems}</p>
+          </div>
+
+          <div className="bg-white p-5 rounded-2xl shadow">
+            <h3 className="text-gray-500">Damaged</h3>
+
+            <p className="text-3xl font-bold text-yellow-500">{damagedItems}</p>
+          </div>
+
+          <div className="bg-white p-5 rounded-2xl shadow">
+            <h3 className="text-gray-500">Missing</h3>
+
+            <p className="text-3xl font-bold text-red-600">{missingItems}</p>
+          </div>
         </div>
+      )}
 
-        <div className="bg-white p-5 rounded-2xl shadow">
-          <h3 className="text-gray-500">Inventory Items</h3>
+      {/* FIRST ROW — Egg Trend + Farm Overview, grid balances to what's visible */}
 
-          <p className="text-3xl font-bold text-green-700">{totalRoomItems}</p>
+      {row1Count > 0 && (
+        <div className={`grid ${gridColsClass(row1Count)} gap-6 mb-8`}>
+          {showEggTrend && (
+            <div className="bg-white p-6 rounded-2xl shadow">
+              <h2 className="text-xl font-bold mb-4">
+                Egg Production Trend 🥚
+              </h2>
+
+              <ResponsiveContainer
+                width="100%"
+                height={300}
+                minWidth={0}
+                minHeight={200}
+              >
+                <LineChart data={productionChart}>
+                  <CartesianGrid strokeDasharray="3 3" />
+                  <XAxis dataKey="date" />
+                  <YAxis />
+                  <Tooltip />
+                  <Legend />
+                  <Line
+                    type="monotone"
+                    dataKey="eggs"
+                    stroke="#16a34a"
+                    strokeWidth={3}
+                  />
+                </LineChart>
+              </ResponsiveContainer>
+            </div>
+          )}
+
+          {showFarmOverview && (
+            <div className="bg-white p-6 rounded-2xl shadow">
+              <h2 className="text-xl font-bold mb-4">Farm Overview 📊</h2>
+
+              <ResponsiveContainer
+                width="100%"
+                height={300}
+                minWidth={0}
+                minHeight={200}
+              >
+                <PieChart>
+                  <Pie
+                    data={farmOverview}
+                    dataKey="value"
+                    outerRadius={110}
+                    label
+                  >
+                    {farmOverview.map((_, index) => (
+                      <Cell key={index} fill={COLORS[index % COLORS.length]} />
+                    ))}
+                  </Pie>
+
+                  <Tooltip />
+                  <Legend />
+                </PieChart>
+              </ResponsiveContainer>
+            </div>
+          )}
         </div>
-
-        <div className="bg-white p-5 rounded-2xl shadow">
-          <h3 className="text-gray-500">Good Items</h3>
-
-          <p className="text-3xl font-bold text-green-500">{goodItems}</p>
-        </div>
-
-        <div className="bg-white p-5 rounded-2xl shadow">
-          <h3 className="text-gray-500">Damaged</h3>
-
-          <p className="text-3xl font-bold text-yellow-500">{damagedItems}</p>
-        </div>
-
-        <div className="bg-white p-5 rounded-2xl shadow">
-          <h3 className="text-gray-500">Missing</h3>
-
-          <p className="text-3xl font-bold text-red-600">{missingItems}</p>
-        </div>
-      </div>
-
-      {/* FIRST ROW */}
-
-      <div className="grid md:grid-cols-2 gap-6 mb-8">
-        <div className="bg-white p-6 rounded-2xl shadow">
-          <h2 className="text-xl font-bold mb-4">Egg Production Trend 🥚</h2>
-
-          <ResponsiveContainer
-            width="100%"
-            height={300}
-            minWidth={0}
-            minHeight={200}
-          >
-            <LineChart data={productionChart}>
-              <CartesianGrid strokeDasharray="3 3" />
-              <XAxis dataKey="date" />
-              <YAxis />
-              <Tooltip />
-              <Legend />
-              <Line
-                type="monotone"
-                dataKey="eggs"
-                stroke="#16a34a"
-                strokeWidth={3}
-              />
-            </LineChart>
-          </ResponsiveContainer>
-        </div>
-
-        <div className="bg-white p-6 rounded-2xl shadow">
-          <h2 className="text-xl font-bold mb-4">Farm Overview 📊</h2>
-
-          <ResponsiveContainer
-            width="100%"
-            height={300}
-            minWidth={0}
-            minHeight={200}
-          >
-            <PieChart>
-              <Pie data={farmOverview} dataKey="value" outerRadius={110} label>
-                {farmOverview.map((_, index) => (
-                  <Cell key={index} fill={COLORS[index]} />
-                ))}
-              </Pie>
-
-              <Tooltip />
-              <Legend />
-            </PieChart>
-          </ResponsiveContainer>
-        </div>
-      </div>
+      )}
 
       {/* FEED INVENTORY */}
 
-      <div className="bg-white p-6 rounded-2xl shadow mb-8">
-        <h2 className="text-xl font-bold mb-4">Feed Inventory 🌽</h2>
-
-        <ResponsiveContainer
-          width="100%"
-          height={350}
-          minWidth={0}
-          minHeight={200}
-        >
-          <BarChart data={inventoryChart}>
-            <CartesianGrid strokeDasharray="3 3" />
-            <XAxis dataKey="name" />
-            <YAxis />
-            <Tooltip />
-            <Legend />
-            <Bar dataKey="stock" fill="#16a34a" />
-          </BarChart>
-        </ResponsiveContainer>
-      </div>
-
-      {/* ATTENDANCE + PERFORMANCE */}
-
-      <div className="grid md:grid-cols-2 gap-6">
-        <div className="bg-white p-6 rounded-2xl shadow">
-          <h2 className="text-xl font-bold mb-4">Attendance Analytics 📅</h2>
+      {perms.feedStock && (
+        <div className="bg-white p-6 rounded-2xl shadow mb-8">
+          <h2 className="text-xl font-bold mb-4">Feed Inventory 🌽</h2>
 
           <ResponsiveContainer
             width="100%"
-            height={320}
+            height={350}
             minWidth={0}
             minHeight={200}
           >
-            <PieChart>
-              <Pie
-                data={attendanceChart}
-                dataKey="value"
-                outerRadius={110}
-                label
-              >
-                <Cell fill="#16a34a" />
-                <Cell fill="#dc2626" />
-                <Cell fill="#f59e0b" />
-              </Pie>
-
-              <Tooltip />
-              <Legend />
-            </PieChart>
-          </ResponsiveContainer>
-        </div>
-
-        <div className="bg-white p-6 rounded-2xl shadow">
-          <h2 className="text-xl font-bold mb-4">Worker Performance 📈</h2>
-
-          <ResponsiveContainer
-            width="100%"
-            height={320}
-            minWidth={0}
-            minHeight={200}
-          >
-            <BarChart data={workerPerformance}>
+            <BarChart data={inventoryChart}>
               <CartesianGrid strokeDasharray="3 3" />
               <XAxis dataKey="name" />
               <YAxis />
               <Tooltip />
               <Legend />
-              <Bar dataKey="performance" fill="#2563eb" />
+              <Bar dataKey="stock" fill="#16a34a" />
             </BarChart>
           </ResponsiveContainer>
         </div>
-      </div>
+      )}
+
+      {/* ATTENDANCE + PERFORMANCE — grid balances to what's visible */}
+
+      {row2Count > 0 && (
+        <div className={`grid ${gridColsClass(row2Count)} gap-6`}>
+          {showAttendance && (
+            <div className="bg-white p-6 rounded-2xl shadow">
+              <h2 className="text-xl font-bold mb-4">
+                Attendance Analytics 📅
+              </h2>
+
+              <ResponsiveContainer
+                width="100%"
+                height={320}
+                minWidth={0}
+                minHeight={200}
+              >
+                <PieChart>
+                  <Pie
+                    data={attendanceChart}
+                    dataKey="value"
+                    outerRadius={110}
+                    label
+                  >
+                    <Cell fill="#16a34a" />
+                    <Cell fill="#dc2626" />
+                    <Cell fill="#f59e0b" />
+                  </Pie>
+
+                  <Tooltip />
+                  <Legend />
+                </PieChart>
+              </ResponsiveContainer>
+            </div>
+          )}
+
+          {showWorkerPerf && (
+            <div className="bg-white p-6 rounded-2xl shadow">
+              <h2 className="text-xl font-bold mb-4">Worker Performance 📈</h2>
+
+              <ResponsiveContainer
+                width="100%"
+                height={320}
+                minWidth={0}
+                minHeight={200}
+              >
+                <BarChart data={workerPerformance}>
+                  <CartesianGrid strokeDasharray="3 3" />
+                  <XAxis dataKey="name" />
+                  <YAxis />
+                  <Tooltip />
+                  <Legend />
+                  <Bar dataKey="performance" fill="#2563eb" />
+                </BarChart>
+              </ResponsiveContainer>
+            </div>
+          )}
+        </div>
+      )}
 
       {/* ROOM INVENTORY */}
 
-      <div className="grid md:grid-cols-2 gap-6 mt-8">
-        <div className="bg-white rounded-2xl shadow p-6">
-          <h2 className="text-xl font-bold mb-4">Room Inventory Status 🏠</h2>
+      {perms.roomInventory && (
+        <div className="grid md:grid-cols-2 gap-6 mt-8">
+          <div className="bg-white rounded-2xl shadow p-6">
+            <h2 className="text-xl font-bold mb-4">Room Inventory Status 🏠</h2>
 
-          <ResponsiveContainer
-            width="100%"
-            height={320}
-            minWidth={0}
-            minHeight={200}
-          >
-            <PieChart>
-              <Pie data={roomChart} dataKey="value" outerRadius={110} label>
-                <Cell fill="#22c55e" />
-                <Cell fill="#f59e0b" />
-                <Cell fill="#ef4444" />
-              </Pie>
+            <ResponsiveContainer
+              width="100%"
+              height={320}
+              minWidth={0}
+              minHeight={200}
+            >
+              <PieChart>
+                <Pie data={roomChart} dataKey="value" outerRadius={110} label>
+                  <Cell fill="#22c55e" />
+                  <Cell fill="#f59e0b" />
+                  <Cell fill="#ef4444" />
+                </Pie>
 
-              <Tooltip />
-              <Legend />
-            </PieChart>
-          </ResponsiveContainer>
-        </div>
+                <Tooltip />
+                <Legend />
+              </PieChart>
+            </ResponsiveContainer>
+          </div>
 
-        <div className="bg-white rounded-2xl shadow p-6">
-          <h2 className="text-xl font-bold mb-4">Recent Room Inventory</h2>
+          <div className="bg-white rounded-2xl shadow p-6">
+            <h2 className="text-xl font-bold mb-4">Recent Room Inventory</h2>
 
-          <div className="overflow-auto max-h-80">
-            <table className="w-full">
-              <thead>
-                <tr className="border-b">
-                  <th className="text-left py-2">Room</th>
+            <div className="overflow-auto max-h-80">
+              <table className="w-full">
+                <thead>
+                  <tr className="border-b">
+                    <th className="text-left py-2">Room</th>
 
-                  <th className="text-left py-2">Item</th>
+                    <th className="text-left py-2">Item</th>
 
-                  <th className="text-left py-2">Condition</th>
-                </tr>
-              </thead>
-
-              <tbody>
-                {roomInventory.slice(0, 10).map((item) => (
-                  <tr key={item._id} className="border-b">
-                    <td className="py-2">{item.room}</td>
-
-                    <td className="py-2">{item.itemName}</td>
-
-                    <td
-                      className={`py-2 font-semibold ${
-                        item.condition === "Good"
-                          ? "text-green-600"
-                          : item.condition === "Damaged"
-                            ? "text-yellow-600"
-                            : "text-red-600"
-                      }`}
-                    >
-                      {item.condition}
-                    </td>
+                    <th className="text-left py-2">Condition</th>
                   </tr>
-                ))}
-              </tbody>
-            </table>
+                </thead>
+
+                <tbody>
+                  {roomInventory.slice(0, 10).map((item) => (
+                    <tr key={item._id} className="border-b">
+                      <td className="py-2">{item.room}</td>
+
+                      <td className="py-2">{item.itemName}</td>
+
+                      <td
+                        className={`py-2 font-semibold ${
+                          item.condition === "Good"
+                            ? "text-green-600"
+                            : item.condition === "Damaged"
+                              ? "text-yellow-600"
+                              : "text-red-600"
+                        }`}
+                      >
+                        {item.condition}
+                      </td>
+                    </tr>
+                  ))}
+                </tbody>
+              </table>
+            </div>
           </div>
         </div>
-      </div>
+      )}
+
       {popupVisible && (
         <NotificationPopup
           notifications={unreadNotifications}
