@@ -88,3 +88,35 @@ exports.updateOrderStatus = async (req, res) => {
     });
   }
 };
+// Delete Order
+exports.deleteOrder = async (req, res) => {
+  try {
+    const order = await Order.findById(req.params.id);
+
+    if (!order) {
+      return res.status(404).json({
+        error: "Order not found",
+      });
+    }
+
+    await Order.findByIdAndDelete(req.params.id);
+
+    const io = req.app.get("io");
+
+    if (io) {
+      io.emit("orderDeleted", {
+        id: req.params.id,
+      });
+    }
+
+    res.json({
+      message: "Order deleted successfully",
+    });
+  } catch (error) {
+    console.error(error);
+
+    res.status(500).json({
+      error: error.message,
+    });
+  }
+};
