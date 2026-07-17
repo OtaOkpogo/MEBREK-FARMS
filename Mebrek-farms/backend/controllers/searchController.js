@@ -4,6 +4,10 @@ const EggSale = require("../models/EggSale");
 const Feed = require("../models/Feed");
 const Notification = require("../models/Notification");
 const RoomInventory = require("../models/RoomInventory");
+const Warehouse = require("../models/Warehouse");
+const Order = require("../models/Order");
+const Vaccination = require("../models/Vaccination");
+const Medication = require("../models/Medication");
 
 exports.globalSearch = async (req, res) => {
   try {
@@ -17,6 +21,10 @@ exports.globalSearch = async (req, res) => {
         feedInventory: [],
         roomInventory: [],
         notifications: [],
+        warehouse: [],
+        orders: [],
+        vaccinations: [],
+        medications: [],
       });
     }
 
@@ -31,6 +39,10 @@ exports.globalSearch = async (req, res) => {
       feedInventory,
       roomInventory,
       notifications,
+      warehouse,
+      orders,
+      vaccinations,
+      medications,
     ] = await Promise.all([
       // STAFF
       Admin.find(textQuery, textScore)
@@ -66,6 +78,34 @@ exports.globalSearch = async (req, res) => {
         .select("subject message senderName senderRole createdAt score")
         .sort(sortByScore)
         .limit(10),
+
+      // WAREHOUSE — excludes soft-deleted items from search results
+      Warehouse.find({ ...textQuery, isDeleted: false }, textScore)
+        .select("itemName category quantity unit location status score")
+        .sort(sortByScore)
+        .limit(10),
+
+      // ORDERS
+      Order.find(textQuery, textScore)
+        .select("name contact message status createdAt score")
+        .sort(sortByScore)
+        .limit(10),
+
+      // VACCINATIONS — excludes soft-deleted records from search results
+      Vaccination.find({ ...textQuery, isDeleted: false }, textScore)
+        .select(
+          "vaccineName birdBatch quantity administeredBy nextDueDate score",
+        )
+        .sort(sortByScore)
+        .limit(10),
+
+      // MEDICATIONS — excludes soft-deleted records from search results
+      Medication.find({ ...textQuery, isDeleted: false }, textScore)
+        .select(
+          "medicationName dosage purpose administeredTo dateAdministered score",
+        )
+        .sort(sortByScore)
+        .limit(10),
     ]);
 
     res.json({
@@ -75,6 +115,10 @@ exports.globalSearch = async (req, res) => {
       feedInventory,
       roomInventory,
       notifications,
+      warehouse,
+      orders,
+      vaccinations,
+      medications,
     });
   } catch (err) {
     console.error("GLOBAL SEARCH ERROR:", err);

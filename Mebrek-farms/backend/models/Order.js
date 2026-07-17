@@ -28,4 +28,10 @@ const orderSchema = new mongoose.Schema(
   },
 );
 
+orderSchema.index({
+  name: "text",
+  contact: "text",
+  message: "text",
+});
+
 module.exports = mongoose.model("Order", orderSchema);

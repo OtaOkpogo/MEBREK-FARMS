@@ -52,5 +52,11 @@ const medicationSchema = new mongoose.Schema(
 // Speeds up the default "active records" list view and deleted-records view
 medicationSchema.index({ isDeleted: 1, dateAdministered: -1 });
 
-module.exports = mongoose.model("Medication", medicationSchema);
+medicationSchema.index({
+  medicationName: "text",
+  dosage: "text",
+  purpose: "text",
+  administeredTo: "text",
+});
 
+module.exports = mongoose.model("Medication", medicationSchema);

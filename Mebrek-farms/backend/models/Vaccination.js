@@ -53,6 +53,13 @@ const vaccinationSchema = new mongoose.Schema(
   },
 );
 
+vaccinationSchema.index({
+  vaccineName: "text",
+  birdBatch: "text",
+  administeredBy: "text",
+  notes: "text",
+});
+
 vaccinationSchema.index({ isDeleted: 1, createdAt: -1 });
 
 module.exports = mongoose.model("Vaccination", vaccinationSchema);
