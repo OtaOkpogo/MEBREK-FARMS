@@ -1,0 +1,82 @@
+const Order = require("../models/Order");
+const Worker = require("../models/Worker");
+const Production = require("../models/Production");
+const Feed = require("../models/Feed");
+const Attendance = require("../models/Attendance");
+const RoomInventory = require("../models/RoomInventory");
+const Mortality = require("../models/Mortality");
+const Vaccination = require("../models/Vaccination");
+const EggSale = require("../models/EggSale");
+const Medication = require("../models/Medication");
+const BirdHealth = require("../models/BirdHealth");
+const Admin = require("../models/Admin");
+
+// @desc   Export every major collection as a single downloadable JSON file
+// @route  GET /api/backup/export
+// @access Superadmin only (gated in route)
+exports.exportDatabase = async (req, res) => {
+  try {
+    const [
+      orders,
+      workers,
+      production,
+      feeds,
+      attendance,
+      roomInventory,
+      mortality,
+      vaccinations,
+      eggSales,
+      medications,
+      birdHealth,
+      admins,
+    ] = await Promise.all([
+      Order.find(),
+      Worker.find(),
+      Production.find(),
+      Feed.find(),
+      Attendance.find(),
+      RoomInventory.find(),
+      Mortality.find(),
+      Vaccination.find(),
+      EggSale.find(),
+      Medication.find(),
+      BirdHealth.find(),
+      // Never include password hashes (or any auth secrets) in a
+      // downloadable file, even though this endpoint is already
+      // restricted to superadmin — defense in depth.
+      Admin.find().select("-password"),
+    ]);
+
+    const backup = {
+      exportedAt: new Date().toISOString(),
+      exportedBy: req.user?.id || null,
+      collections: {
+        orders,
+        workers,
+        production,
+        feeds,
+        attendance,
+        roomInventory,
+        mortality,
+        vaccinations,
+        eggSales,
+        medications,
+        birdHealth,
+        admins,
+      },
+    };
+
+    const filename = `mebrek-farms-backup-${new Date()
+      .toISOString()
+      .slice(0, 19)
+      .replace(/[:T]/g, "-")}.json`;
+
+    res.setHeader("Content-Type", "application/json");
+    res.setHeader("Content-Disposition", `attachment; filename="${filename}"`);
+
+    res.send(JSON.stringify(backup, null, 2));
+  } catch (err) {
+    console.error("Database Export Error:", err);
+    res.status(500).json({ message: err.message });
+  }
+};

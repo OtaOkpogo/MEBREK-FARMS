@@ -46,3 +46,45 @@ exports.getOrders = async (req, res) => {
     });
   }
 };
+
+// Update Order Status (Admin)
+exports.updateOrderStatus = async (req, res) => {
+  try {
+    const { status } = req.body;
+
+    const allowedStatuses = ["Pending", "Contacted", "Completed"];
+
+    if (!allowedStatuses.includes(status)) {
+      return res.status(400).json({
+        error: `Status must be one of: ${allowedStatuses.join(", ")}`,
+      });
+    }
+
+    const order = await Order.findById(req.params.id);
+
+    if (!order) {
+      return res.status(404).json({
+        error: "Order not found",
+      });
+    }
+
+    order.status = status;
+    await order.save();
+
+    // Let the admin panel update in real time if another admin has
+    // the Orders page open, matching the newOrder socket pattern.
+    const io = req.app.get("io");
+
+    if (io) {
+      io.emit("orderStatusUpdated", order);
+    }
+
+    res.json(order);
+  } catch (error) {
+    console.error(error);
+
+    res.status(500).json({
+      error: error.message,
+    });
+  }
+};

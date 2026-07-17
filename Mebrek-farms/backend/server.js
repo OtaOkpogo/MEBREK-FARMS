@@ -72,6 +72,7 @@ app.use("/api/dashboard", dashboardRoutes);
 app.use("/api/notifications", notificationRoutes);
 app.use("/api/room-inventory", roomInventoryRoutes);
 app.use("/api/search", searchRoutes);
+app.use("/api/backup", require("./routes/backup"));
 
 const PORT = process.env.PORT || 5000;
 io.on("connection", (socket) => {
