@@ -89,6 +89,21 @@ const eggSaleSchema = new mongoose.Schema(
       type: mongoose.Schema.Types.ObjectId,
       ref: "Admin",
     },
+
+    // ---- Soft delete, matching the Medications/BirdHealth/Vaccinations pattern ----
+    isDeleted: {
+      type: Boolean,
+      default: false,
+    },
+    deletedAt: {
+      type: Date,
+      default: null,
+    },
+    deletedBy: {
+      type: mongoose.Schema.Types.ObjectId,
+      ref: "Admin",
+      default: null,
+    },
   },
   {
     timestamps: true,
@@ -100,5 +115,7 @@ eggSaleSchema.index({
   phone: "text",
   remarks: "text",
 });
+
+eggSaleSchema.index({ isDeleted: 1, createdAt: -1 });
 
 module.exports = mongoose.model("EggSale", eggSaleSchema);

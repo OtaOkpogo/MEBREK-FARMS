@@ -65,6 +65,8 @@ app.use("/api/egg-sales", eggSaleRoutes);
 app.use("/api/orders", require("./routes/orders"));
 app.use("/api/warehouse", warehouseRoutes);
 app.use("/api/vaccinations", vaccinationRoutes);
+app.use("/api/medications", require("./routes/medications"));
+app.use("/api/bird-health", require("./routes/birdHealth"));
 app.use("/api/mortality", mortalityRoutes);
 app.use("/api/dashboard", dashboardRoutes);
 app.use("/api/notifications", notificationRoutes);

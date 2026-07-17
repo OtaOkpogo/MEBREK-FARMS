@@ -1,12 +1,20 @@
 const Medication = require("../models/Medication");
 
-// @desc   Get all active medication records
+// @desc   Get medication records. Superadmin sees deleted records inline
+//         (with who deleted them); everyone else only sees active records.
 // @route  GET /api/medications
 exports.getMedications = async (req, res) => {
   try {
-    const medications = await Medication.find({ isDeleted: false })
+    const isSuperadmin = req.user?.role === "superadmin";
+
+    // Superadmin: no filter, so deleted records are included.
+    // Everyone else: only active records, exactly as before.
+    const filter = isSuperadmin ? {} : { isDeleted: false };
+
+    const medications = await Medication.find(filter)
       .sort({ dateAdministered: -1 })
-      .populate("administeredBy", "name email");
+      .populate("administeredBy", "name email")
+      .populate("deletedBy", "role name");
 
     res.json(medications);
   } catch (err) {
@@ -19,8 +27,13 @@ exports.getMedications = async (req, res) => {
 // @route  POST /api/medications
 exports.createMedication = async (req, res) => {
   try {
-    const { medicationName, dosage, purpose, administeredTo, dateAdministered } =
-      req.body;
+    const {
+      medicationName,
+      dosage,
+      purpose,
+      administeredTo,
+      dateAdministered,
+    } = req.body;
 
     if (!medicationName || !medicationName.trim()) {
       return res.status(400).json({ message: "Medication name is required" });
@@ -32,7 +45,7 @@ exports.createMedication = async (req, res) => {
       purpose,
       administeredTo,
       dateAdministered: dateAdministered || Date.now(),
-      administeredBy: req.user?._id,
+      administeredBy: req.user?.id,
     });
 
     res.status(201).json(medication);
@@ -55,14 +68,22 @@ exports.updateMedication = async (req, res) => {
       return res.status(404).json({ message: "Medication record not found" });
     }
 
-    const { medicationName, dosage, purpose, administeredTo, dateAdministered } =
-      req.body;
+    const {
+      medicationName,
+      dosage,
+      purpose,
+      administeredTo,
+      dateAdministered,
+    } = req.body;
 
-    if (medicationName !== undefined) medication.medicationName = medicationName;
+    if (medicationName !== undefined)
+      medication.medicationName = medicationName;
     if (dosage !== undefined) medication.dosage = dosage;
     if (purpose !== undefined) medication.purpose = purpose;
-    if (administeredTo !== undefined) medication.administeredTo = administeredTo;
-    if (dateAdministered !== undefined) medication.dateAdministered = dateAdministered;
+    if (administeredTo !== undefined)
+      medication.administeredTo = administeredTo;
+    if (dateAdministered !== undefined)
+      medication.dateAdministered = dateAdministered;
 
     await medication.save();
 
@@ -88,7 +109,7 @@ exports.deleteMedication = async (req, res) => {
 
     medication.isDeleted = true;
     medication.deletedAt = new Date();
-    medication.deletedBy = req.user?._id;
+    medication.deletedBy = req.user?.id;
 
     await medication.save();
 
@@ -142,4 +163,3 @@ exports.restoreMedication = async (req, res) => {
     res.status(500).json({ message: err.message });
   }
 };
-

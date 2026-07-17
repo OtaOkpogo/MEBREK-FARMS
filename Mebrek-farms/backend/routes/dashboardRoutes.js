@@ -10,6 +10,7 @@ const Feed = require("../models/Feed");
 const Attendance = require("../models/Attendance");
 const RoomInventory = require("../models/RoomInventory");
 const Mortality = require("../models/Mortality");
+const Vaccination = require("../models/Vaccination");
 
 // ================= ROLE PERMISSIONS =================
 // Single source of truth for which dashboard fields each role receives.
@@ -27,6 +28,7 @@ const ROLE_PERMISSIONS = {
     attendance: true,
     roomInventory: true,
     workerPerformance: true,
+    vaccinations: true,
   },
   manager: {
     revenue: false,
@@ -38,6 +40,7 @@ const ROLE_PERMISSIONS = {
     attendance: true,
     roomInventory: true,
     workerPerformance: true,
+    vaccinations: true,
   },
   staff: {
     revenue: false,
@@ -49,6 +52,7 @@ const ROLE_PERMISSIONS = {
     attendance: true,
     roomInventory: true,
     workerPerformance: false,
+    vaccinations: true,
   },
 };
 
@@ -69,6 +73,7 @@ router.get("/", auth, async (req, res) => {
       attendance,
       mortality,
       roomInventory,
+      vaccinations,
     ] = await Promise.all([
       perms.orders ? Order.find() : Promise.resolve([]),
       perms.workers || perms.workerPerformance
@@ -81,6 +86,7 @@ router.get("/", auth, async (req, res) => {
       perms.attendance ? Attendance.find() : Promise.resolve([]),
       perms.mortality ? Mortality.find() : Promise.resolve([]),
       perms.roomInventory ? RoomInventory.find() : Promise.resolve([]),
+      perms.vaccinations ? Vaccination.find() : Promise.resolve([]),
     ]);
 
     const payload = {
@@ -91,6 +97,7 @@ router.get("/", auth, async (req, res) => {
       attendance: perms.attendance ? attendance : [],
       mortality: perms.mortality ? mortality : [],
       roomInventory: perms.roomInventory ? roomInventory : [],
+      vaccinations: perms.vaccinations ? vaccinations : [],
     };
 
     // Revenue is computed here, server-side, and only attached for
