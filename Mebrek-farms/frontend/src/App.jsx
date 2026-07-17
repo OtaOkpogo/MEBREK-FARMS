@@ -26,6 +26,7 @@ import Medications from "./admin/Medications";
 import Attendance from "./admin/Attendance";
 import StaffAccounts from "./admin/StaffAccounts";
 import Profile from "./admin/Profile";
+import Backup from "./admin/Backup";
 
 import Expenses from "./pages/Expenses";
 
@@ -148,6 +149,15 @@ function App() {
             element={
               <ProtectedRoute allowedRoles={["superadmin"]}>
                 <StaffAccounts />
+              </ProtectedRoute>
+            }
+          />
+
+          <Route
+            path="backup"
+            element={
+              <ProtectedRoute allowedRoles={["superadmin"]}>
+                <Backup />
               </ProtectedRoute>
             }
           />

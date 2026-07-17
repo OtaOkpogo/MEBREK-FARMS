@@ -96,6 +96,10 @@ export default function GlobalSearch() {
     feedInventory: [],
     roomInventory: [],
     notifications: [],
+    warehouse: [],
+    orders: [],
+    vaccinations: [],
+    medications: [],
   });
 
   const [loading, setLoading] = useState(false);
@@ -129,6 +133,10 @@ export default function GlobalSearch() {
         feedInventory: [],
         roomInventory: [],
         notifications: [],
+        warehouse: [],
+        orders: [],
+        vaccinations: [],
+        medications: [],
       });
       return;
     }
@@ -146,6 +154,10 @@ export default function GlobalSearch() {
           feedInventory: data.feedInventory || [],
           roomInventory: data.roomInventory || [],
           notifications: data.notifications || [],
+          warehouse: data.warehouse || [],
+          orders: data.orders || [],
+          vaccinations: data.vaccinations || [],
+          medications: data.medications || [],
         });
 
         setOpen(true);
@@ -188,6 +200,26 @@ export default function GlobalSearch() {
         data: item,
       }),
     );
+    results.warehouse.forEach((item) =>
+      rows.push({ type: "warehouse", path: "/admin/warehouse", data: item }),
+    );
+    results.orders.forEach((item) =>
+      rows.push({ type: "order", path: "/admin/orders", data: item }),
+    );
+    results.vaccinations.forEach((item) =>
+      rows.push({
+        type: "vaccination",
+        path: "/admin/vaccinations",
+        data: item,
+      }),
+    );
+    results.medications.forEach((item) =>
+      rows.push({
+        type: "medication",
+        path: "/admin/medications",
+        data: item,
+      }),
+    );
 
     return rows;
   }, [results]);
@@ -201,6 +233,10 @@ export default function GlobalSearch() {
     results.feedInventory.length,
     results.roomInventory.length,
     results.notifications.length,
+    results.warehouse.length,
+    results.orders.length,
+    results.vaccinations.length,
+    results.medications.length,
   ].filter((count) => count > 0).length;
 
   // ==========================

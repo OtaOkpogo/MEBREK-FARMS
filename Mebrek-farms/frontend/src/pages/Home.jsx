@@ -1,5 +1,5 @@
 import { Link as RouterLink } from "react-router-dom";
-import { useState } from "react";
+import { useEffect, useRef, useState } from "react";
 import axios from "axios";
 import logo from "../assets/logo.PNG";
 
@@ -219,9 +219,10 @@ export default function Home() {
             type="text"
             name="contact"
             placeholder="Email or Phone Number"
-            value={form.email}
+            value={form.contact}
             onChange={handleChange}
             className="w-full p-3 border rounded-lg"
+            required
           />
 
           <textarea
