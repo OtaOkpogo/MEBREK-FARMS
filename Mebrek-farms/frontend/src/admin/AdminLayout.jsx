@@ -374,6 +374,13 @@ export default function AdminLayout() {
               >
                 Staff Accounts 👥
               </Link>
+
+              <Link
+                to="/admin/backup"
+                className="block hover:bg-green-700 p-3 rounded-lg transition"
+              >
+                Backup 🗄️
+              </Link>
             </>
           )}
         </nav>

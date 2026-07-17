@@ -2,6 +2,7 @@ import { useEffect, useState } from "react";
 import {
   getMedications,
   createMedication,
+  updateMedication,
   deleteMedication,
   restoreMedication,
 } from "../services/medicationService";
@@ -16,6 +17,9 @@ export default function Medications() {
     purpose: "",
     administeredTo: "",
   });
+
+  const [editingId, setEditingId] = useState(null);
+  const [search, setSearch] = useState("");
 
   const [user, setUser] = useState(null);
   const [loading, setLoading] = useState(true);
@@ -59,22 +63,45 @@ export default function Medications() {
     try {
       setSubmitting(true);
 
-      const created = await createMedication(formData);
+      if (editingId) {
+        await updateMedication(editingId, formData);
+      } else {
+        await createMedication(formData);
+      }
 
-      setMedications((prev) => [created, ...prev]);
-
-      setFormData({
-        medicationName: "",
-        dosage: "",
-        purpose: "",
-        administeredTo: "",
-      });
+      resetForm();
+      loadMedications();
     } catch (err) {
       console.error(err);
-      setError("Failed to save medication record");
+      setError(
+        editingId
+          ? "Failed to update medication record"
+          : "Failed to save medication record",
+      );
     } finally {
       setSubmitting(false);
     }
+  };
+
+  const resetForm = () => {
+    setFormData({
+      medicationName: "",
+      dosage: "",
+      purpose: "",
+      administeredTo: "",
+    });
+    setEditingId(null);
+  };
+
+  const handleEdit = (med) => {
+    setEditingId(med._id);
+    setFormData({
+      medicationName: med.medicationName || "",
+      dosage: med.dosage || "",
+      purpose: med.purpose || "",
+      administeredTo: med.administeredTo || "",
+    });
+    window.scrollTo({ top: 0, behavior: "smooth" });
   };
 
   const handleDelete = async (id) => {
@@ -104,6 +131,18 @@ export default function Medications() {
 
   const isSuperadmin = user?.role === "superadmin";
 
+  const filteredMedications = medications.filter((med) => {
+    const term = search.toLowerCase();
+    if (!term) return true;
+
+    return (
+      med.medicationName?.toLowerCase().includes(term) ||
+      med.dosage?.toLowerCase().includes(term) ||
+      med.purpose?.toLowerCase().includes(term) ||
+      med.administeredTo?.toLowerCase().includes(term)
+    );
+  });
+
   return (
     <div className="p-6 bg-gray-100 min-h-screen">
       <h1 className="text-4xl font-bold text-blue-700 mb-8">
@@ -119,7 +158,9 @@ export default function Medications() {
       {/* FORM */}
 
       <div className="bg-white p-6 rounded-2xl shadow mb-10">
-        <h2 className="text-2xl font-bold mb-6">Add Medication</h2>
+        <h2 className="text-2xl font-bold mb-6">
+          {editingId ? "Edit Medication" : "Add Medication"}
+        </h2>
 
         <form onSubmit={handleSubmit} className="grid md:grid-cols-2 gap-4">
           <input
@@ -175,24 +216,54 @@ export default function Medications() {
             className="border p-3 rounded-lg"
           />
 
-          <button
-            disabled={submitting}
-            className="bg-blue-600 hover:bg-blue-700 disabled:opacity-60 text-white rounded-lg py-3 transition md:col-span-2"
-          >
-            {submitting ? "Saving..." : "Save Medication"}
-          </button>
+          <div className="md:col-span-2 flex gap-3">
+            <button
+              disabled={submitting}
+              className="bg-blue-600 hover:bg-blue-700 disabled:opacity-60 text-white rounded-lg py-3 px-6 transition"
+            >
+              {submitting
+                ? "Saving..."
+                : editingId
+                  ? "Update Medication"
+                  : "Save Medication"}
+            </button>
+
+            {editingId && (
+              <button
+                type="button"
+                onClick={resetForm}
+                className="bg-gray-200 hover:bg-gray-300 text-gray-700 rounded-lg py-3 px-6 transition"
+              >
+                Cancel
+              </button>
+            )}
+          </div>
         </form>
       </div>
 
       {/* TABLE */}
 
       <div className="bg-white p-6 rounded-2xl shadow">
-        <h2 className="text-2xl font-bold mb-6">Medication Records</h2>
+        <div className="flex flex-col md:flex-row md:items-center md:justify-between gap-4 mb-6">
+          <h2 className="text-2xl font-bold">Medication Records</h2>
+
+          <input
+            type="text"
+            placeholder="Search by medication, dosage, purpose, or location..."
+            value={search}
+            onChange={(e) => setSearch(e.target.value)}
+            className="border p-3 rounded-lg md:w-80"
+          />
+        </div>
 
         {loading ? (
           <p>Loading medication records...</p>
-        ) : medications.length === 0 ? (
-          <p>No medication records yet</p>
+        ) : filteredMedications.length === 0 ? (
+          <p>
+            {search
+              ? "No medication records match your search"
+              : "No medication records yet"}
+          </p>
         ) : (
           <div className="overflow-x-auto">
             <table className="w-full">
@@ -209,7 +280,7 @@ export default function Medications() {
               </thead>
 
               <tbody>
-                {medications.map((med) => (
+                {filteredMedications.map((med) => (
                   <tr
                     key={med._id}
                     className={`border-b hover:bg-gray-50 ${
@@ -266,12 +337,20 @@ export default function Medications() {
                           </button>
                         )
                       ) : (
-                        <button
-                          onClick={() => handleDelete(med._id)}
-                          className="text-red-600 hover:text-red-800 text-sm font-semibold"
-                        >
-                          Delete
-                        </button>
+                        <div className="flex gap-3">
+                          <button
+                            onClick={() => handleEdit(med)}
+                            className="text-blue-600 hover:text-blue-800 text-sm font-semibold"
+                          >
+                            Edit
+                          </button>
+                          <button
+                            onClick={() => handleDelete(med._id)}
+                            className="text-red-600 hover:text-red-800 text-sm font-semibold"
+                          >
+                            Delete
+                          </button>
+                        </div>
                       )}
                     </td>
                   </tr>
