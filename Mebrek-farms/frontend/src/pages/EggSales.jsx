@@ -5,7 +5,9 @@ import {
   fetchSales,
   createSale,
   deleteSale,
+  restoreSale,
 } from "../services/eggSalesService";
+import { getCurrentUser } from "../services/authService";
 
 import {
   ResponsiveContainer,
@@ -38,6 +40,8 @@ export default function EggSales() {
 
   const [statusFilter, setStatusFilter] = useState("All");
 
+  const [user, setUser] = useState(null);
+
   const [formData, setFormData] = useState({
     customer: "",
     phone: "",
@@ -67,8 +71,18 @@ export default function EggSales() {
   // ==========================================
 
   useEffect(() => {
+    loadUser();
     loadSales();
   }, []);
+
+  const loadUser = async () => {
+    try {
+      const data = await getCurrentUser();
+      setUser(data);
+    } catch (err) {
+      console.error(err);
+    }
+  };
 
   const loadSales = async () => {
     try {
@@ -229,26 +243,34 @@ export default function EggSales() {
     });
   }, [sales, search, statusFilter]);
 
+  // KPI cards and charts should never include deleted sales in the
+  // totals, even for superadmin — deleted sales still show in the
+  // table for audit purposes, but shouldn't count toward revenue.
+  const activeSales = useMemo(
+    () => filteredSales.filter((sale) => !sale.isDeleted),
+    [filteredSales],
+  );
+
   // ==========================================
   // KPI CARDS
   // ==========================================
 
-  const totalRevenue = filteredSales.reduce(
+  const totalRevenue = activeSales.reduce(
     (sum, sale) => sum + Number(sale.totalAmount || 0),
     0,
   );
 
-  const amountReceived = filteredSales.reduce(
+  const amountReceived = activeSales.reduce(
     (sum, sale) => sum + Number(sale.amountPaid || 0),
     0,
   );
 
-  const outstanding = filteredSales.reduce(
+  const outstanding = activeSales.reduce(
     (sum, sale) => sum + Number(sale.balance || 0),
     0,
   );
 
-  const totalCrates = filteredSales.reduce(
+  const totalCrates = activeSales.reduce(
     (sum, sale) => sum + Number(sale.cratesSold || 0),
     0,
   );
@@ -256,15 +278,15 @@ export default function EggSales() {
   const paymentChart = [
     {
       name: "Paid",
-      value: filteredSales.filter((x) => x.status === "Paid").length,
+      value: activeSales.filter((x) => x.status === "Paid").length,
     },
     {
       name: "Part Paid",
-      value: filteredSales.filter((x) => x.status === "Part Paid").length,
+      value: activeSales.filter((x) => x.status === "Part Paid").length,
     },
     {
       name: "Unpaid",
-      value: filteredSales.filter((x) => x.status === "Unpaid").length,
+      value: activeSales.filter((x) => x.status === "Unpaid").length,
     },
   ];
 
@@ -276,14 +298,14 @@ export default function EggSales() {
 
   const today = new Date();
 
-  const dailySales = filteredSales
+  const dailySales = activeSales
     .filter((sale) => {
       if (!sale.date) return false;
       return new Date(sale.date).toDateString() === today.toDateString();
     })
     .reduce((sum, sale) => sum + Number(sale.totalAmount || 0), 0);
 
-  const weeklySales = filteredSales
+  const weeklySales = activeSales
     .filter((sale) => {
       if (!sale.date) return false;
 
@@ -293,7 +315,7 @@ export default function EggSales() {
     })
     .reduce((sum, sale) => sum + Number(sale.totalAmount || 0), 0);
 
-  const monthlySales = filteredSales
+  const monthlySales = activeSales
     .filter((sale) => {
       if (!sale.date) return false;
 
@@ -305,6 +327,17 @@ export default function EggSales() {
       );
     })
     .reduce((sum, sale) => sum + Number(sale.totalAmount || 0), 0);
+  const handleRestore = async (id) => {
+    try {
+      await restoreSale(id);
+      loadSales();
+    } catch (err) {
+      console.error(err);
+    }
+  };
+
+  const isSuperadmin = user?.role === "superadmin";
+
   if (loading) {
     return <div className="p-8">Loading Sales...</div>;
   }
@@ -363,7 +396,7 @@ export default function EggSales() {
           <h3 className="text-gray-500">Customers</h3>
 
           <p className="text-3xl font-bold text-purple-600 mt-2">
-            {sales.length}
+            {activeSales.length}
           </p>
         </div>
       </div>
@@ -394,39 +427,41 @@ export default function EggSales() {
       </div>
       {/* ================= QUICK SUMMARY ================= */}
 
-      <div className="grid md:grid-cols-4 gap-6 mb-8">
-        <div className="bg-green-100 rounded-xl p-5">
-          <h3 className="font-semibold text-green-700">Daily Sales</h3>
+      {isSuperadmin && (
+        <div className="grid md:grid-cols-4 gap-6 mb-8">
+          <div className="bg-green-100 rounded-xl p-5">
+            <h3 className="font-semibold text-green-700">Daily Sales</h3>
 
-          <p className="text-2xl font-bold mt-3">
-            ₦{dailySales.toLocaleString()}
-          </p>
+            <p className="text-2xl font-bold mt-3">
+              ₦{dailySales.toLocaleString()}
+            </p>
+          </div>
+
+          <div className="bg-blue-100 rounded-xl p-5">
+            <h3 className="font-semibold text-blue-700">Weekly Sales</h3>
+
+            <p className="text-2xl font-bold mt-3">
+              ₦{weeklySales.toLocaleString()}
+            </p>
+          </div>
+
+          <div className="bg-yellow-100 rounded-xl p-5">
+            <h3 className="font-semibold text-yellow-700">Monthly Sales</h3>
+
+            <p className="text-2xl font-bold mt-3">
+              ₦{monthlySales.toLocaleString()}
+            </p>
+          </div>
+
+          <div className="bg-red-100 rounded-xl p-5">
+            <h3 className="font-semibold text-red-700">Outstanding Balance</h3>
+
+            <p className="text-2xl font-bold mt-3">
+              ₦{outstanding.toLocaleString()}
+            </p>
+          </div>
         </div>
-
-        <div className="bg-blue-100 rounded-xl p-5">
-          <h3 className="font-semibold text-blue-700">Weekly Sales</h3>
-
-          <p className="text-2xl font-bold mt-3">
-            ₦{weeklySales.toLocaleString()}
-          </p>
-        </div>
-
-        <div className="bg-yellow-100 rounded-xl p-5">
-          <h3 className="font-semibold text-yellow-700">Monthly Sales</h3>
-
-          <p className="text-2xl font-bold mt-3">
-            ₦{monthlySales.toLocaleString()}
-          </p>
-        </div>
-
-        <div className="bg-red-100 rounded-xl p-5">
-          <h3 className="font-semibold text-red-700">Outstanding Balance</h3>
-
-          <p className="text-2xl font-bold mt-3">
-            ₦{outstanding.toLocaleString()}
-          </p>
-        </div>
-      </div>
+      )}
       {/* ================= CHARTS ================= */}
 
       <div className="grid grid-cols-1 lg:grid-cols-2 gap-8 mb-10">
@@ -707,6 +742,10 @@ export default function EggSales() {
 
                 <th className="p-3 text-center">Method</th>
 
+                {isSuperadmin && (
+                  <th className="p-3 text-center">Record Status</th>
+                )}
+
                 <th className="p-3 text-center">Actions</th>
               </tr>
             </thead>
@@ -714,13 +753,21 @@ export default function EggSales() {
             <tbody>
               {filteredSales.length === 0 ? (
                 <tr>
-                  <td colSpan="11" className="text-center py-12 text-gray-500">
+                  <td
+                    colSpan={isSuperadmin ? 12 : 11}
+                    className="text-center py-12 text-gray-500"
+                  >
                     No sales found.
                   </td>
                 </tr>
               ) : (
                 filteredSales.map((sale) => (
-                  <tr key={sale._id} className="border-b hover:bg-gray-50">
+                  <tr
+                    key={sale._id}
+                    className={`border-b hover:bg-gray-50 ${
+                      sale.isDeleted ? "bg-red-50" : ""
+                    }`}
+                  >
                     <td className="p-3">
                       {sale.date
                         ? new Date(sale.date).toLocaleDateString()
@@ -763,20 +810,56 @@ export default function EggSales() {
 
                     <td className="p-3 text-center">{sale.paymentMethod}</td>
 
-                    <td className="p-3 space-x-2">
-                      <button
-                        onClick={() => openInvoice(sale)}
-                        className="bg-green-600 hover:bg-green-700 text-white px-3 py-1 rounded"
-                      >
-                        Invoice
-                      </button>
+                    {isSuperadmin && (
+                      <td className="p-3 text-center">
+                        {sale.isDeleted ? (
+                          <div className="text-xs">
+                            <span className="inline-block bg-red-100 text-red-700 font-semibold px-2 py-1 rounded-full mb-1">
+                              Deleted
+                            </span>
+                            <div className="text-gray-500 capitalize">
+                              by {sale.deletedBy?.role || "Unknown"}
+                              {sale.deletedAt &&
+                                ` on ${new Date(
+                                  sale.deletedAt,
+                                ).toLocaleDateString()}`}
+                            </div>
+                          </div>
+                        ) : (
+                          <span className="inline-block bg-green-100 text-green-700 font-semibold px-2 py-1 rounded-full text-xs">
+                            Active
+                          </span>
+                        )}
+                      </td>
+                    )}
 
-                      <button
-                        onClick={() => handleDelete(sale._id)}
-                        className="bg-red-600 hover:bg-red-700 text-white px-3 py-1 rounded"
-                      >
-                        Delete
-                      </button>
+                    <td className="p-3 space-x-2">
+                      {sale.isDeleted ? (
+                        isSuperadmin && (
+                          <button
+                            onClick={() => handleRestore(sale._id)}
+                            className="bg-green-600 hover:bg-green-700 text-white px-3 py-1 rounded"
+                          >
+                            Restore
+                          </button>
+                        )
+                      ) : (
+                        <>
+                          <button
+                            onClick={() => openInvoice(sale)}
+                            className="bg-green-600 hover:bg-green-700 text-white px-3 py-1 rounded"
+                          >
+                            Invoice
+                          </button>
+
+                          <button
+                            onClick={() => handleDelete(sale._id)}
+                            className="bg-red-600 hover:bg-red-700 text-white px-3 py-1 rounded"
+                          >
+                            Delete
+                          </button>
+                        </>
+                      )}
                     </td>
                   </tr>
                 ))
@@ -788,43 +871,45 @@ export default function EggSales() {
 
       {/* ================= SALES SUMMARY ================= */}
 
-      <div className="bg-white rounded-xl shadow p-6 mb-10">
-        <h2 className="text-2xl font-bold mb-6">Sales Summary</h2>
+      {isSuperadmin && (
+        <div className="bg-white rounded-xl shadow p-6 mb-10">
+          <h2 className="text-2xl font-bold mb-6">Sales Summary</h2>
 
-        <div className="grid md:grid-cols-4 gap-6">
-          <div className="bg-green-50 rounded-lg p-5">
-            <p className="text-gray-500">Revenue</p>
+          <div className="grid md:grid-cols-4 gap-6">
+            <div className="bg-green-50 rounded-lg p-5">
+              <p className="text-gray-500">Revenue</p>
 
-            <h3 className="text-2xl font-bold text-green-700 mt-2">
-              ₦{totalRevenue.toLocaleString()}
-            </h3>
-          </div>
+              <h3 className="text-2xl font-bold text-green-700 mt-2">
+                ₦{totalRevenue.toLocaleString()}
+              </h3>
+            </div>
 
-          <div className="bg-blue-50 rounded-lg p-5">
-            <p className="text-gray-500">Amount Received</p>
+            <div className="bg-blue-50 rounded-lg p-5">
+              <p className="text-gray-500">Amount Received</p>
 
-            <h3 className="text-2xl font-bold text-blue-700 mt-2">
-              ₦{amountReceived.toLocaleString()}
-            </h3>
-          </div>
+              <h3 className="text-2xl font-bold text-blue-700 mt-2">
+                ₦{amountReceived.toLocaleString()}
+              </h3>
+            </div>
 
-          <div className="bg-yellow-50 rounded-lg p-5">
-            <p className="text-gray-500">Outstanding</p>
+            <div className="bg-yellow-50 rounded-lg p-5">
+              <p className="text-gray-500">Outstanding</p>
 
-            <h3 className="text-2xl font-bold text-yellow-600 mt-2">
-              ₦{outstanding.toLocaleString()}
-            </h3>
-          </div>
+              <h3 className="text-2xl font-bold text-yellow-600 mt-2">
+                ₦{outstanding.toLocaleString()}
+              </h3>
+            </div>
 
-          <div className="bg-purple-50 rounded-lg p-5">
-            <p className="text-gray-500">Crates Sold</p>
+            <div className="bg-purple-50 rounded-lg p-5">
+              <p className="text-gray-500">Crates Sold</p>
 
-            <h3 className="text-2xl font-bold text-purple-700 mt-2">
-              {totalCrates}
-            </h3>
+              <h3 className="text-2xl font-bold text-purple-700 mt-2">
+                {totalCrates}
+              </h3>
+            </div>
           </div>
         </div>
-      </div>
+      )}
 
       {/* ================= FOOTER ================= */}
 

@@ -1,36 +1,31 @@
-import apiClient from "./apiClient";
+import api from "./api";
 
-// ===============================
-// GET ALL SALES
-// ===============================
 export const fetchSales = async () => {
-  return await apiClient.get("/egg-sales");
+  const res = await api.get("/egg-sales");
+  return res.data;
 };
 
-// ===============================
-// GET ONE SALE
-// ===============================
-export const fetchSale = async (id) => {
-  return await apiClient.get(`/egg-sales/${id}`);
+export const createSale = async (data) => {
+  const res = await api.post("/egg-sales", data);
+  return res.data;
 };
 
-// ===============================
-// CREATE SALE
-// ===============================
-export const createSale = async (saleData) => {
-  return await apiClient.post("/egg-sales", saleData);
+export const updateSale = async (id, data) => {
+  const res = await api.put(`/egg-sales/${id}`, data);
+  return res.data;
 };
 
-// ===============================
-// UPDATE SALE
-// ===============================
-export const updateSale = async (id, saleData) => {
-  return await apiClient.put(`/egg-sales/${id}`, saleData);
-};
-
-// ===============================
-// DELETE SALE
-// ===============================
 export const deleteSale = async (id) => {
-  return await apiClient.delete(`/egg-sales/${id}`);
+  const res = await api.delete(`/egg-sales/${id}`);
+  return res.data;
+};
+
+export const fetchDeletedSales = async () => {
+  const res = await api.get("/egg-sales/deleted");
+  return res.data;
+};
+
+export const restoreSale = async (id) => {
+  const res = await api.put(`/egg-sales/${id}/restore`);
+  return res.data;
 };
