@@ -323,13 +323,45 @@ export default function Dashboard() {
   // ================= STATES =================
 
   if (loading) {
-    return <div className="p-10 text-xl">Loading Dashboard...</div>;
+    return (
+      <div className="flex items-center justify-center min-h-[70vh]">
+        <div className="text-center">
+          <div className="w-16 h-16 border-4 border-green-600 border-t-transparent rounded-full animate-spin mx-auto"></div>
+
+          <p className="mt-6 text-lg font-semibold text-gray-700">
+            Loading Dashboard...
+          </p>
+
+          <p className="text-gray-500">
+            Please wait while we fetch your farm data.
+          </p>
+        </div>
+      </div>
+    );
   }
 
   if (error) {
-    return <div className="p-10 text-red-600">{error}</div>;
-  }
+    return (
+      <div className="flex items-center justify-center min-h-[70vh]">
+        <div className="bg-white shadow-lg rounded-2xl p-10 text-center max-w-md">
+          <div className="text-6xl mb-4">⚠️</div>
 
+          <h2 className="text-2xl font-bold text-red-600">
+            Something went wrong
+          </h2>
+
+          <p className="text-gray-600 mt-3">{error}</p>
+
+          <button
+            onClick={loadDashboard}
+            className="mt-6 bg-green-600 hover:bg-green-700 text-white px-6 py-3 rounded-lg"
+          >
+            Retry
+          </button>
+        </div>
+      </div>
+    );
+  }
   return (
     <div className="p-6 bg-gray-100 min-h-screen">
       {/* HEADER */}
