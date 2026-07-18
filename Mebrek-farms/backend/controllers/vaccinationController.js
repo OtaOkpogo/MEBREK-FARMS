@@ -1,174 +1,201 @@
 const Vaccination = require("../models/Vaccination");
 
-// @desc   Get vaccination records. Superadmin sees deleted records inline
-//         (with who deleted them); everyone else only sees active records.
-// @route  GET /api/vaccinations
+// =========================================
+// Helper: Calculate Status
+// =========================================
+const calculateStatus = (nextDueDate) => {
+  if (!nextDueDate) return "Completed";
+
+  const today = new Date();
+  today.setHours(0, 0, 0, 0);
+
+  const due = new Date(nextDueDate);
+  due.setHours(0, 0, 0, 0);
+
+  if (due < today) return "Overdue";
+  if (due.getTime() === today.getTime()) return "Due Today";
+
+  return "Upcoming";
+};
+
+// =========================================
+// GET ALL VACCINATIONS
+// =========================================
 exports.getVaccinations = async (req, res) => {
   try {
-    const isSuperadmin = req.user?.role === "superadmin";
+    let vaccinations;
 
-    const filter = isSuperadmin ? {} : { isDeleted: false };
+    if (req.user.role === "superadmin") {
+      vaccinations = await Vaccination.find().sort({
+        vaccinationDate: -1,
+      });
+    } else {
+      vaccinations = await Vaccination.find({
+        isDeleted: false,
+      }).sort({
+        vaccinationDate: -1,
+      });
+    }
 
-    const vaccinations = await Vaccination.find(filter)
-      .sort({ createdAt: -1 })
-      .populate("deletedBy", "role name");
+    // Always refresh status before sending
+    vaccinations = vaccinations.map((item) => {
+      const obj = item.toObject();
+      obj.status = calculateStatus(obj.nextDueDate);
+      return obj;
+    });
 
     res.json(vaccinations);
   } catch (err) {
-    console.error("Get Vaccinations Error:", err);
-    res.status(500).json({ message: err.message });
+    console.error(err);
+
+    res.status(500).json({
+      error: err.message,
+    });
   }
 };
 
-// @desc   Create a vaccination record
-// @route  POST /api/vaccinations
+// =========================================
+// CREATE VACCINATION
+// =========================================
 exports.createVaccination = async (req, res) => {
   try {
-    const {
-      vaccineName,
-      birdBatch,
-      quantity,
-      administeredBy,
-      dosage,
-      nextDueDate,
-      notes,
-    } = req.body;
-
-    if (!vaccineName || !vaccineName.trim()) {
-      return res.status(400).json({ message: "Vaccine name is required" });
-    }
-
-    if (!birdBatch || !birdBatch.trim()) {
-      return res.status(400).json({ message: "Bird batch is required" });
-    }
-
-    if (quantity === undefined || quantity === null || quantity === "") {
-      return res.status(400).json({ message: "Quantity is required" });
-    }
-
     const vaccination = await Vaccination.create({
-      vaccineName,
-      birdBatch,
-      quantity: Number(quantity),
-      administeredBy,
-      dosage,
-      nextDueDate,
-      notes,
+      ...req.body,
+
+      administeredBy: {
+        id: req.user.id,
+        name: req.user.name,
+        role: req.user.role,
+      },
+
+      status: calculateStatus(req.body.nextDueDate),
     });
+
+    const io = req.app.get("io");
+    if (io) {
+      io.emit("newVaccination", vaccination);
+    }
 
     res.status(201).json(vaccination);
   } catch (err) {
-    console.error("Create Vaccination Error:", err);
-    res.status(500).json({ message: err.message });
+    console.error(err);
+
+    res.status(500).json({
+      error: err.message,
+    });
   }
 };
 
-// @desc   Update a vaccination record
-// @route  PUT /api/vaccinations/:id
+// =========================================
+// UPDATE VACCINATION
+// =========================================
 exports.updateVaccination = async (req, res) => {
   try {
-    const vaccination = await Vaccination.findOne({
-      _id: req.params.id,
-      isDeleted: false,
-    });
+    const vaccination = await Vaccination.findById(req.params.id);
 
     if (!vaccination) {
-      return res.status(404).json({ message: "Vaccination record not found" });
+      return res.status(404).json({
+        error: "Vaccination record not found",
+      });
     }
 
-    const {
-      vaccineName,
-      birdBatch,
-      quantity,
-      administeredBy,
-      dosage,
-      nextDueDate,
-      notes,
-    } = req.body;
+    Object.assign(vaccination, req.body);
 
-    if (vaccineName !== undefined) vaccination.vaccineName = vaccineName;
-    if (birdBatch !== undefined) vaccination.birdBatch = birdBatch;
-    if (quantity !== undefined) vaccination.quantity = Number(quantity) || 0;
-    if (administeredBy !== undefined)
-      vaccination.administeredBy = administeredBy;
-    if (dosage !== undefined) vaccination.dosage = dosage;
-    if (nextDueDate !== undefined) vaccination.nextDueDate = nextDueDate;
-    if (notes !== undefined) vaccination.notes = notes;
+    vaccination.status = calculateStatus(vaccination.nextDueDate);
 
     await vaccination.save();
 
+    const io = req.app.get("io");
+    if (io) {
+      io.emit("vaccinationUpdated", vaccination);
+    }
+
     res.json(vaccination);
   } catch (err) {
-    console.error("Update Vaccination Error:", err);
-    res.status(500).json({ message: err.message });
+    console.error(err);
+
+    res.status(500).json({
+      error: err.message,
+    });
   }
 };
 
-// @desc   Soft delete a vaccination record
-// @route  DELETE /api/vaccinations/:id
+// =========================================
+// DELETE VACCINATION (SOFT DELETE — all roles)
+// =========================================
 exports.deleteVaccination = async (req, res) => {
   try {
-    const vaccination = await Vaccination.findOne({
-      _id: req.params.id,
-      isDeleted: false,
-    });
+    const vaccination = await Vaccination.findById(req.params.id);
 
     if (!vaccination) {
-      return res.status(404).json({ message: "Vaccination record not found" });
+      return res.status(404).json({
+        error: "Vaccination record not found",
+      });
     }
 
     vaccination.isDeleted = true;
     vaccination.deletedAt = new Date();
-    vaccination.deletedBy = req.user?.id;
+    vaccination.deletedBy = req.user.id;
+    vaccination.deletedByName = req.user.name;
+    vaccination.deletedByRole = req.user.role;
 
-    await vaccination.save();
+    // validateModifiedOnly: only re-validate the fields we actually
+    // changed above. Without this, saving a soft-delete on an older
+    // record fails if that record predates required fields like
+    // vaccinationDate/quantityUsed, even though this save never
+    // touches those fields.
+    await vaccination.save({ validateModifiedOnly: true });
 
-    res.json({ message: "Vaccination record deleted" });
+    const io = req.app.get("io");
+    if (io) {
+      io.emit("vaccinationDeleted", vaccination);
+    }
+
+    res.json({
+      message: "Vaccination deleted successfully",
+    });
   } catch (err) {
-    console.error("Delete Vaccination Error:", err);
-    res.status(500).json({ message: err.message });
+    console.error(err);
+
+    res.status(500).json({
+      error: err.message,
+    });
   }
 };
 
-// @desc   Get soft-deleted vaccination records (superadmin only — gated in route)
-// @route  GET /api/vaccinations/deleted
-exports.getDeletedVaccinations = async (req, res) => {
-  try {
-    const vaccinations = await Vaccination.find({ isDeleted: true })
-      .sort({ deletedAt: -1 })
-      .populate("deletedBy", "role name");
-
-    res.json(vaccinations);
-  } catch (err) {
-    console.error("Get Deleted Vaccinations Error:", err);
-    res.status(500).json({ message: err.message });
-  }
-};
-
-// @desc   Restore a soft-deleted vaccination record (superadmin only — gated in route)
-// @route  PUT /api/vaccinations/:id/restore
+// =========================================
+// RESTORE VACCINATION (SUPER ADMIN ONLY)
+// =========================================
 exports.restoreVaccination = async (req, res) => {
   try {
-    const vaccination = await Vaccination.findOne({
-      _id: req.params.id,
-      isDeleted: true,
-    });
+    const vaccination = await Vaccination.findById(req.params.id);
 
     if (!vaccination) {
-      return res
-        .status(404)
-        .json({ message: "Deleted vaccination record not found" });
+      return res.status(404).json({
+        error: "Vaccination record not found",
+      });
     }
 
     vaccination.isDeleted = false;
     vaccination.deletedAt = null;
     vaccination.deletedBy = null;
+    vaccination.deletedByName = null;
+    vaccination.deletedByRole = null;
 
-    await vaccination.save();
+    // Same reasoning as deleteVaccination above.
+    await vaccination.save({ validateModifiedOnly: true });
+
+    const io = req.app.get("io");
+    if (io) {
+      io.emit("vaccinationRestored", vaccination);
+    }
 
     res.json(vaccination);
   } catch (err) {
-    console.error("Restore Vaccination Error:", err);
-    res.status(500).json({ message: err.message });
+    console.error(err);
+
+    res.status(500).json({
+      error: err.message,
+    });
   }
 };
