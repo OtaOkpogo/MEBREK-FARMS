@@ -70,6 +70,9 @@ const Production = () => {
       }
       const data = await fetchProductions();
       setProductions(data);
+      if (!showLoader) {
+        toast.success("Production records refreshed.");
+      }
     } catch (error) {
       console.error("LOAD ERROR:", error);
       toast.error("Failed to load production records");

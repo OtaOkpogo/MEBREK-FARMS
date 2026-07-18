@@ -40,6 +40,9 @@ export default function Orders() {
         },
       });
       setOrders(res.data);
+      if (!showLoader) {
+        toast.success("Orders refreshed.");
+      }
     } catch (err) {
       console.error(err);
       toast.error("Failed to load orders");
