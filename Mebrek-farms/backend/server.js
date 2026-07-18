@@ -16,6 +16,7 @@ const searchRoutes = require("./routes/search");
 
 dotenv.config();
 const app = express();
+app.disable("etag");
 const server = http.createServer(app);
 
 const io = new Server(server, {
@@ -75,13 +76,6 @@ app.use("/api/search", searchRoutes);
 app.use("/api/backup", require("./routes/backup"));
 
 const PORT = process.env.PORT || 5000;
-io.on("connection", (socket) => {
-  console.log("Socket Connected:", socket.id);
-
-  socket.on("disconnect", () => {
-    console.log("Socket Disconnected:", socket.id);
-  });
-});
 
 server.listen(PORT, () => {
   console.log(`Server running on port ${PORT}`);
