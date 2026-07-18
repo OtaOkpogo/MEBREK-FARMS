@@ -33,17 +33,38 @@ const feedSchema = new mongoose.Schema(
       default: 5,
       min: [0, "lowStockThreshold cannot be negative"],
     },
+
+    // NEW
+    isDeleted: {
+      type: Boolean,
+      default: false,
+    },
+
+    deletedAt: {
+      type: Date,
+      default: null,
+    },
+
+    deletedBy: {
+      type: String,
+      default: null,
+    },
+
+    deletedByRole: {
+      type: String,
+      default: null,
+    },
   },
-  { timestamps: true },
+  {
+    timestamps: true,
+  },
 );
 
-// ================= INDEXES =================
-
-// Sort by most recently added
 feedSchema.index({ createdAt: -1 });
 
-// Free-text search on name and supplier (the two string fields —
-// quantity/pricePerUnit are numeric and don't belong in a text index)
-feedSchema.index({ name: "text", supplier: "text" });
+feedSchema.index({
+  name: "text",
+  supplier: "text",
+});
 
 module.exports = mongoose.model("Feed", feedSchema);
