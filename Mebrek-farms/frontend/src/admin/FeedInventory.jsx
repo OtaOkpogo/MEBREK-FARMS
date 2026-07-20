@@ -158,6 +158,19 @@ export default function FeedInventory() {
     },
   ];
 
+  // Cycled per bar so each feed gets a distinct color instead of one
+  // flat fill across every bar.
+  const BAR_COLORS = [
+    "#16a34a",
+    "#3b82f6",
+    "#f59e0b",
+    "#ef4444",
+    "#8b5cf6",
+    "#06b6d4",
+    "#ec4899",
+    "#84cc16",
+  ];
+
   // ================= CREATE FEED =================
   const handleSubmit = async (e) => {
     e.preventDefault();
@@ -377,7 +390,14 @@ export default function FeedInventory() {
               <XAxis dataKey="name" />
               <YAxis />
               <Tooltip />
-              <Bar dataKey="quantity" />
+              <Bar dataKey="quantity" radius={[6, 6, 0, 0]}>
+                {chartData.map((entry, index) => (
+                  <Cell
+                    key={`cell-${index}`}
+                    fill={BAR_COLORS[index % BAR_COLORS.length]}
+                  />
+                ))}
+              </Bar>
             </BarChart>
           </ResponsiveContainer>
         </div>

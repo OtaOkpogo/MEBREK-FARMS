@@ -1,31 +1,49 @@
-import api from "./api";
+import apiClient from "./apiClient";
 
-export const getBirdHealthRecords = async () => {
-  const res = await api.get("/bird-health");
-  return res.data;
+// ==========================
+// GET ALL BIRD HEALTH RECORDS
+// ==========================
+
+export const fetchBirdHealth = async () => {
+  return await apiClient.get("/bird-health");
 };
 
-export const createBirdHealthRecord = async (data) => {
-  const res = await api.post("/bird-health", data);
-  return res.data;
+// ==========================
+// CREATE RECORD
+// ==========================
+
+export const createBirdHealth = async (data) => {
+  return await apiClient.post("/bird-health", data);
 };
 
-export const updateBirdHealthRecord = async (id, data) => {
-  const res = await api.put(`/bird-health/${id}`, data);
-  return res.data;
+// ==========================
+// UPDATE RECORD
+// ==========================
+
+export const updateBirdHealth = async (id, data) => {
+  return await apiClient.put(`/bird-health/${id}`, data);
 };
 
-export const deleteBirdHealthRecord = async (id) => {
-  const res = await api.delete(`/bird-health/${id}`);
-  return res.data;
+// ==========================
+// DELETE RECORD (SOFT DELETE)
+// ==========================
+
+export const deleteBirdHealth = async (id) => {
+  return await apiClient.delete(`/bird-health/${id}`);
 };
 
-export const getDeletedBirdHealthRecords = async () => {
-  const res = await api.get("/bird-health/deleted");
-  return res.data;
+// ==========================
+// RESTORE RECORD
+// ==========================
+
+export const restoreBirdHealth = async (id) => {
+  return await apiClient.put(`/bird-health/${id}/restore`);
 };
 
-export const restoreBirdHealthRecord = async (id) => {
-  const res = await api.put(`/bird-health/${id}/restore`);
-  return res.data;
+// ==========================
+// GET DELETED RECORDS
+// ==========================
+
+export const fetchDeletedBirdHealth = async () => {
+  return await apiClient.get("/bird-health/deleted");
 };

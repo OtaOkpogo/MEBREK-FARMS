@@ -1,565 +1,922 @@
-import { useEffect, useState } from "react";
-import { fetchDashboardData } from "../services/dashboardService";
+import { useEffect, useMemo, useState } from "react";
+import toast from "react-hot-toast";
+import * as XLSX from "xlsx";
+import jsPDF from "jspdf";
+import autoTable from "jspdf-autotable";
+import { PENS } from "../constants/pens";
+
 import {
-  getBirdHealthRecords,
-  createBirdHealthRecord,
-  updateBirdHealthRecord,
-  deleteBirdHealthRecord,
-  restoreBirdHealthRecord,
+  BarChart,
+  Bar,
+  Cell,
+  CartesianGrid,
+  ResponsiveContainer,
+  Tooltip,
+  XAxis,
+  YAxis,
+} from "recharts";
+
+import { Plus, Search } from "lucide-react";
+
+import {
+  fetchBirdHealth,
+  createBirdHealth,
+  updateBirdHealth,
+  deleteBirdHealth,
+  restoreBirdHealth,
 } from "../services/birdHealthService";
-import { getCurrentUser } from "../services/authService";
 
-const SEVERITY_OPTIONS = ["Low", "Medium", "High", "Critical"];
-const STATUS_OPTIONS = ["Under Treatment", "Recovered", "Isolated", "Dead"];
+import socket from "../services/socket";
 
-const SEVERITY_COLORS = {
-  Low: "bg-green-100 text-green-700",
-  Medium: "bg-yellow-100 text-yellow-700",
-  High: "bg-orange-100 text-orange-700",
+const CATEGORIES = [
+  "Respiratory",
+  "Digestive",
+  "Parasitic",
+  "Bacterial",
+  "Viral",
+  "Nutritional Deficiency",
+  "Injury",
+  "Other",
+];
+
+const SEVERITIES = ["Low", "Medium", "High", "Critical"];
+
+const STATUS = [
+  "Active",
+  "Recovering",
+  "Recovered",
+  "Isolated",
+  "Under Treatment",
+  "Dead",
+];
+
+const STATUS_COLORS = {
+  Active: "bg-blue-100 text-blue-700",
+  Recovering: "bg-yellow-100 text-yellow-700",
+  Recovered: "bg-green-100 text-green-700",
   Critical: "bg-red-100 text-red-700",
 };
 
-const STATUS_COLORS = {
-  "Under Treatment": "bg-blue-100 text-blue-700",
-  Recovered: "bg-green-100 text-green-700",
-  Isolated: "bg-purple-100 text-purple-700",
-  Dead: "bg-red-100 text-red-700",
-};
-
-const EMPTY_FORM = {
-  date: new Date().toISOString().slice(0, 10),
-  penOrHouse: "",
-  healthIssue: "",
-  birdsAffected: "",
-  symptoms: "",
-  severity: "Low",
-  vetConsulted: false,
-  diagnosis: "",
-  actionTaken: "",
-  status: "Under Treatment",
-  remarks: "",
+// Hex version for the chart specifically — Recharts' <Cell fill> needs a
+// real color value, not a Tailwind class, so this is kept separate from
+// the STATUS_COLORS map above rather than reusing that name.
+const CHART_STATUS_COLORS = {
+  Active: "#3B82F6",
+  Recovering: "#FACC15",
+  Recovered: "#22C55E",
+  Critical: "#EF4444",
 };
 
 export default function BirdHealth() {
-  const [health, setHealth] = useState({
-    healthyBirds: 0,
-    sickBirds: 0,
-    vaccinatedBirds: 0,
-    mortalityRate: 0,
-  });
+  const role = localStorage.getItem("role");
+
+  // ===========================
+  // DATA
+  // ===========================
 
   const [records, setRecords] = useState([]);
-  const [formData, setFormData] = useState(EMPTY_FORM);
+
+  const [loading, setLoading] = useState(true);
+
+  const [saving, setSaving] = useState(false);
+
+  // ===========================
+  // FORM
+  // ===========================
+
+  const emptyForm = {
+    date: new Date().toISOString().slice(0, 10),
+    pen: "",
+    healthIssue: "",
+    category: "",
+    birdsAffected: "",
+    symptoms: "",
+    severity: "Low",
+    vetConsulted: false,
+    diagnosis: "",
+    actionTaken: "",
+    medicationUsed: "",
+    veterinarianName: "",
+    followUpDate: "",
+    costOfTreatment: "",
+    status: "Active",
+    remarks: "",
+  };
+
+  const [form, setForm] = useState(emptyForm);
+
   const [editingId, setEditingId] = useState(null);
 
-  const [user, setUser] = useState(null);
-  const [loading, setLoading] = useState(true);
-  const [submitting, setSubmitting] = useState(false);
-  const [error, setError] = useState("");
+  // ===========================
+  // FILTERS
+  // ===========================
 
-  useEffect(() => {
-    loadUser();
-    loadHealthSummary();
-    loadRecords();
-  }, []);
+  const [search, setSearch] = useState("");
 
-  const loadUser = async () => {
+  const [selectedPen, setSelectedPen] = useState("All");
+
+  const [selectedSeverity, setSelectedSeverity] = useState("All");
+
+  const [selectedStatus, setSelectedStatus] = useState("All");
+
+  // ===========================
+  // LOAD RECORDS
+  // ===========================
+
+  const loadRecords = async (showLoader = true) => {
     try {
-      const data = await getCurrentUser();
-      setUser(data);
-    } catch (err) {
-      console.error(err);
-    }
-  };
-
-  const loadHealthSummary = async () => {
-    try {
-      const data = await fetchDashboardData();
-
-      const totalMortality =
-        data?.mortality?.reduce(
-          (sum, item) => sum + (item.numberDead || 0),
-          0,
-        ) || 0;
-
-      // Sum birds actually vaccinated (quantity per record), not just
-      // how many vaccination records exist — one record can cover many birds.
-      const vaccinated =
-        data?.vaccinations?.reduce(
-          (sum, item) => sum + (Number(item.quantity) || 0),
-          0,
-        ) || 0;
-
-      setHealth({
-        healthyBirds: 5000 - totalMortality,
-        sickBirds: totalMortality,
-        vaccinatedBirds: vaccinated,
-        mortalityRate: ((totalMortality / 5000) * 100).toFixed(2),
-      });
-    } catch (err) {
-      console.error(err);
-    }
-  };
-
-  const loadRecords = async () => {
-    try {
-      setLoading(true);
-      const data = await getBirdHealthRecords();
-      setRecords(data || []);
-    } catch (err) {
-      console.error(err);
-      setError("Failed to load bird health records");
-    } finally {
-      setLoading(false);
-    }
-  };
-
-  const resetForm = () => {
-    setFormData(EMPTY_FORM);
-    setEditingId(null);
-  };
-
-  const handleSubmit = async (e) => {
-    e.preventDefault();
-
-    if (!formData.penOrHouse.trim() || !formData.healthIssue.trim()) return;
-
-    try {
-      setSubmitting(true);
-
-      if (editingId) {
-        await updateBirdHealthRecord(editingId, formData);
-      } else {
-        await createBirdHealthRecord(formData);
+      if (showLoader) {
+        setLoading(true);
       }
 
-      resetForm();
-      loadRecords();
+      const data = await fetchBirdHealth();
+
+      setRecords(Array.isArray(data) ? data : []);
     } catch (err) {
       console.error(err);
-      setError("Failed to save bird health record");
+
+      toast.error("Failed to load bird health records.");
     } finally {
-      setSubmitting(false);
+      if (showLoader) {
+        setLoading(false);
+      }
     }
   };
 
-  const handleEdit = (record) => {
-    setEditingId(record._id);
-    setFormData({
-      date: record.date
-        ? new Date(record.date).toISOString().slice(0, 10)
-        : new Date().toISOString().slice(0, 10),
-      penOrHouse: record.penOrHouse || "",
-      healthIssue: record.healthIssue || "",
-      birdsAffected: record.birdsAffected ?? "",
-      symptoms: record.symptoms || "",
-      severity: record.severity || "Low",
-      vetConsulted: !!record.vetConsulted,
-      diagnosis: record.diagnosis || "",
-      actionTaken: record.actionTaken || "",
-      status: record.status || "Under Treatment",
-      remarks: record.remarks || "",
-    });
-    window.scrollTo({ top: 0, behavior: "smooth" });
+  // ===========================
+  // SAVE
+  // ===========================
+
+  const saveRecord = async (e) => {
+    e.preventDefault();
+
+    if (!form.pen || !form.healthIssue || !form.date) {
+      toast.error("Please complete all required fields.");
+      return;
+    }
+
+    try {
+      setSaving(true);
+
+      if (editingId) {
+        await updateBirdHealth(editingId, form);
+
+        toast.success("Bird health record updated.");
+      } else {
+        await createBirdHealth(form);
+
+        toast.success("Bird health record created.");
+      }
+
+      setEditingId(null);
+
+      setForm(emptyForm);
+
+      await loadRecords(false);
+    } catch (err) {
+      console.error(err);
+
+      toast.error(err?.response?.data?.error || "Unable to save record.");
+    } finally {
+      setSaving(false);
+    }
   };
 
-  const handleDelete = async (id) => {
+  // ===========================
+  // EDIT
+  // ===========================
+
+  const editRecord = (record) => {
+    setEditingId(record._id);
+
+    setForm({
+      ...emptyForm,
+      ...record,
+      date: record.date?.substring(0, 10) || "",
+      followUpDate: record.followUpDate?.substring(0, 10) || "",
+    });
+
+    window.scrollTo({
+      top: 0,
+      behavior: "smooth",
+    });
+  };
+
+  // ===========================
+  // DELETE
+  // ===========================
+
+  const removeRecord = async (id) => {
     if (!window.confirm("Delete this bird health record?")) return;
 
     try {
-      await deleteBirdHealthRecord(id);
-      loadRecords();
+      await deleteBirdHealth(id);
+
+      toast.success("Record deleted.");
+
+      loadRecords(false);
     } catch (err) {
       console.error(err);
-      setError("Failed to delete bird health record");
+
+      toast.error("Delete failed.");
     }
   };
 
-  const handleRestore = async (id) => {
+  // ===========================
+  // RESTORE
+  // ===========================
+
+  const restoreRecord = async (id) => {
     try {
-      await restoreBirdHealthRecord(id);
-      loadRecords();
+      await restoreBirdHealth(id);
+
+      toast.success("Record restored.");
+
+      loadRecords(false);
     } catch (err) {
       console.error(err);
-      setError("Failed to restore bird health record");
+
+      toast.error("Restore failed.");
     }
   };
 
-  const isSuperadmin = user?.role === "superadmin";
+  const exportExcel = () => {
+    const worksheet = XLSX.utils.json_to_sheet(records);
+
+    const workbook = XLSX.utils.book_new();
+
+    XLSX.utils.book_append_sheet(workbook, worksheet, "Bird Health");
+
+    XLSX.writeFile(workbook, "BirdHealthReport.xlsx");
+
+    toast.success("Excel exported.");
+  };
+
+  const exportPDF = () => {
+    const doc = new jsPDF();
+
+    doc.setFontSize(18);
+
+    doc.text("Bird Health Report", 14, 20);
+
+    autoTable(doc, {
+      startY: 30,
+
+      head: [["Date", "Pen", "Issue", "Affected", "Severity", "Status"]],
+
+      body: records.map((r) => [
+        new Date(r.date).toLocaleDateString(),
+        r.pen,
+        r.healthIssue,
+        r.birdsAffected,
+        r.severity,
+        r.status,
+      ]),
+    });
+
+    doc.save("BirdHealthReport.pdf");
+
+    toast.success("PDF exported.");
+  };
+
+  const printReport = () => {
+    window.print();
+  };
+
+  // ===========================
+  // SUMMARY
+  // ===========================
+
+  const stats = useMemo(() => {
+    return {
+      total: records.length,
+
+      // "Active" and "Under Treatment" are treated as the same bucket,
+      // since the status enum keeps both values as a superset.
+      active: records.filter(
+        (r) => r.status === "Active" || r.status === "Under Treatment",
+      ).length,
+
+      recovering: records.filter((r) => r.status === "Recovering").length,
+
+      recovered: records.filter((r) => r.status === "Recovered").length,
+
+      critical: records.filter((r) => r.severity === "Critical").length,
+    };
+  }, [records]);
+
+  const chartData = [
+    {
+      name: "Active",
+      value: stats.active,
+    },
+    {
+      name: "Recovering",
+      value: stats.recovering,
+    },
+    {
+      name: "Recovered",
+      value: stats.recovered,
+    },
+    {
+      name: "Critical",
+      value: stats.critical,
+    },
+  ];
+
+  // ===========================
+  // SOCKET EVENTS
+  // ===========================
+
+  useEffect(() => {
+    loadRecords();
+
+    socket.on("birdHealthCreated", (record) => {
+      console.log("SOCKET: birdHealthCreated received", record);
+      loadRecords(false);
+    });
+
+    socket.on("birdHealthUpdated", (record) => {
+      console.log("SOCKET: birdHealthUpdated received", record);
+      loadRecords(false);
+    });
+
+    socket.on("birdHealthDeleted", (record) => {
+      console.log("SOCKET: birdHealthDeleted received", record);
+      loadRecords(false);
+    });
+
+    socket.on("birdHealthRestored", (record) => {
+      console.log("SOCKET: birdHealthRestored received", record);
+      loadRecords(false);
+    });
+
+    return () => {
+      socket.off("birdHealthCreated");
+
+      socket.off("birdHealthUpdated");
+
+      socket.off("birdHealthDeleted");
+
+      socket.off("birdHealthRestored");
+    };
+  }, []);
+
+  const filteredRecords = useMemo(() => {
+    return records.filter((record) => {
+      const matchesSearch =
+        search === "" ||
+        record.healthIssue?.toLowerCase().includes(search.toLowerCase()) ||
+        record.symptoms?.toLowerCase().includes(search.toLowerCase()) ||
+        record.diagnosis?.toLowerCase().includes(search.toLowerCase()) ||
+        record.pen?.toLowerCase().includes(search.toLowerCase());
+
+      const matchesPen = selectedPen === "All" || record.pen === selectedPen;
+
+      const matchesSeverity =
+        selectedSeverity === "All" || record.severity === selectedSeverity;
+
+      const matchesStatus =
+        selectedStatus === "All" || record.status === selectedStatus;
+
+      return matchesSearch && matchesPen && matchesSeverity && matchesStatus;
+    });
+  }, [records, search, selectedPen, selectedSeverity, selectedStatus]);
 
   return (
-    <div className="p-6 bg-gray-100 min-h-screen">
-      <h1 className="text-4xl font-bold text-green-700 mb-8">
-        Bird Health Dashboard 🐓
-      </h1>
+    <div className="space-y-6">
+      {/* ================= HEADER ================= */}
 
-      {error && (
-        <div className="bg-red-100 text-red-700 px-4 py-3 rounded-lg mb-6">
-          {error}
-        </div>
-      )}
+      <div className="flex flex-col md:flex-row md:items-center md:justify-between gap-4">
+        <div>
+          <h1 className="text-3xl font-bold text-gray-800">
+            Bird Health Management
+          </h1>
 
-      {/* SUMMARY KPI CARDS */}
-
-      <div className="grid md:grid-cols-4 gap-6 mb-10">
-        <div className="bg-white p-6 rounded-2xl shadow">
-          <h2 className="text-gray-500">Healthy Birds</h2>
-          <p className="text-4xl font-bold text-green-600 mt-2">
-            {health.healthyBirds}
+          <p className="text-gray-500">
+            Monitor diseases, treatments and bird health records.
           </p>
         </div>
 
-        <div className="bg-white p-6 rounded-2xl shadow">
-          <h2 className="text-gray-500">Sick/Dead Birds</h2>
-          <p className="text-4xl font-bold text-red-600 mt-2">
-            {health.sickBirds}
-          </p>
-        </div>
+        <div className="flex flex-wrap gap-3">
+          <button
+            onClick={exportExcel}
+            className="bg-green-600 hover:bg-green-700 text-white px-4 py-2 rounded-lg"
+          >
+            Excel
+          </button>
 
-        <div className="bg-white p-6 rounded-2xl shadow">
-          <h2 className="text-gray-500">Vaccinated Birds</h2>
-          <p className="text-4xl font-bold text-blue-600 mt-2">
-            {health.vaccinatedBirds}
-          </p>
-        </div>
+          <button
+            onClick={exportPDF}
+            className="bg-red-600 hover:bg-red-700 text-white px-4 py-2 rounded-lg"
+          >
+            PDF
+          </button>
 
-        <div className="bg-white p-6 rounded-2xl shadow">
-          <h2 className="text-gray-500">Mortality Rate</h2>
-          <p className="text-4xl font-bold text-orange-500 mt-2">
-            {health.mortalityRate}%
-          </p>
+          <button
+            onClick={printReport}
+            className="bg-gray-700 hover:bg-gray-800 text-white px-4 py-2 rounded-lg"
+          >
+            Print
+          </button>
         </div>
       </div>
 
-      {/* FORM */}
+      {/* ================= SUMMARY ================= */}
 
-      <div className="bg-white p-6 rounded-2xl shadow mb-10">
-        <h2 className="text-2xl font-bold mb-6">
-          {editingId ? "Edit Health Record" : "Log Health Issue"}
+      <div className="grid grid-cols-2 md:grid-cols-4 gap-4 mb-6">
+        <div className="bg-blue-100 rounded-xl shadow p-4">
+          <p className="text-blue-700 text-sm font-semibold">Active</p>
+          <h2 className="text-3xl font-bold text-blue-800">{stats.active}</h2>
+        </div>
+        <div className="bg-yellow-100 rounded-xl shadow p-4">
+          <p className="text-yellow-700 text-sm font-semibold">Recovering</p>
+          <h2 className="text-3xl font-bold text-yellow-800">
+            {stats.recovering}
+          </h2>
+        </div>
+        <div className="bg-green-100 rounded-xl shadow p-4">
+          <p className="text-green-700 text-sm font-semibold">Recovered</p>
+          <h2 className="text-3xl font-bold text-green-800">
+            {stats.recovered}
+          </h2>
+        </div>
+        <div className="bg-red-100 rounded-xl shadow p-4">
+          <p className="text-red-700 text-sm font-semibold">Critical</p>
+          <h2 className="text-3xl font-bold text-red-800">{stats.critical}</h2>
+        </div>
+      </div>
+
+      {/* ================= CHART ================= */}
+
+      <div className="bg-white rounded-xl shadow p-5">
+        <h2 className="text-xl font-bold mb-4">Bird Health Overview</h2>
+
+        <div style={{ width: "100%", height: 300 }}>
+          <ResponsiveContainer>
+            <BarChart data={chartData}>
+              <CartesianGrid strokeDasharray="3 3" />
+
+              <XAxis dataKey="name" />
+
+              <YAxis />
+
+              <Tooltip />
+
+              <Bar dataKey="value">
+                {chartData.map((entry, index) => (
+                  <Cell
+                    key={`cell-${index}`}
+                    fill={CHART_STATUS_COLORS[entry.name] || "#9CA3AF"}
+                  />
+                ))}
+              </Bar>
+            </BarChart>
+          </ResponsiveContainer>
+        </div>
+      </div>
+
+      {/* ================= FILTERS ================= */}
+
+      <div className="bg-white rounded-xl shadow p-5">
+        <div className="grid md:grid-cols-4 gap-4">
+          <div className="relative">
+            <Search className="absolute left-3 top-3 text-gray-400" size={18} />
+
+            <input
+              type="text"
+              placeholder="Search..."
+              value={search}
+              onChange={(e) => setSearch(e.target.value)}
+              className="border rounded-lg w-full pl-10 pr-3 py-2"
+            />
+          </div>
+
+          <select
+            value={selectedPen}
+            onChange={(e) => setSelectedPen(e.target.value)}
+            className="border rounded-lg p-2"
+          >
+            <option>All</option>
+
+            {PENS.map((pen) => (
+              <option key={pen}>{pen}</option>
+            ))}
+          </select>
+
+          <select
+            value={selectedSeverity}
+            onChange={(e) => setSelectedSeverity(e.target.value)}
+            className="border rounded-lg p-2"
+          >
+            <option>All</option>
+
+            {SEVERITIES.map((s) => (
+              <option key={s}>{s}</option>
+            ))}
+          </select>
+
+          <select
+            value={selectedStatus}
+            onChange={(e) => setSelectedStatus(e.target.value)}
+            className="border rounded-lg p-2"
+          >
+            <option>All</option>
+
+            {STATUS.map((s) => (
+              <option key={s}>{s}</option>
+            ))}
+          </select>
+        </div>
+      </div>
+
+      {/* ================= FORM ================= */}
+
+      <form onSubmit={saveRecord} className="bg-white rounded-xl shadow p-6">
+        <h2 className="text-xl font-bold mb-5">
+          {editingId ? "Edit Bird Health Record" : "New Bird Health Record"}
         </h2>
 
-        <form onSubmit={handleSubmit} className="grid md:grid-cols-3 gap-4">
-          <div>
-            <label className="block text-sm text-gray-500 mb-1">Date</label>
-            <input
-              type="date"
-              value={formData.date}
-              onChange={(e) =>
-                setFormData({ ...formData, date: e.target.value })
-              }
-              className="border p-3 rounded-lg w-full"
-              required
-            />
-          </div>
+        <div className="grid md:grid-cols-3 gap-4">
+          <input
+            type="date"
+            value={form.date}
+            onChange={(e) =>
+              setForm({
+                ...form,
+                date: e.target.value,
+              })
+            }
+            className="border rounded-lg p-2"
+            required
+          />
 
-          <div>
-            <label className="block text-sm text-gray-500 mb-1">
-              Pen / House
-            </label>
-            <input
-              type="text"
-              placeholder="e.g. Battery Cage Row 2"
-              value={formData.penOrHouse}
-              onChange={(e) =>
-                setFormData({ ...formData, penOrHouse: e.target.value })
-              }
-              className="border p-3 rounded-lg w-full"
-              required
-            />
-          </div>
+          <select
+            value={form.pen}
+            onChange={(e) =>
+              setForm({
+                ...form,
+                pen: e.target.value,
+              })
+            }
+            className="border rounded-lg p-2"
+            required
+          >
+            <option value="">Select Pen</option>
 
-          <div>
-            <label className="block text-sm text-gray-500 mb-1">
-              Health Issue / Disease
-            </label>
-            <input
-              type="text"
-              placeholder="e.g. Coccidiosis"
-              value={formData.healthIssue}
-              onChange={(e) =>
-                setFormData({ ...formData, healthIssue: e.target.value })
-              }
-              className="border p-3 rounded-lg w-full"
-              required
-            />
-          </div>
+            {PENS.map((pen) => (
+              <option key={pen}>{pen}</option>
+            ))}
+          </select>
 
-          <div>
-            <label className="block text-sm text-gray-500 mb-1">
-              Number of Birds Affected
-            </label>
-            <input
-              type="number"
-              min="0"
-              placeholder="0"
-              value={formData.birdsAffected}
-              onChange={(e) =>
-                setFormData({ ...formData, birdsAffected: e.target.value })
-              }
-              className="border p-3 rounded-lg w-full"
-            />
-          </div>
+          <input
+            type="text"
+            placeholder="Disease / Health Issue"
+            value={form.healthIssue}
+            onChange={(e) =>
+              setForm({
+                ...form,
+                healthIssue: e.target.value,
+              })
+            }
+            className="border rounded-lg p-2"
+            required
+          />
 
-          <div className="md:col-span-2">
-            <label className="block text-sm text-gray-500 mb-1">
-              Symptoms Observed
-            </label>
-            <input
-              type="text"
-              placeholder="e.g. Bloody droppings"
-              value={formData.symptoms}
-              onChange={(e) =>
-                setFormData({ ...formData, symptoms: e.target.value })
-              }
-              className="border p-3 rounded-lg w-full"
-            />
-          </div>
+          <select
+            value={form.category}
+            onChange={(e) =>
+              setForm({
+                ...form,
+                category: e.target.value,
+              })
+            }
+            className="border rounded-lg p-2"
+          >
+            <option value="">Category</option>
 
-          <div>
-            <label className="block text-sm text-gray-500 mb-1">Severity</label>
-            <select
-              value={formData.severity}
-              onChange={(e) =>
-                setFormData({ ...formData, severity: e.target.value })
-              }
-              className="border p-3 rounded-lg w-full"
-            >
-              {SEVERITY_OPTIONS.map((opt) => (
-                <option key={opt} value={opt}>
-                  {opt}
-                </option>
-              ))}
-            </select>
-          </div>
+            {CATEGORIES.map((cat) => (
+              <option key={cat}>{cat}</option>
+            ))}
+          </select>
 
-          <div>
-            <label className="block text-sm text-gray-500 mb-1">Status</label>
-            <select
-              value={formData.status}
-              onChange={(e) =>
-                setFormData({ ...formData, status: e.target.value })
-              }
-              className="border p-3 rounded-lg w-full"
-            >
-              {STATUS_OPTIONS.map((opt) => (
-                <option key={opt} value={opt}>
-                  {opt}
-                </option>
-              ))}
-            </select>
-          </div>
+          <input
+            type="number"
+            placeholder="Birds Affected"
+            value={form.birdsAffected}
+            onChange={(e) =>
+              setForm({
+                ...form,
+                birdsAffected: e.target.value,
+              })
+            }
+            className="border rounded-lg p-2"
+          />
 
-          <div className="flex items-end">
-            <label className="inline-flex items-center gap-2 border p-3 rounded-lg w-full cursor-pointer">
-              <input
-                type="checkbox"
-                checked={formData.vetConsulted}
-                onChange={(e) =>
-                  setFormData({ ...formData, vetConsulted: e.target.checked })
-                }
-              />
-              <span className="text-sm text-gray-700">
-                Veterinarian Consulted
-              </span>
-            </label>
-          </div>
+          <select
+            value={form.severity}
+            onChange={(e) =>
+              setForm({
+                ...form,
+                severity: e.target.value,
+              })
+            }
+            className="border rounded-lg p-2"
+          >
+            {SEVERITIES.map((item) => (
+              <option key={item}>{item}</option>
+            ))}
+          </select>
 
-          <div className="md:col-span-3">
-            <label className="block text-sm text-gray-500 mb-1">
-              Diagnosis
-            </label>
-            <input
-              type="text"
-              value={formData.diagnosis}
-              onChange={(e) =>
-                setFormData({ ...formData, diagnosis: e.target.value })
-              }
-              className="border p-3 rounded-lg w-full"
-            />
-          </div>
+          <textarea
+            placeholder="Symptoms"
+            value={form.symptoms}
+            onChange={(e) =>
+              setForm({
+                ...form,
+                symptoms: e.target.value,
+              })
+            }
+            className="border rounded-lg p-2 md:col-span-3"
+            rows={2}
+          />
 
-          <div className="md:col-span-3">
-            <label className="block text-sm text-gray-500 mb-1">
-              Action Taken
-            </label>
-            <input
-              type="text"
-              value={formData.actionTaken}
-              onChange={(e) =>
-                setFormData({ ...formData, actionTaken: e.target.value })
-              }
-              className="border p-3 rounded-lg w-full"
-            />
-          </div>
+          <textarea
+            placeholder="Diagnosis"
+            value={form.diagnosis}
+            onChange={(e) =>
+              setForm({
+                ...form,
+                diagnosis: e.target.value,
+              })
+            }
+            className="border rounded-lg p-2 md:col-span-3"
+            rows={2}
+          />
 
-          <div className="md:col-span-3">
-            <label className="block text-sm text-gray-500 mb-1">Remarks</label>
-            <textarea
-              value={formData.remarks}
-              onChange={(e) =>
-                setFormData({ ...formData, remarks: e.target.value })
-              }
-              className="border p-3 rounded-lg w-full"
-              rows={2}
-            />
-          </div>
+          <textarea
+            placeholder="Treatment Given"
+            value={form.actionTaken}
+            onChange={(e) =>
+              setForm({
+                ...form,
+                actionTaken: e.target.value,
+              })
+            }
+            className="border rounded-lg p-2 md:col-span-3"
+            rows={2}
+          />
 
-          <div className="md:col-span-3 flex gap-3">
-            <button
-              disabled={submitting}
-              className="bg-green-600 hover:bg-green-700 disabled:opacity-60 text-white rounded-lg py-3 px-6 transition"
-            >
-              {submitting
-                ? "Saving..."
-                : editingId
-                  ? "Update Record"
-                  : "Save Health Record"}
-            </button>
+          <input
+            type="text"
+            placeholder="Medication Used"
+            value={form.medicationUsed}
+            onChange={(e) =>
+              setForm({
+                ...form,
+                medicationUsed: e.target.value,
+              })
+            }
+            className="border rounded-lg p-2"
+          />
 
-            {editingId && (
-              <button
-                type="button"
-                onClick={resetForm}
-                className="bg-gray-200 hover:bg-gray-300 text-gray-700 rounded-lg py-3 px-6 transition"
-              >
-                Cancel
-              </button>
-            )}
-          </div>
-        </form>
-      </div>
+          <input
+            type="text"
+            placeholder="Veterinarian"
+            value={form.veterinarianName}
+            onChange={(e) =>
+              setForm({
+                ...form,
+                veterinarianName: e.target.value,
+              })
+            }
+            className="border rounded-lg p-2"
+          />
 
-      {/* TABLE */}
+          <input
+            type="date"
+            value={form.followUpDate}
+            onChange={(e) =>
+              setForm({
+                ...form,
+                followUpDate: e.target.value,
+              })
+            }
+            className="border rounded-lg p-2"
+          />
 
-      <div className="bg-white p-6 rounded-2xl shadow">
-        <h2 className="text-2xl font-bold mb-6">Bird Health Records</h2>
+          <input
+            type="number"
+            placeholder="Treatment Cost"
+            value={form.costOfTreatment}
+            onChange={(e) =>
+              setForm({
+                ...form,
+                costOfTreatment: e.target.value,
+              })
+            }
+            className="border rounded-lg p-2"
+          />
 
-        {loading ? (
-          <p>Loading health records...</p>
-        ) : records.length === 0 ? (
-          <p>No health records yet</p>
-        ) : (
-          <div className="overflow-x-auto">
-            <table className="w-full text-sm">
-              <thead>
-                <tr className="border-b text-left">
-                  <th className="py-3 pr-4">Date</th>
-                  <th className="pr-4">Pen/House</th>
-                  <th className="pr-4">Health Issue</th>
-                  <th className="pr-4">Affected</th>
-                  <th className="pr-4">Symptoms</th>
-                  <th className="pr-4">Severity</th>
-                  <th className="pr-4">Vet</th>
-                  <th className="pr-4">Diagnosis</th>
-                  <th className="pr-4">Action Taken</th>
-                  <th className="pr-4">Status</th>
-                  <th className="pr-4">Remarks</th>
-                  <th className="pr-4">Recorded By</th>
-                  {isSuperadmin && <th className="pr-4">Record Status</th>}
-                  <th></th>
-                </tr>
-              </thead>
+          <select
+            value={form.status}
+            onChange={(e) =>
+              setForm({
+                ...form,
+                status: e.target.value,
+              })
+            }
+            className="border rounded-lg p-2"
+          >
+            {STATUS.map((status) => (
+              <option key={status}>{status}</option>
+            ))}
+          </select>
 
-              <tbody>
-                {records.map((rec) => (
-                  <tr
-                    key={rec._id}
-                    className={`border-b hover:bg-gray-50 align-top ${
-                      rec.isDeleted ? "bg-red-50" : ""
-                    }`}
-                  >
-                    <td className="py-3 pr-4 whitespace-nowrap">
-                      {rec.date ? new Date(rec.date).toLocaleDateString() : "—"}
-                    </td>
-                    <td className="pr-4">{rec.penOrHouse}</td>
-                    <td className="pr-4">{rec.healthIssue}</td>
-                    <td className="pr-4">{rec.birdsAffected}</td>
-                    <td className="pr-4">{rec.symptoms}</td>
-                    <td className="pr-4">
+          <textarea
+            placeholder="Remarks"
+            value={form.remarks}
+            onChange={(e) =>
+              setForm({
+                ...form,
+                remarks: e.target.value,
+              })
+            }
+            className="border rounded-lg p-2 md:col-span-3"
+            rows={3}
+          />
+        </div>
+
+        <div className="flex justify-end mt-6">
+          <button
+            type="submit"
+            disabled={saving}
+            className="flex items-center gap-2 bg-green-600 hover:bg-green-700 text-white px-6 py-3 rounded-lg"
+          >
+            <Plus size={18} />
+
+            {saving ? "Saving..." : editingId ? "Update Record" : "Save Record"}
+          </button>
+        </div>
+      </form>
+
+      {/* ================= RECORDS ================= */}
+
+      {loading ? (
+        <div className="bg-white rounded-xl shadow p-10 text-center">
+          <p className="text-gray-500">Loading bird health records...</p>
+        </div>
+      ) : filteredRecords.length === 0 ? (
+        <div className="bg-white rounded-xl shadow p-10 text-center">
+          <p className="text-gray-500">No bird health records found.</p>
+        </div>
+      ) : (
+        <div className="bg-white rounded-xl shadow overflow-x-auto">
+          <table className="min-w-full">
+            <thead className="bg-gray-100">
+              <tr className="text-left">
+                <th className="p-3">Date</th>
+
+                <th className="p-3">Pen</th>
+
+                <th className="p-3">Issue</th>
+
+                <th className="p-3">Affected</th>
+
+                <th className="p-3">Severity</th>
+
+                <th className="p-3">Status</th>
+
+                <th className="p-3">Follow Up</th>
+
+                <th className="p-3 text-center">Actions</th>
+              </tr>
+            </thead>
+
+            <tbody>
+              {filteredRecords.map((record) => (
+                <tr key={record._id} className="border-t hover:bg-gray-50">
+                  <td className="p-3 whitespace-nowrap">
+                    {new Date(record.date).toLocaleDateString()}
+                  </td>
+
+                  <td className="p-3">{record.pen}</td>
+
+                  <td className="p-3">
+                    <div className="font-medium">{record.healthIssue}</div>
+
+                    <div className="text-xs text-gray-500">
+                      {record.category}
+                    </div>
+                  </td>
+
+                  <td className="p-3">{record.birdsAffected}</td>
+
+                  <td className="p-3">
+                    <span
+                      className={`px-3 py-1 rounded-full text-xs font-semibold
+                          ${
+                            record.severity === "Critical"
+                              ? "bg-red-100 text-red-700"
+                              : record.severity === "High"
+                                ? "bg-orange-100 text-orange-700"
+                                : record.severity === "Medium"
+                                  ? "bg-yellow-100 text-yellow-700"
+                                  : "bg-green-100 text-green-700"
+                          }`}
+                    >
+                      {record.severity}
+                    </span>
+                  </td>
+
+                  <td className="p-3">
+                    <span
+                      className={`px-3 py-1 rounded-full text-xs font-semibold ${
+                        STATUS_COLORS[record.status] ||
+                        "bg-gray-100 text-gray-700"
+                      }`}
+                    >
+                      {record.status}
+                    </span>
+                  </td>
+
+                  <td className="p-3">
+                    {record.followUpStatus ? (
                       <span
-                        className={`inline-block px-2 py-1 rounded-full text-xs font-semibold ${
-                          SEVERITY_COLORS[rec.severity] ||
-                          "bg-gray-100 text-gray-700"
-                        }`}
+                        className={`px-3 py-1 rounded-full text-xs font-semibold
+                            ${
+                              record.followUpStatus === "Overdue"
+                                ? "bg-red-100 text-red-700"
+                                : record.followUpStatus === "Due Today"
+                                  ? "bg-yellow-100 text-yellow-700"
+                                  : record.followUpStatus === "Upcoming"
+                                    ? "bg-blue-100 text-blue-700"
+                                    : "bg-green-100 text-green-700"
+                            }`}
                       >
-                        {rec.severity}
+                        {record.followUpStatus}
                       </span>
-                    </td>
-                    <td className="pr-4">{rec.vetConsulted ? "Yes" : "No"}</td>
-                    <td className="pr-4">{rec.diagnosis}</td>
-                    <td className="pr-4">{rec.actionTaken}</td>
-                    <td className="pr-4">
-                      <span
-                        className={`inline-block px-2 py-1 rounded-full text-xs font-semibold ${
-                          STATUS_COLORS[rec.status] ||
-                          "bg-gray-100 text-gray-700"
-                        }`}
-                      >
-                        {rec.status}
-                      </span>
-                    </td>
-                    <td className="pr-4">{rec.remarks}</td>
-                    <td className="pr-4 capitalize">
-                      {rec.recordedBy?.role || "—"}
-                    </td>
-
-                    {isSuperadmin && (
-                      <td className="pr-4">
-                        {rec.isDeleted ? (
-                          <div className="text-xs">
-                            <span className="inline-block bg-red-100 text-red-700 font-semibold px-2 py-1 rounded-full mb-1">
-                              Deleted
-                            </span>
-                            <div className="text-gray-500 capitalize">
-                              by {rec.deletedBy?.role || "Unknown"}
-                              {rec.deletedAt &&
-                                ` on ${new Date(
-                                  rec.deletedAt,
-                                ).toLocaleDateString()}`}
-                            </div>
-                          </div>
-                        ) : (
-                          <span className="inline-block bg-green-100 text-green-700 font-semibold px-2 py-1 rounded-full text-xs">
-                            Active
-                          </span>
-                        )}
-                      </td>
+                    ) : (
+                      "-"
                     )}
+                  </td>
 
-                    <td className="whitespace-nowrap">
-                      {rec.isDeleted ? (
-                        isSuperadmin && (
+                  <td className="p-3">
+                    <div className="flex justify-center items-center gap-2">
+                      {(role === "manager" || role === "superadmin") && (
+                        <>
+                          {!record.isDeleted && (
+                            <button
+                              onClick={() => editRecord(record)}
+                              className="bg-blue-600 hover:bg-blue-700 text-white px-3 py-1 rounded"
+                            >
+                              Edit
+                            </button>
+                          )}
+
+                          {!record.isDeleted && (
+                            <button
+                              onClick={() => removeRecord(record._id)}
+                              className="bg-red-600 hover:bg-red-700 text-white px-3 py-1 rounded"
+                            >
+                              Delete
+                            </button>
+                          )}
+                        </>
+                      )}
+
+                      {role === "superadmin" && record.isDeleted && (
+                        <>
+                          <div className="text-xs text-gray-500 text-left">
+                            <p>
+                              Deleted by{" "}
+                              {record.deletedBy?.name ||
+                                record.deletedByName ||
+                                "Unknown"}
+                            </p>
+                            <p className="text-gray-400">
+                              {record.deletedBy?.role ||
+                                record.deletedByRole ||
+                                ""}
+                            </p>
+                          </div>
+
                           <button
-                            onClick={() => handleRestore(rec._id)}
-                            className="text-green-600 hover:text-green-800 text-sm font-semibold"
+                            onClick={() => restoreRecord(record._id)}
+                            className="bg-green-600 hover:bg-green-700 text-white px-3 py-1 rounded"
                           >
                             Restore
                           </button>
-                        )
-                      ) : (
-                        <div className="flex gap-3">
-                          <button
-                            onClick={() => handleEdit(rec)}
-                            className="text-blue-600 hover:text-blue-800 text-sm font-semibold"
-                          >
-                            Edit
-                          </button>
-                          <button
-                            onClick={() => handleDelete(rec._id)}
-                            className="text-red-600 hover:text-red-800 text-sm font-semibold"
-                          >
-                            Delete
-                          </button>
-                        </div>
+                        </>
                       )}
-                    </td>
-                  </tr>
-                ))}
-              </tbody>
-            </table>
-          </div>
-        )}
-      </div>
+                    </div>
+                  </td>
+                </tr>
+              ))}
+            </tbody>
+          </table>
+        </div>
+      )}
     </div>
   );
 }

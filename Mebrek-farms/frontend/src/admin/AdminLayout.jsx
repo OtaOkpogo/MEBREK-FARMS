@@ -7,6 +7,7 @@ import logo from "../assets/logo.png";
 import GlobalSearch from "../components/GlobalSearch";
 import socket from "../services/socket";
 import orderSound from "../assets/order-notification.mp3";
+import { FileBarChart2 } from "lucide-react";
 
 export default function AdminLayout() {
   const navigate = useNavigate();
@@ -301,6 +302,15 @@ export default function AdminLayout() {
               <div className="text-green-200 text-xs uppercase tracking-wider mb-2">
                 Management
               </div>
+
+              {/* Reports — Manager + Super Admin only, per the reports
+                  module's permissions table (Worker/Staff has no access) */}
+              <Link
+                to="/admin/reports"
+                className="block hover:bg-green-700 p-3 rounded-lg transition"
+              >
+                Reports 📊
+              </Link>
 
               {/* SUPER ADMIN ONLY */}
               {role === "superadmin" && (

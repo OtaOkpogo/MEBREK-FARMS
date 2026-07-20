@@ -9,6 +9,7 @@ import Unauthorized from "./pages/Unauthorized";
 import Notifications from "./admin/Notifications";
 import ProtectedRoute from "./routes/ProtectedRoute";
 import EggSales from "./pages/EggSales";
+import Reports from "./admin/Reports";
 
 import AdminLayout from "./admin/AdminLayout";
 import Dashboard from "./admin/Dashboard";
@@ -103,6 +104,15 @@ function App() {
             element={
               <ProtectedRoute allowedRoles={["superadmin", "manager"]}>
                 <EggSales />
+              </ProtectedRoute>
+            }
+          />
+
+          <Route
+            path="reports"
+            element={
+              <ProtectedRoute>
+                <Reports />
               </ProtectedRoute>
             }
           />

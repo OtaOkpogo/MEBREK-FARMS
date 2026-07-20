@@ -1,4 +1,5 @@
 import { useEffect, useState } from "react";
+import { PENS } from "../constants/pens";
 import {
   getMedications,
   createMedication,
@@ -177,6 +178,26 @@ export default function Medications() {
             required
           />
 
+          <select
+            value={formData.administeredTo}
+            onChange={(e) =>
+              setFormData({
+                ...formData,
+                administeredTo: e.target.value,
+              })
+            }
+            className="border p-3 rounded-lg"
+            required
+          >
+            <option value="">Select Pen</option>
+
+            {PENS.map((pen) => (
+              <option key={pen} value={pen}>
+                {pen}
+              </option>
+            ))}
+          </select>
+
           <input
             type="text"
             placeholder="Dosage"
@@ -198,19 +219,6 @@ export default function Medications() {
               setFormData({
                 ...formData,
                 purpose: e.target.value,
-              })
-            }
-            className="border p-3 rounded-lg"
-          />
-
-          <input
-            type="text"
-            placeholder="Administered To"
-            value={formData.administeredTo}
-            onChange={(e) =>
-              setFormData({
-                ...formData,
-                administeredTo: e.target.value,
               })
             }
             className="border p-3 rounded-lg"
@@ -249,7 +257,7 @@ export default function Medications() {
 
           <input
             type="text"
-            placeholder="Search by medication, dosage, purpose, or location..."
+            placeholder="Search by medication, dosage, purpose, or pen..."
             value={search}
             onChange={(e) => setSearch(e.target.value)}
             className="border p-3 rounded-lg md:w-80"
@@ -272,7 +280,7 @@ export default function Medications() {
                   <th className="py-3">Medication</th>
                   <th>Dosage</th>
                   <th>Purpose</th>
-                  <th>Administered To</th>
+                  <th>Pen</th>
                   <th>Date</th>
                   {isSuperadmin && <th>Status</th>}
                   <th></th>

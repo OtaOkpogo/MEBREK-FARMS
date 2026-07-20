@@ -3,6 +3,7 @@ import { toast } from "react-toastify";
 import * as XLSX from "xlsx";
 import jsPDF from "jspdf";
 import autoTable from "jspdf-autotable";
+import { PENS } from "../constants/pens";
 
 import {
   fetchProductions,
@@ -13,17 +14,6 @@ import socket from "../services/socket";
 
 const user = JSON.parse(localStorage.getItem("user") || "{}");
 const role = user?.role || localStorage.getItem("role");
-
-const pens = [
-  "Battery Cage Row 1",
-  "Battery Cage Row 2",
-  "Battery Cage Row 3",
-  "Deep Litter Pen 1",
-  "Deep Litter Pen 2",
-  "Deep Litter Pen 3",
-  "Sick Bay",
-  "Pen 150",
-];
 
 const PAGE_SIZE = 10;
 
@@ -417,9 +407,9 @@ const Production = () => {
           className="border p-2 rounded"
           required
         >
-          <option value="">Select Production Unit</option>
+          <option value="">Select Pen</option>
 
-          {pens.map((pen) => (
+          {PENS.map((pen) => (
             <option key={pen} value={pen}>
               {pen}
             </option>
@@ -576,7 +566,7 @@ const Production = () => {
           >
             <option value="All">All Pens</option>
 
-            {pens.map((pen) => (
+            {PENS.map((pen) => (
               <option key={pen} value={pen}>
                 {pen}
               </option>

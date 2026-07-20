@@ -1,4 +1,5 @@
 import { useEffect, useState } from "react";
+import { PENS } from "../constants/pens";
 
 import {
   fetchMortality,
@@ -19,8 +20,19 @@ import {
   Legend,
 } from "recharts";
 
-export default function Mortality() {
+const CAUSES = [
+  "Disease",
+  "Predator Attack",
+  "Heat Stress",
+  "Cold Stress",
+  "Cannibalism",
+  "Accident",
+  "Poisoning",
+  "Unknown",
+  "Other",
+];
 
+export default function Mortality() {
   // ================= STATE =================
 
   const [records, setRecords] = useState([]);
@@ -33,26 +45,21 @@ export default function Mortality() {
     notes: "",
   });
 
-
   // ================= LOAD DATA =================
 
   useEffect(() => {
     loadMortality();
   }, []);
 
-
   const loadMortality = async () => {
     try {
-
       const data = await fetchMortality();
 
       setRecords(data);
-
     } catch (err) {
       console.error(err);
     }
   };
-
 
   // ================= CREATE =================
 
@@ -60,7 +67,6 @@ export default function Mortality() {
     e.preventDefault();
 
     try {
-
       await createMortality(formData);
 
       setFormData({
@@ -72,49 +78,40 @@ export default function Mortality() {
       });
 
       loadMortality();
-
     } catch (err) {
       console.error(err);
     }
   };
-
 
   // ================= DELETE =================
 
   const handleDelete = async (id) => {
     try {
-
       await deleteMortality(id);
 
       loadMortality();
-
     } catch (err) {
       console.error(err);
     }
   };
 
-
   // ================= ANALYTICS =================
 
   const totalDeaths = records.reduce(
-    (sum, item) =>
-      sum + (item.numberDead || 0),
-    0
+    (sum, item) => sum + (item.numberDead || 0),
+    0,
   );
 
   const totalLoss = records.reduce(
-    (sum, item) =>
-      sum + (item.estimatedLoss || 0),
-    0
+    (sum, item) => sum + (item.estimatedLoss || 0),
+    0,
   );
-
 
   // ================= CHART DATA =================
 
   const causeDataMap = {};
 
   records.forEach((item) => {
-
     if (!causeDataMap[item.cause]) {
       causeDataMap[item.cause] = 0;
     }
@@ -122,15 +119,10 @@ export default function Mortality() {
     causeDataMap[item.cause] += item.numberDead;
   });
 
-
-  const causeChartData =
-    Object.keys(causeDataMap).map(
-      (key) => ({
-        name: key,
-        value: causeDataMap[key],
-      })
-    );
-
+  const causeChartData = Object.keys(causeDataMap).map((key) => ({
+    name: key,
+    value: causeDataMap[key],
+  }));
 
   const COLORS = [
     "#dc2626",
@@ -141,14 +133,11 @@ export default function Mortality() {
     "#7c3aed",
   ];
 
-
   return (
     <div className="p-6 bg-gray-100 min-h-screen">
-
       {/* ================= HEADER ================= */}
 
       <div className="mb-8">
-
         <h1 className="text-4xl font-bold text-red-700">
           Mortality Tracking ☠️
         </h1>
@@ -156,60 +145,33 @@ export default function Mortality() {
         <p className="text-gray-600 mt-2">
           Monitor bird deaths and disease outbreaks
         </p>
-
       </div>
-
-
 
       {/* ================= STATS ================= */}
 
       <div className="grid md:grid-cols-2 gap-6 mb-10">
-
         <div className="bg-white rounded-2xl shadow p-6">
+          <h2 className="text-gray-500">Total Bird Deaths</h2>
 
-          <h2 className="text-gray-500">
-            Total Bird Deaths
-          </h2>
-
-          <p className="text-4xl font-bold text-red-600 mt-2">
-            {totalDeaths}
-          </p>
-
+          <p className="text-4xl font-bold text-red-600 mt-2">{totalDeaths}</p>
         </div>
 
-
         <div className="bg-white rounded-2xl shadow p-6">
-
-          <h2 className="text-gray-500">
-            Estimated Financial Loss
-          </h2>
+          <h2 className="text-gray-500">Estimated Financial Loss</h2>
 
           <p className="text-4xl font-bold text-orange-500 mt-2">
             ₦{totalLoss.toLocaleString()}
           </p>
-
         </div>
-
       </div>
-
-
 
       {/* ================= FORM ================= */}
 
       <div className="bg-white rounded-2xl shadow p-6 mb-10">
+        <h2 className="text-2xl font-bold mb-6">Add Mortality Record</h2>
 
-        <h2 className="text-2xl font-bold mb-6">
-          Add Mortality Record
-        </h2>
-
-        <form
-          onSubmit={handleSubmit}
-          className="grid md:grid-cols-2 gap-4"
-        >
-
-          <input
-            type="text"
-            placeholder="Bird Batch"
+        <form onSubmit={handleSubmit} className="grid md:grid-cols-2 gap-4">
+          <select
             value={formData.birdBatch}
             onChange={(e) =>
               setFormData({
@@ -219,8 +181,15 @@ export default function Mortality() {
             }
             className="border p-3 rounded-lg"
             required
-          />
+          >
+            <option value="">Select Pen</option>
 
+            {PENS.map((pen) => (
+              <option key={pen} value={pen}>
+                {pen}
+              </option>
+            ))}
+          </select>
 
           <input
             type="number"
@@ -236,10 +205,7 @@ export default function Mortality() {
             required
           />
 
-
-          <input
-            type="text"
-            placeholder="Cause of Death"
+          <select
             value={formData.cause}
             onChange={(e) =>
               setFormData({
@@ -249,8 +215,14 @@ export default function Mortality() {
             }
             className="border p-3 rounded-lg"
             required
-          />
-
+          >
+            <option value="">Select Cause</option>
+            {CAUSES.map((cause) => (
+              <option key={cause} value={cause}>
+                {cause}
+              </option>
+            ))}
+          </select>
 
           <input
             type="number"
@@ -265,7 +237,6 @@ export default function Mortality() {
             className="border p-3 rounded-lg"
           />
 
-
           <textarea
             placeholder="Notes"
             value={formData.notes}
@@ -279,134 +250,72 @@ export default function Mortality() {
             rows={4}
           />
 
-
           <button className="bg-red-600 hover:bg-red-700 text-white rounded-lg py-3 transition">
             Save Record
           </button>
-
         </form>
-
       </div>
-
-
 
       {/* ================= CHARTS ================= */}
 
       <div className="grid md:grid-cols-2 gap-6 mb-10">
-
         {/* PIE CHART */}
 
         <div className="bg-white rounded-2xl shadow p-6">
+          <h2 className="text-2xl font-bold mb-4">Mortality Causes 📊</h2>
 
-          <h2 className="text-2xl font-bold mb-4">
-            Mortality Causes 📊
-          </h2>
-
-          <ResponsiveContainer
-            width="100%"
-            height={300}
-          >
-
+          <ResponsiveContainer width="100%" height={300}>
             <PieChart>
-
               <Pie
                 data={causeChartData}
                 dataKey="value"
                 outerRadius={100}
                 label
               >
-
-                {causeChartData.map(
-                  (entry, index) => (
-
-                    <Cell
-                      key={index}
-                      fill={
-                        COLORS[
-                          index % COLORS.length
-                        ]
-                      }
-                    />
-
-                  )
-                )}
-
+                {causeChartData.map((entry, index) => (
+                  <Cell key={index} fill={COLORS[index % COLORS.length]} />
+                ))}
               </Pie>
 
               <Tooltip />
 
               <Legend />
-
             </PieChart>
-
           </ResponsiveContainer>
-
         </div>
-
-
 
         {/* BAR CHART */}
 
         <div className="bg-white rounded-2xl shadow p-6">
+          <h2 className="text-2xl font-bold mb-4">Deaths by Cause 📉</h2>
 
-          <h2 className="text-2xl font-bold mb-4">
-            Deaths by Cause 📉
-          </h2>
-
-          <ResponsiveContainer
-            width="100%"
-            height={300}
-          >
-
+          <ResponsiveContainer width="100%" height={300}>
             <BarChart data={causeChartData}>
-
               <XAxis dataKey="name" />
 
               <YAxis />
 
               <Tooltip />
 
-              <Bar
-                dataKey="value"
-                fill="#dc2626"
-                radius={[8, 8, 0, 0]}
-              />
-
+              <Bar dataKey="value" fill="#dc2626" radius={[8, 8, 0, 0]} />
             </BarChart>
-
           </ResponsiveContainer>
-
         </div>
-
       </div>
-
-
 
       {/* ================= TABLE ================= */}
 
       <div className="bg-white rounded-2xl shadow p-6">
-
-        <h2 className="text-2xl font-bold mb-6">
-          Mortality Records
-        </h2>
+        <h2 className="text-2xl font-bold mb-6">Mortality Records</h2>
 
         {records.length === 0 ? (
-
           <p>No mortality records found</p>
-
         ) : (
-
           <div className="overflow-x-auto">
-
             <table className="w-full">
-
               <thead>
-
                 <tr className="border-b text-left">
-
-                  <th className="py-3">
-                    Batch
-                  </th>
+                  <th className="py-3">Pen</th>
 
                   <th>Deaths</th>
 
@@ -417,73 +326,39 @@ export default function Mortality() {
                   <th>Date</th>
 
                   <th>Action</th>
-
                 </tr>
-
               </thead>
 
-
               <tbody>
-
                 {records.map((record) => (
+                  <tr key={record._id} className="border-b hover:bg-gray-50">
+                    <td className="py-3">{record.birdBatch}</td>
 
-                  <tr
-                    key={record._id}
-                    className="border-b hover:bg-gray-50"
-                  >
+                    <td>{record.numberDead}</td>
 
-                    <td className="py-3">
-                      {record.birdBatch}
-                    </td>
-
-                    <td>
-                      {record.numberDead}
-                    </td>
-
-                    <td>
-                      {record.cause}
-                    </td>
+                    <td>{record.cause}</td>
 
                     <td className="text-red-600 font-bold">
-                      ₦
-                      {record.estimatedLoss?.toLocaleString()}
+                      ₦{record.estimatedLoss?.toLocaleString()}
                     </td>
 
-                    <td>
-                      {new Date(
-                        record.createdAt
-                      ).toLocaleDateString()}
-                    </td>
+                    <td>{new Date(record.createdAt).toLocaleDateString()}</td>
 
                     <td>
-
                       <button
-                        onClick={() =>
-                          handleDelete(
-                            record._id
-                          )
-                        }
+                        onClick={() => handleDelete(record._id)}
                         className="bg-red-500 hover:bg-red-600 text-white px-3 py-1 rounded-lg transition"
                       >
                         Delete
                       </button>
-
                     </td>
-
                   </tr>
-
                 ))}
-
               </tbody>
-
             </table>
-
           </div>
-
         )}
-
       </div>
-
     </div>
   );
 }
