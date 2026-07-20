@@ -13,6 +13,7 @@ const attendanceRoutes = require("./routes/attendanceRoutes");
 const notificationRoutes = require("./routes/notification");
 const roomInventoryRoutes = require("./routes/roomInventoryRoutes");
 const searchRoutes = require("./routes/search");
+const reportRoutes = require("./routes/reportRoutes");
 
 dotenv.config();
 const app = express();
@@ -73,6 +74,7 @@ app.use("/api/dashboard", dashboardRoutes);
 app.use("/api/notifications", notificationRoutes);
 app.use("/api/room-inventory", roomInventoryRoutes);
 app.use("/api/search", searchRoutes);
+app.use("/api/reports", require("./routes/reportRoutes"));
 app.use("/api/backup", require("./routes/backup"));
 
 const PORT = process.env.PORT || 5000;
