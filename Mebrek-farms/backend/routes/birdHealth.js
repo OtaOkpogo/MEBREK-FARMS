@@ -8,17 +8,24 @@ const {
   createBirdHealthRecord,
   updateBirdHealthRecord,
   deleteBirdHealthRecord,
-  getDeletedBirdHealthRecords,
   restoreBirdHealthRecord,
+  getDeletedBirdHealthRecords,
 } = require("../controllers/birdHealthController");
 
 // All bird health routes require a logged-in user
 router.use(protect);
 
+// Staff, Manager, Super Admin can all view and create
 router.get("/", getBirdHealthRecords);
 router.post("/", createBirdHealthRecord);
-router.put("/:id", updateBirdHealthRecord);
-router.delete("/:id", deleteBirdHealthRecord);
+
+// Manager and Super Admin only — Staff is view + create only
+router.put("/:id", allowRoles("manager", "superadmin"), updateBirdHealthRecord);
+router.delete(
+  "/:id",
+  allowRoles("manager", "superadmin"),
+  deleteBirdHealthRecord,
+);
 
 // Superadmin-only: view and restore deleted records
 router.get("/deleted", allowRoles("superadmin"), getDeletedBirdHealthRecords);

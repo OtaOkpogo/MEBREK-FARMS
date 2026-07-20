@@ -1,4 +1,5 @@
 const Medication = require("../models/Medication");
+const BirdHealth = require("../models/BirdHealth");
 
 // @desc   Get medication records. Superadmin sees deleted records inline
 //         (with who deleted them); everyone else only sees active records.
@@ -47,6 +48,52 @@ exports.createMedication = async (req, res) => {
       dateAdministered: dateAdministered || Date.now(),
       administeredBy: req.user?.id,
     });
+
+    // Auto-log this medication as a Bird Health record so both modules
+    // share one health timeline without duplicate manual entry. Isolated
+    // in its own try/catch — if this fails, the medication record itself
+    // still saves and the person still gets a 201.
+    try {
+      const actionTaken = [purpose, dosage].filter(Boolean).join(" — ");
+
+      const birdHealthRecord = await BirdHealth.create({
+        date: medication.dateAdministered || new Date(),
+
+        pen: medication.administeredTo,
+
+        healthIssue: medication.medicationName,
+
+        category: "Medication",
+
+        symptoms: "Medication administered",
+
+        diagnosis: purpose || "Treatment",
+
+        medicationUsed: medication.medicationName,
+
+        actionTaken: actionTaken || "Medication administered",
+
+        birdsAffected: 1,
+
+        severity: "Low",
+
+        status: "Recovering",
+
+        remarks: purpose || "",
+
+        recordedBy: req.user.id,
+      });
+
+      const io = req.app.get("io");
+      if (io) {
+        io.emit("birdHealthCreated", birdHealthRecord);
+      }
+    } catch (birdHealthErr) {
+      console.error(
+        "Auto Bird Health Record (Medication) Error:",
+        birdHealthErr,
+      );
+    }
 
     res.status(201).json(medication);
   } catch (err) {

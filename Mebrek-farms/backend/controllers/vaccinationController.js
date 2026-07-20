@@ -1,4 +1,5 @@
 const Vaccination = require("../models/Vaccination");
+const BirdHealth = require("../models/BirdHealth");
 
 // =========================================
 // Helper: Calculate Status
@@ -74,6 +75,59 @@ exports.createVaccination = async (req, res) => {
     const io = req.app.get("io");
     if (io) {
       io.emit("newVaccination", vaccination);
+    }
+
+    // Auto-log this vaccination as a Bird Health record so both modules
+    // share one health timeline without duplicate manual entry. Isolated
+    // in its own try/catch — if this fails for any reason, the
+    // vaccination itself still succeeds and the person still gets a
+    // 201 response; we just log the Bird Health failure separately.
+    try {
+      const birdHealthRecord = await BirdHealth.create({
+        date: vaccination.vaccinationDate || new Date(),
+
+        pen: vaccination.pen,
+
+        healthIssue: vaccination.vaccineName,
+
+        category: "Vaccination",
+
+        symptoms: "Preventive vaccination",
+
+        diagnosis: vaccination.vaccineType || "Routine Vaccination",
+
+        actionTaken: `Vaccination administered (${vaccination.route || "N/A"})`,
+
+        birdsAffected: vaccination.birdsVaccinated || vaccination.quantity || 0,
+
+        medicationUsed: vaccination.vaccineName,
+
+        veterinarianName: vaccination.administeredBy?.name || req.user.name,
+
+        followUpDate: vaccination.nextDueDate,
+
+        followUpStatus: calculateStatus(vaccination.nextDueDate),
+
+        status: "Recovered",
+
+        remarks: vaccination.notes || "",
+
+        recordedBy: req.user.id,
+      });
+
+      console.log(
+        "Auto Bird Health Record (Vaccination) created:",
+        birdHealthRecord._id,
+      );
+
+      if (io) {
+        io.emit("birdHealthCreated", birdHealthRecord);
+      }
+    } catch (birdHealthErr) {
+      console.error(
+        "Auto Bird Health Record (Vaccination) Error:",
+        birdHealthErr,
+      );
     }
 
     res.status(201).json(vaccination);
