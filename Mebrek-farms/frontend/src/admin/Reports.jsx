@@ -198,13 +198,37 @@ const RAW_ARRAY_TRANSFORMERS = {
  *   transformer exists yet for that report type.
  */
 const normalizeReportResponse = (reportTypeKey, data) => {
+  // New object response (Feed Usage and future reports)
+  if (!Array.isArray(data) && data) {
+    return {
+      records: data.tableData || data.records || [],
+      summary: data.summary || {},
+      chartData: data.chartData || [],
+    };
+  }
+
+  // Old array response
   if (Array.isArray(data)) {
     const activeRows = data.filter((row) => row?.isDeleted !== true);
+
     const transform = RAW_ARRAY_TRANSFORMERS[reportTypeKey];
-    if (transform) return transform(activeRows);
-    return { records: activeRows, summary: {}, chartData: [] };
+
+    if (transform) {
+      return transform(activeRows);
+    }
+
+    return {
+      records: activeRows,
+      summary: {},
+      chartData: [],
+    };
   }
-  return data;
+
+  return {
+    records: [],
+    summary: {},
+    chartData: [],
+  };
 };
 
 export default function Reports() {
@@ -278,9 +302,9 @@ export default function Reports() {
         ? normalizeReportResponse(reportType, response)
         : { records: [], summary: {}, chartData: [] };
 
-      setRecords(normalized.records || []);
-      setSummary(normalized.summary || {});
-      setChartData(normalized.chartData || []);
+      setRecords(normalized.records);
+      setSummary(normalized.summary);
+      setChartData(normalized.chartData);
 
       if (response && (normalized.records || []).length > 0) {
         toast.success(`${reportType} report generated.`);
