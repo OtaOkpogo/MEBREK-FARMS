@@ -58,7 +58,75 @@ exports.getReport = async (req, res) => {
       case "production": {
         const filter = applyPenFilter(req, buildDateFilter(req, "date"));
 
-        report = await Production.find(filter).sort({ date: -1 });
+        const productions = await Production.find(filter).sort({
+          date: -1,
+        });
+
+        // ==========================
+        // SUMMARY
+        // ==========================
+
+        const totalProduction = productions.reduce(
+          (sum, item) => sum + (item.totalEggs || 0),
+          0,
+        );
+
+        const totalCrates = productions.reduce(
+          (sum, item) => sum + (item.cratesProduced || 0),
+          0,
+        );
+
+        const totalFeedConsumed = productions.reduce(
+          (sum, item) => sum + (item.feedBagsConsumed || 0),
+          0,
+        );
+
+        const totalMortality = productions.reduce(
+          (sum, item) => sum + (item.mortality || 0),
+          0,
+        );
+
+        const averageProduction =
+          productions.length > 0
+            ? Number((totalProduction / productions.length).toFixed(2))
+            : 0;
+
+        // ==========================
+        // CHART DATA
+        // ==========================
+
+        const chartData = productions.map((item) => ({
+          name: new Date(item.date).toLocaleDateString(),
+          value: item.totalEggs || 0,
+        }));
+
+        // ==========================
+        // TABLE DATA
+        // ==========================
+
+        const tableData = productions.map((item) => ({
+          Date: item.date,
+          Pen: item.pen,
+          OpeningStock: item.openingStock,
+          ClosingStock: item.closingStock,
+          Mortality: item.mortality,
+          FeedConsumed: item.feedBagsConsumed,
+          CratesProduced: item.cratesProduced,
+          TotalEggs: item.totalEggs,
+          ProductionPercentage: item.productionPercentage,
+        }));
+
+        report = {
+          summary: {
+            totalProduction,
+            totalCrates,
+            totalFeedConsumed,
+            totalMortality,
+            averageProduction,
+          },
+          chartData,
+          tableData,
+        };
 
         break;
       }
@@ -69,7 +137,75 @@ exports.getReport = async (req, res) => {
       case "eggsales": {
         const filter = buildDateFilter(req, "date");
 
-        report = await EggSale.find(filter).sort({ date: -1 });
+        const sales = await EggSale.find(filter).sort({
+          date: -1,
+        });
+
+        // ==========================
+        // SUMMARY
+        // ==========================
+
+        const totalRevenue = sales.reduce(
+          (sum, sale) => sum + (sale.grandTotal || 0),
+          0,
+        );
+
+        const totalPaid = sales.reduce(
+          (sum, sale) => sum + (sale.amountPaid || 0),
+          0,
+        );
+
+        const totalOutstanding = sales.reduce(
+          (sum, sale) => sum + (sale.balance || 0),
+          0,
+        );
+
+        const totalCrates = sales.reduce(
+          (sum, sale) => sum + (sale.cratesSold || 0),
+          0,
+        );
+
+        const totalLooseEggs = sales.reduce(
+          (sum, sale) => sum + (sale.looseEggs || 0),
+          0,
+        );
+
+        // ==========================
+        // CHART DATA
+        // ==========================
+
+        const chartData = sales.map((sale) => ({
+          name: sale.customer,
+          value: sale.grandTotal || 0,
+        }));
+
+        // ==========================
+        // TABLE DATA
+        // ==========================
+
+        const tableData = sales.map((sale) => ({
+          Date: sale.date,
+          Customer: sale.customer,
+          Phone: sale.phone,
+          CratesSold: sale.cratesSold,
+          LooseEggs: sale.looseEggs,
+          GrandTotal: sale.grandTotal,
+          AmountPaid: sale.amountPaid,
+          Balance: sale.balance,
+          PaymentMethod: sale.paymentMethod,
+        }));
+
+        report = {
+          summary: {
+            totalRevenue,
+            totalPaid,
+            totalOutstanding,
+            totalCrates,
+            totalLooseEggs,
+          },
+          chartData,
+          tableData,
+        };
 
         break;
       }
@@ -77,9 +213,86 @@ exports.getReport = async (req, res) => {
       // FEED USAGE REPORT
       // =====================================
       case "feedusage": {
-        const filter = buildDateFilter(req, "date");
+        // Current inventory (always current, not date filtered)
+        const inventory = await Feed.find({
+          isDeleted: false,
+        }).sort({ name: 1 });
 
-        report = await Feed.find(filter).sort({ date: -1 });
+        // Feed usage comes from Production records
+        const productionFilter = applyPenFilter(
+          req,
+          buildDateFilter(req, "date"),
+        );
+
+        const productions = await Production.find(productionFilter);
+
+        // ==========================
+        // SUMMARY
+        // ==========================
+
+        const currentStock = inventory.reduce(
+          (sum, item) => sum + (item.quantity || 0),
+          0,
+        );
+
+        const inventoryValue = inventory.reduce(
+          (sum, item) => sum + (item.quantity || 0) * (item.pricePerUnit || 0),
+          0,
+        );
+
+        const lowStockItems = inventory.filter(
+          (item) => item.quantity <= item.lowStockThreshold,
+        ).length;
+
+        const feedTypes = inventory.length;
+
+        const feedUsed = productions.reduce(
+          (sum, item) => sum + (item.feedBagsConsumed || 0),
+          0,
+        );
+
+        const averageDailyUsage =
+          productions.length > 0
+            ? Number((feedUsed / productions.length).toFixed(2))
+            : 0;
+
+        // ==========================
+        // CHART DATA
+        // ==========================
+
+        const chartData = inventory.map((item) => ({
+          name: item.name,
+          value: item.quantity,
+        }));
+
+        // ==========================
+        // TABLE DATA
+        // ==========================
+
+        const tableData = inventory.map((item) => ({
+          Feed: item.name,
+          Supplier: item.supplier || "-",
+          Quantity: item.quantity,
+          Unit: item.unit,
+          PricePerUnit: item.pricePerUnit,
+          StockValue: item.quantity * item.pricePerUnit,
+          Status:
+            item.quantity <= item.lowStockThreshold ? "Low Stock" : "In Stock",
+        }));
+
+        report = {
+          summary: {
+            currentStock,
+            inventoryValue,
+            feedUsed,
+            averageDailyUsage,
+            lowStockItems,
+            feedTypes,
+          },
+          chartData,
+          tableData,
+        };
+
         break;
       }
 
