@@ -19,3 +19,7 @@ export const markNotificationRead = async (id) => {
 export const replyNotification = async (id, data) => {
   return await apiClient.post(`/notifications/${id}/reply`, data);
 };
+
+export const getManagers = async () => {
+  return await apiClient.get("/notifications/managers");
+};
