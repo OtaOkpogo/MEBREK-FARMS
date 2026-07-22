@@ -23,3 +23,7 @@ export const replyNotification = async (id, data) => {
 export const getManagers = async () => {
   return await apiClient.get("/notifications/managers");
 };
+
+export const getUnreadCount = async () => {
+  return await apiClient.get("/notifications/unread-count");
+};
