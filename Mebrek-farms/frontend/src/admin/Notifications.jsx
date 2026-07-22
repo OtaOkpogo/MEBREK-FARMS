@@ -7,6 +7,13 @@ import {
   replyNotification,
 } from "../services/notificationService";
 import notificationSound from "../assets/notification.mp3";
+import ChatBubble from "../components/ChatBubble";
+
+const isOwnSender = (senderId, userId) => {
+  if (!senderId || !userId) return false;
+  const id = senderId?._id?.toString?.() || senderId?.toString?.();
+  return id === userId?.toString();
+};
 
 export default function Notifications() {
   const user = JSON.parse(localStorage.getItem("user") || "{}");
@@ -20,21 +27,32 @@ export default function Notifications() {
   const [loading, setLoading] = useState(false);
   const [replyMessages, setReplyMessages] = useState({});
   const [replyLoading, setReplyLoading] = useState(false);
+  const [toasts, setToasts] = useState([]);
 
   const playNotificationSound = () => {
     const audio = new Audio(notificationSound);
-    audio.play();
+    audio.play().catch(() => {});
+  };
+
+  const pushToast = (text, tone = "info") => {
+    const id = Date.now() + Math.random();
+    setToasts((prev) => [...prev, { id, text, tone }]);
+    setTimeout(() => {
+      setToasts((prev) => prev.filter((t) => t.id !== id));
+    }, 4000);
   };
 
   const loadNotifications = async () => {
     try {
-      const data = await getNotifications();
+      const res = await getNotifications();
 
-      const list = Array.isArray(data)
-        ? data
-        : Array.isArray(data?.notifications)
-          ? data.notifications
-          : [];
+      const list = Array.isArray(res)
+        ? res
+        : Array.isArray(res?.data)
+          ? res.data
+          : Array.isArray(res?.notifications)
+            ? res.notifications
+            : [];
 
       setNotifications(list);
     } catch (err) {
@@ -55,24 +73,28 @@ export default function Notifications() {
   }, [role, user.id]);
 
   useEffect(() => {
-    const handleCreated = () => {
+    const handleCreated = (notification) => {
       loadNotifications();
 
-      if (roleRef.current === "superadmin") {
+      const isOwnMessage = isOwnSender(
+        notification.senderId,
+        userIdRef.current,
+      );
+
+      if (roleRef.current === "superadmin" && !isOwnMessage) {
         playNotificationSound();
+        pushToast(`New message from ${notification.senderName}`, "info");
       }
     };
 
     const handleUpdated = (notification) => {
       loadNotifications();
 
-      if (
-        roleRef.current !== "superadmin" &&
-        (notification.senderId?.toString() === userIdRef.current ||
-          notification.senderId?._id?.toString() === userIdRef.current)
-      ) {
+      const isOwnThread = isOwnSender(notification.senderId, userIdRef.current);
+
+      if (roleRef.current !== "superadmin" && isOwnThread) {
         playNotificationSound();
-        alert("Super Admin replied to your message.");
+        pushToast("Super Admin replied to your message.", "success");
       }
     };
 
@@ -108,7 +130,7 @@ export default function Notifications() {
 
         acc[id].messages.push(notification);
 
-        if (!notification.isRead) {
+        if (!notification.isReadByMe) {
           acc[id].unread++;
         }
 
@@ -144,14 +166,21 @@ export default function Notifications() {
   useEffect(() => {
     if (!selectedConversation) return;
 
-    selectedConversation.messages.forEach((msg) => {
-      if (!msg.isRead && !markingReadRef.current.has(msg._id)) {
-        markingReadRef.current.add(msg._id);
-        handleRead(msg._id).finally(() => {
-          markingReadRef.current.delete(msg._id);
-        });
-      }
-    });
+    const unreadIds = selectedConversation.messages
+      .filter((msg) => !msg.isReadByMe)
+      .map((msg) => msg._id)
+      .filter((id) => !markingReadRef.current.has(id));
+
+    if (unreadIds.length === 0) return;
+
+    unreadIds.forEach((id) => markingReadRef.current.add(id));
+
+    Promise.all(unreadIds.map((id) => markNotificationRead(id)))
+      .then(() => loadNotifications())
+      .catch((err) => console.error(err))
+      .finally(() => {
+        unreadIds.forEach((id) => markingReadRef.current.delete(id));
+      });
   }, [selectedConversation]);
 
   useEffect(() => {
@@ -164,7 +193,7 @@ export default function Notifications() {
     e.preventDefault();
 
     if (!message.trim()) {
-      return alert("Enter a message.");
+      return pushToast("Enter a message.", "warning");
     }
 
     try {
@@ -175,22 +204,16 @@ export default function Notifications() {
         message,
       });
 
-      alert("Message sent successfully.");
+      pushToast("Message sent successfully.", "success");
       setMessage("");
     } catch (err) {
       console.error(err);
-      alert("Failed to send message.");
+      pushToast(
+        err?.response?.data?.message || "Failed to send message.",
+        "error",
+      );
     } finally {
       setLoading(false);
-    }
-  };
-
-  const handleRead = async (id) => {
-    try {
-      await markNotificationRead(id);
-      await loadNotifications();
-    } catch (err) {
-      console.error(err);
     }
   };
 
@@ -205,7 +228,7 @@ export default function Notifications() {
     const replyText = replyMessages[conversationId];
 
     if (!replyText || !replyText.trim()) {
-      return alert("Enter a reply.");
+      return pushToast("Enter a reply.", "warning");
     }
 
     try {
@@ -220,17 +243,60 @@ export default function Notifications() {
         [conversationId]: "",
       }));
 
-      alert("Reply sent successfully.");
+      pushToast("Reply sent successfully.", "success");
     } catch (err) {
       console.error(err);
-      alert("Failed to send reply.");
+      pushToast(
+        err?.response?.data?.message || "Failed to send reply.",
+        "error",
+      );
     } finally {
       setReplyLoading(false);
     }
   };
 
+  const toastTone = {
+    info: "border-l-blue-500 bg-white",
+    success: "border-l-green-600 bg-white",
+    warning: "border-l-amber-500 bg-white",
+    error: "border-l-red-600 bg-white",
+  };
+
+  // Builds [originalMessage, ...replies] as a single flat bubble thread
+  const buildThread = (item) => [
+    {
+      _id: item._id,
+      senderId: item.senderId,
+      senderName: item.senderName,
+      senderRole: item.senderRole,
+      message: item.message,
+      createdAt: item.createdAt,
+    },
+    ...(item.replies || []),
+  ];
+
   return (
-    <div className="p-6">
+    <div className="p-6 relative">
+      {/* ================= IN-PAGE TOASTS ================= */}
+      <div className="fixed top-4 right-4 z-50 flex flex-col gap-2 w-full max-w-sm">
+        {toasts.map((toast) => (
+          <div
+            key={toast.id}
+            className={`shadow-lg rounded-lg border-l-4 p-3 text-sm ${toastTone[toast.tone] || toastTone.info}`}
+            style={{ animation: "toast-in 180ms ease-out" }}
+          >
+            {toast.text}
+          </div>
+        ))}
+      </div>
+
+      <style>{`
+        @keyframes toast-in {
+          from { opacity: 0; transform: translateX(16px); }
+          to { opacity: 1; transform: translateX(0); }
+        }
+      `}</style>
+
       {/* ================= MANAGER ONLY ================= */}
 
       {role === "manager" && (
@@ -261,38 +327,23 @@ export default function Notifications() {
 
           <div className="space-y-6">
             {notifications
-              .filter(
-                (item) =>
-                  item.senderId?.toString() === user.id ||
-                  item.senderId?._id === user.id,
-              )
+              .filter((item) => isOwnSender(item.senderId, user.id))
               .map((item) => (
                 <div key={item._id} className="bg-white rounded-xl shadow p-5">
-                  <div className="font-bold text-green-700">You</div>
-                  <div className="mt-3">{item.message}</div>
-                  <small className="text-gray-500">
-                    {new Date(item.createdAt).toLocaleString()}
-                  </small>
-
-                  {item.replies?.length > 0 && (
-                    <div className="mt-5 space-y-3">
-                      {item.replies.map((reply) => (
-                        <div
-                          key={reply._id}
-                          className="ml-8 bg-green-50 border-l-4 border-green-700 p-3 rounded"
-                        >
-                          <div className="font-bold">{reply.senderName}</div>
-                          <div className="text-sm text-gray-500">
-                            {reply.senderRole}
-                          </div>
-                          <div className="mt-2">{reply.message}</div>
-                          <small className="text-gray-400">
-                            {new Date(reply.createdAt).toLocaleString()}
-                          </small>
-                        </div>
-                      ))}
-                    </div>
-                  )}
+                  {buildThread(item).map((entry, i) => (
+                    <ChatBubble
+                      key={entry._id || `${item._id}-${i}`}
+                      senderName={
+                        isOwnSender(entry.senderId, user.id)
+                          ? "You"
+                          : entry.senderName
+                      }
+                      senderRole={entry.senderRole}
+                      message={entry.message}
+                      createdAt={entry.createdAt}
+                      isOwn={isOwnSender(entry.senderId, user.id)}
+                    />
+                  ))}
                 </div>
               ))}
           </div>
@@ -380,32 +431,22 @@ export default function Notifications() {
                     </div>
                   </div>
 
-                  <div className="flex-1 overflow-y-auto p-6 space-y-5">
+                  <div className="flex-1 overflow-y-auto p-6">
                     {selectedConversation.messages.map((item) => (
-                      <div key={item._id}>
-                        <div className="bg-gray-100 rounded-xl p-4">
-                          <div className="font-bold">{item.senderName}</div>
-
-                          <div className="mt-2">{item.message}</div>
-
-                          <small className="text-gray-500">
-                            {new Date(item.createdAt).toLocaleString()}
-                          </small>
-                        </div>
-
-                        {item.replies?.map((reply) => (
-                          <div
-                            key={reply._id}
-                            className="ml-10 mt-3 bg-green-100 rounded-xl p-4"
-                          >
-                            <div className="font-bold">{reply.senderName}</div>
-
-                            <div className="mt-2">{reply.message}</div>
-
-                            <small className="text-gray-500">
-                              {new Date(reply.createdAt).toLocaleString()}
-                            </small>
-                          </div>
+                      <div key={item._id} className="mb-2">
+                        {buildThread(item).map((entry, i) => (
+                          <ChatBubble
+                            key={entry._id || `${item._id}-${i}`}
+                            senderName={
+                              isOwnSender(entry.senderId, user.id)
+                                ? "You"
+                                : entry.senderName
+                            }
+                            senderRole={entry.senderRole}
+                            message={entry.message}
+                            createdAt={entry.createdAt}
+                            isOwn={isOwnSender(entry.senderId, user.id)}
+                          />
                         ))}
                       </div>
                     ))}

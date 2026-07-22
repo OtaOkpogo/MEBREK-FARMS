@@ -2,6 +2,8 @@ import axios from "axios";
 
 const API_URL = "http://localhost:5000/api/feed-invoices";
 
+// ====================================== // AUTH CONFIG // ======================================
+
 const getConfig = () => {
   const token = localStorage.getItem("token");
 

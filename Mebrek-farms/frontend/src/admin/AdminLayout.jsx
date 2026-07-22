@@ -5,9 +5,20 @@ import "react-toastify/dist/ReactToastify.css";
 
 import logo from "../assets/logo.png";
 import GlobalSearch from "../components/GlobalSearch";
+import NotificationPopup from "../components/NotificationPopup";
 import socket from "../services/socket";
 import orderSound from "../assets/order-notification.mp3";
+import {
+  markNotificationRead,
+  replyNotification,
+} from "../services/notificationService";
 import { FileBarChart2 } from "lucide-react";
+
+const isOwnSender = (senderId, userId) => {
+  if (!senderId || !userId) return false;
+  const id = senderId?._id?.toString?.() || senderId?.toString?.();
+  return id === userId?.toString();
+};
 
 export default function AdminLayout() {
   const navigate = useNavigate();
@@ -19,8 +30,16 @@ export default function AdminLayout() {
   const name = user?.name || localStorage.getItem("adminName");
 
   const [unreadOrders, setUnreadOrders] = useState(0);
+  const [messageNotifications, setMessageNotifications] = useState([]);
 
   const audioRef = useRef(null);
+  const roleRef = useRef(role);
+  const userIdRef = useRef(user?.id);
+
+  useEffect(() => {
+    roleRef.current = role;
+    userIdRef.current = user?.id;
+  }, [role, user?.id]);
 
   // =============================
   // PRELOAD NOTIFICATION SOUND
@@ -43,23 +62,19 @@ export default function AdminLayout() {
   }, [location.pathname]);
 
   // =============================
-  // SOCKET LISTENER
+  // SOCKET LISTENER — ORDERS
   // =============================
 
   useEffect(() => {
     const handleNewOrder = (order) => {
       console.log("🔥 New Order Received", order);
-      // increment unread badge
       setUnreadOrders((prev) => prev + 1);
 
-      // play sound
       if (audioRef.current) {
         audioRef.current.currentTime = 0;
-
         audioRef.current.play().catch(() => {});
       }
 
-      // toast
       toast.success(`🛒 New order received from ${order.name}`, {
         position: "top-right",
         autoClose: 5000,
@@ -67,7 +82,6 @@ export default function AdminLayout() {
         theme: "colored",
       });
 
-      // Browser notification
       if ("Notification" in window) {
         if (Notification.permission === "granted") {
           new Notification("Mebrek Farms", {
@@ -79,7 +93,6 @@ export default function AdminLayout() {
         }
       }
 
-      // Notify Orders page if open
       window.dispatchEvent(
         new CustomEvent("orderCreated", {
           detail: order,
@@ -94,8 +107,110 @@ export default function AdminLayout() {
     };
   }, []);
 
+  // =============================
+  // SOCKET LISTENER — MESSAGE NOTIFICATIONS
+  // (Manager <-> Super Admin inbox)
+  // =============================
+
+  useEffect(() => {
+    if (roleRef.current === "staff") return; // staff never gets these
+
+    // A brand-new message arrives — only Super Admin gets the inline popup,
+    // since Manager is the one who sends these.
+    const handleCreated = (notification) => {
+      const isOwnMessage = isOwnSender(
+        notification.senderId,
+        userIdRef.current,
+      );
+
+      if (isOwnMessage || roleRef.current !== "superadmin") return;
+
+      // Don't stack a popup on top of the page that already shows it live.
+      if (location.pathname === "/admin/notifications") return;
+
+      if (audioRef.current) {
+        audioRef.current.currentTime = 0;
+        audioRef.current.play().catch(() => {});
+      }
+
+      toast.info(`🔔 New message from ${notification.senderName}`, {
+        position: "top-right",
+        autoClose: 4000,
+        theme: "colored",
+      });
+
+      setMessageNotifications((prev) => {
+        const idx = prev.findIndex((n) => n._id === notification._id);
+        if (idx === -1) return [...prev, notification];
+        const next = [...prev];
+        next[idx] = notification;
+        return next;
+      });
+    };
+
+    // A reply is added to a thread — only the ORIGINAL SENDER (typically a
+    // Manager) gets the popup, showing the full thread so far, so they can
+    // respond inline without opening the Notifications page.
+    const handleUpdated = (notification) => {
+      const isOwnThread = isOwnSender(notification.senderId, userIdRef.current);
+
+      if (!isOwnThread || roleRef.current === "superadmin") return;
+
+      if (location.pathname === "/admin/notifications") return;
+
+      if (audioRef.current) {
+        audioRef.current.currentTime = 0;
+        audioRef.current.play().catch(() => {});
+      }
+
+      toast.success("Super Admin replied to your message", {
+        position: "top-right",
+        autoClose: 4000,
+        theme: "colored",
+      });
+
+      setMessageNotifications((prev) => {
+        const idx = prev.findIndex((n) => n._id === notification._id);
+        if (idx === -1) return [...prev, notification];
+        const next = [...prev];
+        next[idx] = notification; // refresh with latest replies
+        return next;
+      });
+    };
+
+    socket.on("notificationCreated", handleCreated);
+    socket.on("notificationUpdated", handleUpdated);
+
+    return () => {
+      socket.off("notificationCreated", handleCreated);
+      socket.off("notificationUpdated", handleUpdated);
+    };
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [location.pathname]);
+
+  const handlePopupClose = () => {
+    setMessageNotifications([]);
+  };
+
+  const handlePopupMarkRead = async (id) => {
+    try {
+      await markNotificationRead(id);
+    } catch (err) {
+      console.error(err);
+    } finally {
+      setMessageNotifications((prev) => prev.filter((n) => n._id !== id));
+    }
+  };
+
+  const handlePopupReply = async (id, message) => {
+    await replyNotification(id, { message });
+    setMessageNotifications((prev) => prev.filter((n) => n._id !== id));
+  };
+
   const handleLogout = () => {
     socket.off("newOrder");
+    socket.off("notificationCreated");
+    socket.off("notificationUpdated");
 
     localStorage.removeItem("token");
     localStorage.removeItem("role");
@@ -399,7 +514,6 @@ export default function AdminLayout() {
       {/* MAIN AREA */}
       <main className="flex-1 min-w-0 bg-gray-100 overflow-y-auto">
         {/* TOP HEADER */}
-        {/* TOP HEADER */}
         <div className="bg-white shadow-sm px-8 py-4 flex items-center justify-between">
           {/* GLOBAL SEARCH */}
           <div className="w-full max-w-xl">
@@ -439,6 +553,14 @@ export default function AdminLayout() {
           <Outlet />
         </div>
       </main>
+
+      {/* MESSAGE NOTIFICATION POPUP */}
+      <NotificationPopup
+        notifications={messageNotifications}
+        onClose={handlePopupClose}
+        onMarkRead={handlePopupMarkRead}
+        onReply={handlePopupReply}
+      />
 
       <ToastContainer
         position="top-right"
