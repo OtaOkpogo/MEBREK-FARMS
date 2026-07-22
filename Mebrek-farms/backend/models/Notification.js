@@ -1,5 +1,26 @@
 const mongoose = require("mongoose");
 
+const replySchema = new mongoose.Schema(
+  {
+    senderId: {
+      type: mongoose.Schema.Types.ObjectId,
+      ref: "Admin",
+    },
+
+    senderName: String,
+
+    senderRole: String,
+
+    message: String,
+
+    createdAt: {
+      type: Date,
+      default: Date.now,
+    },
+  },
+  { _id: true },
+);
+
 const notificationSchema = new mongoose.Schema(
   {
     senderId: {
@@ -14,37 +35,34 @@ const notificationSchema = new mongoose.Schema(
 
     subject: String,
 
-    message: String,
-
-    isRead: {
-      type: Boolean,
-      default: false,
+    message: {
+      type: String,
+      required: true,
+      trim: true,
     },
 
-    replies: [
+    // Who this notification is addressed to.
+    // Defaults to manager + superadmin — staff never see notifications.
+    recipientRoles: {
+      type: [String],
+      default: ["manager", "superadmin"],
+    },
+
+    // Per-admin read tracking (replaces the old flat `isRead` boolean).
+    readBy: [
       {
-        senderId: {
+        adminId: {
           type: mongoose.Schema.Types.ObjectId,
           ref: "Admin",
         },
-
-        senderName: String,
-
-        senderRole: String,
-
-        message: String,
-
-        isRead: {
-          type: Boolean,
-          default: false,
-        },
-
-        createdAt: {
+        readAt: {
           type: Date,
           default: Date.now,
         },
       },
     ],
+
+    replies: [replySchema],
   },
   {
     timestamps: true,
@@ -56,5 +74,7 @@ notificationSchema.index({
   message: "text",
   senderName: "text",
 });
+
+notificationSchema.index({ recipientRoles: 1, createdAt: -1 });
 
 module.exports = mongoose.model("Notification", notificationSchema);

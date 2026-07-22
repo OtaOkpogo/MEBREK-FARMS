@@ -115,6 +115,62 @@ const feedInvoiceSchema = new mongoose.Schema(
       default: "",
       trim: true,
     },
+    // =========================
+    // Invoice Status
+    // =========================
+    invoiceStatus: {
+      type: String,
+      enum: ["Draft", "Approved", "Cancelled"],
+      default: "Draft",
+    },
+
+    // =========================
+    // Audit Fields
+    // =========================
+    isDeleted: {
+      type: Boolean,
+      default: false,
+    },
+
+    deletedAt: {
+      type: Date,
+      default: null,
+    },
+
+    deletedBy: {
+      type: String,
+      default: null,
+    },
+
+    deletedByRole: {
+      type: String,
+      default: null,
+    },
+
+    updatedBy: {
+      type: String,
+      default: null,
+    },
+
+    updatedByRole: {
+      type: String,
+      default: null,
+    },
+
+    restoredAt: {
+      type: Date,
+      default: null,
+    },
+
+    restoredBy: {
+      type: String,
+      default: null,
+    },
+
+    restoredByRole: {
+      type: String,
+      default: null,
+    },
   },
   {
     timestamps: true,
@@ -127,8 +183,10 @@ feedInvoiceSchema.index({
   supplier: "text",
   feedName: "text",
   paymentStatus: "text",
+  invoiceStatus: "text",
   driverName: "text",
   vehicleNumber: "text",
+  warehouseLocation: "text",
   remarks: "text",
 });
 
