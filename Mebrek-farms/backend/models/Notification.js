@@ -41,6 +41,14 @@ const notificationSchema = new mongoose.Schema(
       trim: true,
     },
 
+    // add inside notificationSchema fields:
+    recipientId: {
+      type: mongoose.Schema.Types.ObjectId,
+      ref: "Admin",
+      default: null,
+    },
+    recipientName: String,
+
     // Who this notification is addressed to.
     // Defaults to manager + superadmin — staff never see notifications.
     recipientRoles: {
@@ -76,5 +84,7 @@ notificationSchema.index({
 });
 
 notificationSchema.index({ recipientRoles: 1, createdAt: -1 });
+// add alongside the existing indexes:
+notificationSchema.index({ recipientId: 1, createdAt: -1 });
 
 module.exports = mongoose.model("Notification", notificationSchema);
