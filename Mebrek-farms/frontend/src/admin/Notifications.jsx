@@ -66,13 +66,9 @@ export default function Notifications() {
   const loadNotifications = async () => {
     try {
       const res = await getNotifications();
-      const list = Array.isArray(res)
-        ? res
-        : Array.isArray(res?.data)
-          ? res.data
-          : Array.isArray(res?.notifications)
-            ? res.notifications
-            : [];
+
+      const list = Array.isArray(res?.data) ? res.data : [];
+
       setNotifications(list);
     } catch (err) {
       console.error(err);
@@ -87,7 +83,9 @@ export default function Notifications() {
   useEffect(() => {
     if (role !== "superadmin") return;
     getManagers()
-      .then((res) => setManagers(Array.isArray(res) ? res : res?.data || []))
+      .then((res) => {
+        setManagers(Array.isArray(res) ? res : []);
+      })
       .catch((err) => console.error(err));
   }, [role]);
 
@@ -142,9 +140,16 @@ export default function Notifications() {
     };
   }, []);
 
-  const isMyThread = (item) =>
-    isOwnSender(item.senderId, user.id) ||
-    partyIdOf(item.recipientId)?.toString?.() === user.id?.toString?.();
+  const isMyThread = (item) => {
+    const senderId = partyIdOf(item.senderId);
+    const recipientId = partyIdOf(item.recipientId);
+    const currentUserId = user.id?.toString();
+
+    return (
+      senderId?.toString() === currentUserId ||
+      recipientId?.toString() === currentUserId
+    );
+  };
 
   const conversations = useMemo(() => {
     if (role !== "superadmin") return [];

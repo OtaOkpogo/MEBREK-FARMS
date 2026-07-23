@@ -15,15 +15,17 @@ export const markNotificationRead = async (id) => {
   return await apiClient.put(`/notifications/${id}/read`);
 };
 
-//Reply notification
+// Reply notification
 export const replyNotification = async (id, data) => {
   return await apiClient.post(`/notifications/${id}/reply`, data);
 };
 
+// Get managers
 export const getManagers = async () => {
   return await apiClient.get("/notifications/managers");
 };
 
+// Get unread count
 export const getUnreadCount = async () => {
   return await apiClient.get("/notifications/unread-count");
 };

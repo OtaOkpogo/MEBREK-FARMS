@@ -1,5 +1,11 @@
 import { useEffect, useRef, useState } from "react";
-import { Outlet, Link, useNavigate, useLocation } from "react-router-dom";
+import {
+  Outlet,
+  Link,
+  NavLink,
+  useNavigate,
+  useLocation,
+} from "react-router-dom";
 import { ToastContainer, toast } from "react-toastify";
 import "react-toastify/dist/ReactToastify.css";
 
@@ -678,6 +684,22 @@ export default function AdminLayout() {
                     Workers 👨‍🌾
                   </Link>
                 </>
+              )}
+
+              {role === "superadmin" && (
+                <NavLink
+                  to="/cctv"
+                  className={({ isActive }) =>
+                    `flex items-center gap-3 px-4 py-3 rounded-lg transition ${
+                      isActive
+                        ? "bg-green-600 text-white"
+                        : "text-gray-700 hover:bg-green-100"
+                    }`
+                  }
+                >
+                  <span className="text-xl">📹</span>
+                  <span>Farm CCTV</span>
+                </NavLink>
               )}
 
               {/* SUPER ADMIN + MANAGER */}

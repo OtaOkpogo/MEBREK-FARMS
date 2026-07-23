@@ -19,22 +19,15 @@ const emptyForm = {
   channel: "",
   location: "",
   description: "",
-  nvrIp: "",
-  rtspPort: 554,
-  nvrUsername: "",
-  nvrPassword: "",
 };
 
 export default function CameraManagement() {
   const [cameras, setCameras] = useState([]);
-
   const [loading, setLoading] = useState(true);
   const [saving, setSaving] = useState(false);
 
   const [formData, setFormData] = useState(emptyForm);
-
   const [editingCamera, setEditingCamera] = useState(null);
-
   const [search, setSearch] = useState("");
 
   // =========================================
@@ -47,13 +40,11 @@ export default function CameraManagement() {
 
       const data = await fetchCameras();
 
-      setCameras(data);
+      setCameras(Array.isArray(data) ? data : []);
     } catch (error) {
       console.error("LOAD CAMERAS ERROR:", error);
 
-      toast.error(
-        error.response?.data?.error || "Failed to load cameras",
-      );
+      toast.error(error.response?.data?.error || "Failed to load cameras");
     } finally {
       setLoading(false);
     }
@@ -76,9 +67,7 @@ export default function CameraManagement() {
 
     const handleUpdated = (camera) => {
       setCameras((prev) =>
-        prev.map((item) =>
-          item._id === camera._id ? camera : item,
-        ),
+        prev.map((item) => (item._id === camera._id ? camera : item)),
       );
     };
 
@@ -86,9 +75,7 @@ export default function CameraManagement() {
       const camera = data.camera || data;
 
       setCameras((prev) =>
-        prev.map((item) =>
-          item._id === camera._id ? camera : item,
-        ),
+        prev.map((item) => (item._id === camera._id ? camera : item)),
       );
 
       toast.info(`Camera "${camera.name}" disabled`);
@@ -98,18 +85,14 @@ export default function CameraManagement() {
       const camera = data.camera || data;
 
       setCameras((prev) =>
-        prev.map((item) =>
-          item._id === camera._id ? camera : item,
-        ),
+        prev.map((item) => (item._id === camera._id ? camera : item)),
       );
 
       toast.success(`Camera "${camera.name}" enabled`);
     };
 
     const handleDeleted = (camera) => {
-      setCameras((prev) =>
-        prev.filter((item) => item._id !== camera._id),
-      );
+      setCameras((prev) => prev.filter((item) => item._id !== camera._id));
 
       toast.warning(`Camera "${camera.name}" deleted`);
     };
@@ -164,19 +147,13 @@ export default function CameraManagement() {
       const payload = {
         ...formData,
         channel: Number(formData.channel),
-        rtspPort: Number(formData.rtspPort),
       };
 
       if (editingCamera) {
-        const updated = await updateCamera(
-          editingCamera._id,
-          payload,
-        );
+        const updated = await updateCamera(editingCamera._id, payload);
 
         setCameras((prev) =>
-          prev.map((item) =>
-            item._id === updated._id ? updated : item,
-          ),
+          prev.map((item) => (item._id === updated._id ? updated : item)),
         );
 
         toast.success("Camera updated successfully.");
@@ -192,9 +169,7 @@ export default function CameraManagement() {
     } catch (error) {
       console.error("SAVE CAMERA ERROR:", error);
 
-      toast.error(
-        error.response?.data?.error || "Failed to save camera",
-      );
+      toast.error(error.response?.data?.error || "Failed to save camera");
     } finally {
       setSaving(false);
     }
@@ -206,17 +181,12 @@ export default function CameraManagement() {
 
   const handleEdit = (camera) => {
     setEditingCamera(camera);
-
     setFormData({
       name: camera.name || "",
       pen: camera.pen || "",
       channel: camera.channel || "",
       location: camera.location || "",
       description: camera.description || "",
-      nvrIp: camera.nvrIp || "",
-      rtspPort: camera.rtspPort || 554,
-      nvrUsername: camera.nvrUsername || "",
-      nvrPassword: camera.nvrPassword || "",
     });
 
     window.scrollTo({
@@ -235,9 +205,11 @@ export default function CameraManagement() {
 
       if (camera.isEnabled) {
         result = await disableCamera(camera._id);
+
         toast.success("Camera disabled.");
       } else {
         result = await enableCamera(camera._id);
+
         toast.success("Camera enabled.");
       }
 
@@ -245,17 +217,14 @@ export default function CameraManagement() {
 
       setCameras((prev) =>
         prev.map((item) =>
-          item._id === updatedCamera._id
-            ? updatedCamera
-            : item,
+          item._id === updatedCamera._id ? updatedCamera : item,
         ),
       );
     } catch (error) {
       console.error("TOGGLE CAMERA ERROR:", error);
 
       toast.error(
-        error.response?.data?.error ||
-          "Failed to update camera status",
+        error.response?.data?.error || "Failed to update camera status",
       );
     }
   };
@@ -274,18 +243,13 @@ export default function CameraManagement() {
     try {
       await deleteCamera(camera._id);
 
-      setCameras((prev) =>
-        prev.filter((item) => item._id !== camera._id),
-      );
+      setCameras((prev) => prev.filter((item) => item._id !== camera._id));
 
       toast.success("Camera deleted successfully.");
     } catch (error) {
       console.error("DELETE CAMERA ERROR:", error);
 
-      toast.error(
-        error.response?.data?.error ||
-          "Failed to delete camera",
-      );
+      toast.error(error.response?.data?.error || "Failed to delete camera");
     }
   };
 
@@ -313,7 +277,8 @@ export default function CameraManagement() {
   if (loading) {
     return (
       <div className="flex items-center justify-center h-64">
-        <div className="w-12 h-12 border-4 border-green-600 border-t-transparent rounded-full animate-spin" />
+        {" "}
+        <div className="w-12 h-12 border-4 border-green-600 border-t-transparent rounded-full animate-spin" />{" "}
       </div>
     );
   }
@@ -327,9 +292,7 @@ export default function CameraManagement() {
       {/* HEADER */}
 
       <div className="mb-6">
-        <h1 className="text-3xl font-bold">
-          📹 Farm CCTV Camera Management
-        </h1>
+        <h1 className="text-3xl font-bold">📹 Farm CCTV Camera Management</h1>
 
         <p className="text-gray-500 mt-1">
           Manage the 44 Hikvision farm cameras.
@@ -340,40 +303,24 @@ export default function CameraManagement() {
 
       <div className="grid grid-cols-1 sm:grid-cols-3 gap-4 mb-6">
         <div className="bg-white rounded-xl shadow p-5">
-          <p className="text-gray-500 text-sm">
-            Total Cameras
-          </p>
+          <p className="text-gray-500 text-sm">Total Cameras</p>
 
-          <p className="text-3xl font-bold text-green-600">
-            {cameras.length}
-          </p>
+          <p className="text-3xl font-bold text-green-600">{cameras.length}</p>
         </div>
 
         <div className="bg-white rounded-xl shadow p-5">
-          <p className="text-gray-500 text-sm">
-            Enabled
-          </p>
+          <p className="text-gray-500 text-sm">Enabled</p>
 
           <p className="text-3xl font-bold text-blue-600">
-            {
-              cameras.filter(
-                (camera) => camera.isEnabled,
-              ).length
-            }
+            {cameras.filter((camera) => camera.isEnabled).length}
           </p>
         </div>
 
         <div className="bg-white rounded-xl shadow p-5">
-          <p className="text-gray-500 text-sm">
-            Disabled
-          </p>
+          <p className="text-gray-500 text-sm">Disabled</p>
 
           <p className="text-3xl font-bold text-red-600">
-            {
-              cameras.filter(
-                (camera) => !camera.isEnabled,
-              ).length
-            }
+            {cameras.filter((camera) => !camera.isEnabled).length}
           </p>
         </div>
       </div>
@@ -383,9 +330,7 @@ export default function CameraManagement() {
       <div className="bg-white rounded-xl shadow p-6 mb-8">
         <div className="flex justify-between items-center mb-5">
           <h2 className="text-xl font-bold">
-            {editingCamera
-              ? "Edit Camera"
-              : "Add Camera"}
+            {editingCamera ? "Edit Camera" : "Add Camera"}
           </h2>
 
           {editingCamera && (
@@ -419,15 +364,10 @@ export default function CameraManagement() {
             className="border p-3 rounded-lg"
             required
           >
-            <option value="">
-              Select Pen
-            </option>
+            <option value="">Select Pen</option>
 
             {PENS.map((pen) => (
-              <option
-                key={pen}
-                value={pen}
-              >
+              <option key={pen} value={pen}>
                 {pen}
               </option>
             ))}
@@ -452,40 +392,6 @@ export default function CameraManagement() {
             className="border p-3 rounded-lg"
           />
 
-          <input
-            name="nvrIp"
-            value={formData.nvrIp}
-            onChange={handleChange}
-            placeholder="NVR IP Address"
-            className="border p-3 rounded-lg"
-          />
-
-          <input
-            type="number"
-            name="rtspPort"
-            value={formData.rtspPort}
-            onChange={handleChange}
-            placeholder="RTSP Port"
-            className="border p-3 rounded-lg"
-          />
-
-          <input
-            name="nvrUsername"
-            value={formData.nvrUsername}
-            onChange={handleChange}
-            placeholder="NVR Username"
-            className="border p-3 rounded-lg"
-          />
-
-          <input
-            type="password"
-            name="nvrPassword"
-            value={formData.nvrPassword}
-            onChange={handleChange}
-            placeholder="NVR Password"
-            className="border p-3 rounded-lg"
-          />
-
           <textarea
             name="description"
             value={formData.description}
@@ -503,8 +409,8 @@ export default function CameraManagement() {
             {saving
               ? "Saving..."
               : editingCamera
-              ? "Update Camera"
-              : "Add Camera"}
+                ? "Update Camera"
+                : "Add Camera"}
           </button>
         </form>
       </div>
@@ -515,9 +421,7 @@ export default function CameraManagement() {
         <input
           type="text"
           value={search}
-          onChange={(e) =>
-            setSearch(e.target.value)
-          }
+          onChange={(e) => setSearch(e.target.value)}
           placeholder="Search cameras by name, pen, location, or channel..."
           className="w-full border p-3 rounded-lg"
         />
@@ -527,13 +431,9 @@ export default function CameraManagement() {
 
       {filteredCameras.length === 0 ? (
         <div className="bg-white rounded-xl shadow p-12 text-center">
-          <div className="text-6xl mb-4">
-            📹
-          </div>
+          <div className="text-6xl mb-4">📹</div>
 
-          <h2 className="text-xl font-bold">
-            No cameras found
-          </h2>
+          <h2 className="text-xl font-bold">No cameras found</h2>
 
           <p className="text-gray-500 mt-2">
             Add your first farm camera above.
@@ -544,121 +444,73 @@ export default function CameraManagement() {
           <table className="w-full min-w-[1000px]">
             <thead className="bg-green-600 text-white">
               <tr>
-                <th className="p-3 text-left">
-                  Camera
-                </th>
+                <th className="p-3 text-left">Camera</th>
 
-                <th className="p-3 text-left">
-                  Pen
-                </th>
+                <th className="p-3 text-left">Pen</th>
 
-                <th className="p-3 text-left">
-                  Channel
-                </th>
+                <th className="p-3 text-left">Channel</th>
 
-                <th className="p-3 text-left">
-                  Location
-                </th>
+                <th className="p-3 text-left">Location</th>
 
-                <th className="p-3 text-left">
-                  NVR
-                </th>
+                <th className="p-3 text-left">Status</th>
 
-                <th className="p-3 text-left">
-                  Status
-                </th>
-
-                <th className="p-3 text-center">
-                  Actions
-                </th>
+                <th className="p-3 text-center">Actions</th>
               </tr>
             </thead>
 
             <tbody>
-              {filteredCameras.map(
-                (camera) => (
-                  <tr
-                    key={camera._id}
-                    className="border-b hover:bg-green-50"
-                  >
-                    <td className="p-3 font-semibold">
-                      {camera.name}
-                    </td>
+              {filteredCameras.map((camera) => (
+                <tr key={camera._id} className="border-b hover:bg-green-50">
+                  <td className="p-3 font-semibold">{camera.name}</td>
 
-                    <td className="p-3">
-                      {camera.pen}
-                    </td>
+                  <td className="p-3">{camera.pen}</td>
 
-                    <td className="p-3">
-                      Channel{" "}
-                      {camera.channel}
-                    </td>
+                  <td className="p-3">Channel {camera.channel}</td>
 
-                    <td className="p-3">
-                      {camera.location ||
-                        "-"}
-                    </td>
+                  <td className="p-3">{camera.location || "-"}</td>
 
-                    <td className="p-3">
-                      {camera.nvrIp ||
-                        "Not configured"}
-                    </td>
+                  <td className="p-3">
+                    {camera.isEnabled ? (
+                      <span className="px-3 py-1 rounded-full bg-green-100 text-green-700 text-xs font-bold">
+                        Enabled
+                      </span>
+                    ) : (
+                      <span className="px-3 py-1 rounded-full bg-red-100 text-red-700 text-xs font-bold">
+                        Disabled
+                      </span>
+                    )}
+                  </td>
 
-                    <td className="p-3">
-                      {camera.isEnabled ? (
-                        <span className="px-3 py-1 rounded-full bg-green-100 text-green-700 text-xs font-bold">
-                          Enabled
-                        </span>
-                      ) : (
-                        <span className="px-3 py-1 rounded-full bg-red-100 text-red-700 text-xs font-bold">
-                          Disabled
-                        </span>
-                      )}
-                    </td>
+                  <td className="p-3">
+                    <div className="flex justify-center gap-2">
+                      <button
+                        onClick={() => handleEdit(camera)}
+                        className="bg-blue-600 hover:bg-blue-700 text-white px-3 py-2 rounded"
+                      >
+                        Edit
+                      </button>
 
-                    <td className="p-3">
-                      <div className="flex justify-center gap-2">
-                        <button
-                          onClick={() =>
-                            handleEdit(camera)
-                          }
-                          className="bg-blue-600 hover:bg-blue-700 text-white px-3 py-2 rounded"
-                        >
-                          Edit
-                        </button>
+                      <button
+                        onClick={() => handleToggle(camera)}
+                        className={`text-white px-3 py-2 rounded ${
+                          camera.isEnabled
+                            ? "bg-orange-500 hover:bg-orange-600"
+                            : "bg-green-600 hover:bg-green-700"
+                        }`}
+                      >
+                        {camera.isEnabled ? "Disable" : "Enable"}
+                      </button>
 
-                        <button
-                          onClick={() =>
-                            handleToggle(
-                              camera,
-                            )
-                          }
-                          className={`text-white px-3 py-2 rounded ${
-                            camera.isEnabled
-                              ? "bg-orange-500 hover:bg-orange-600"
-                              : "bg-green-600 hover:bg-green-700"
-                          }`}
-                        >
-                          {camera.isEnabled
-                            ? "Disable"
-                            : "Enable"}
-                        </button>
-
-                        <button
-                          onClick={() =>
-                            handleDelete(
-                              camera,
-                            )
-                          }
-                          className="bg-red-600 hover:bg-red-700 text-white px-3 py-2 rounded"
-                        >
-                          Delete
-                        </button>
-                      </div>
-                    </td>
-                  </tr>
-                ),
-              )}
+                      <button
+                        onClick={() => handleDelete(camera)}
+                        className="bg-red-600 hover:bg-red-700 text-white px-3 py-2 rounded"
+                      >
+                        Delete
+                      </button>
+                    </div>
+                  </td>
+                </tr>
+              ))}
             </tbody>
           </table>
         </div>

@@ -2,6 +2,7 @@ import { useEffect, useState } from "react";
 import {
   getNotifications,
   markNotificationRead,
+  replyNotification,
 } from "../services/notificationService";
 import NotificationPopup from "../components/NotificationPopup";
 import { getCurrentUser } from "../services/authService";
@@ -139,31 +140,73 @@ export default function Dashboard() {
       console.error(err);
     }
   };
+
   const checkNotifications = async () => {
     try {
-      const user = JSON.parse(localStorage.getItem("user") || "{}");
+      const storedUser = JSON.parse(localStorage.getItem("user") || "{}");
 
-      if (user.role !== "superadmin") return;
+      // Dashboard popup is only for superadmin
+      if (storedUser.role !== "superadmin") {
+        return;
+      }
 
-      const notifications = await getNotifications();
+      const res = await getNotifications();
 
-      const unread = (notifications || []).filter((n) => !n.isRead);
+      // getNotifications() may return a bare array, or a wrapped object
+      // like { notifications: [...] } or { data: [...] } depending on
+      // how notificationService.js unwraps the axios response. Normalize
+      // here so a shape change on the service/backend side can't crash
+      // this screen again.
+      const notifications = Array.isArray(res)
+        ? res
+        : Array.isArray(res?.notifications)
+          ? res.notifications
+          : Array.isArray(res?.data)
+            ? res.data
+            : [];
+
+      const unread = notifications.filter(
+        (notification) => !notification.isRead,
+      );
 
       if (unread.length > 0) {
         setUnreadNotifications(unread);
         setPopupVisible(true);
+      } else {
+        setUnreadNotifications([]);
+        setPopupVisible(false);
       }
     } catch (err) {
-      console.error(err);
+      console.error("CHECK NOTIFICATIONS ERROR:", err);
     }
   };
+
+  const handleReply = async (id, data) => {
+    try {
+      await replyNotification(id, data);
+
+      // Refresh notifications so the popup has the latest data
+      await checkNotifications();
+    } catch (err) {
+      console.error("REPLY NOTIFICATION ERROR:", err);
+
+      throw err;
+    }
+  };
+
+  // =========================================
+  // MARK NOTIFICATION AS READ
+  // =========================================
+
   const markRead = async (id) => {
     try {
       await markNotificationRead(id);
 
-      setUnreadNotifications((prev) => prev.filter((item) => item._id !== id));
+      setUnreadNotifications((prev) =>
+        prev.filter((notification) => notification._id !== id),
+      );
     } catch (err) {
-      console.error(err);
+      console.error("MARK NOTIFICATION READ ERROR:", err);
     }
   };
 
@@ -699,6 +742,7 @@ export default function Dashboard() {
           notifications={unreadNotifications}
           onClose={() => setPopupVisible(false)}
           onMarkRead={markRead}
+          onReply={handleReply}
         />
       )}
     </div>
