@@ -1,4 +1,5 @@
 const Camera = require("../models/Camera");
+const cameraStreamService = require("../services/cameraStreamService");
 
 // =========================================
 // SAFE CAMERA RESPONSE
@@ -220,6 +221,9 @@ exports.disableCamera = async (req, res) => {
       io.emit("cameraDisabled", safeCamera);
     }
 
+    // A disabled camera should not keep streaming.
+    cameraStreamService.stopStream(String(camera._id));
+
     res.json({
       message: "Camera disabled successfully.",
       camera: safeCamera,
@@ -313,6 +317,9 @@ exports.deleteCamera = async (req, res) => {
       io.emit("cameraDeleted", safeCamera);
     }
 
+    // A deleted camera should not keep streaming.
+    cameraStreamService.stopStream(String(camera._id));
+
     res.json({
       message: "Camera deleted successfully.",
     });
@@ -321,6 +328,133 @@ exports.deleteCamera = async (req, res) => {
 
     res.status(500).json({
       error: "Failed to delete camera.",
+    });
+  }
+};
+
+// =========================================
+// START CAMERA STREAM
+// =========================================
+// Verifies the camera, then hands off to
+// cameraStreamService. Never touches or returns
+// nvrUsername / nvrPassword / rtspUsername /
+// rtspPassword / nvrIp / streamUrl — those are
+// only ever loaded inside the service layer.
+// =========================================
+
+exports.startCameraStream = async (req, res) => {
+  try {
+    const camera = await Camera.findOne({
+      _id: req.params.id,
+      isDeleted: false,
+    });
+
+    if (!camera) {
+      return res.status(404).json({
+        error: "Camera not found.",
+      });
+    }
+
+    if (!camera.isEnabled) {
+      return res.status(400).json({
+        error: "Camera is disabled.",
+      });
+    }
+
+    await cameraStreamService.startStream(String(camera._id));
+
+    const io = req.app.get("io");
+
+    if (io) {
+      io.emit("cameraStreamStarted", { _id: camera._id });
+    }
+
+    res.json({
+      success: true,
+      streamUrl: `/api/cameras/${camera._id}/stream/index.m3u8`,
+    });
+  } catch (err) {
+    // IMPORTANT: err.message from the stream service never contains
+    // credentials or the RTSP URL, but we still log server-side only
+    // and keep the client-facing message generic.
+    console.error("START CAMERA STREAM ERROR:", err);
+
+    const knownErrors = {
+      CAMERA_NOT_FOUND: [404, "Camera not found."],
+      CAMERA_DELETED: [404, "Camera not found."],
+      CAMERA_DISABLED: [400, "Camera is disabled."],
+    };
+    const [status, error] = knownErrors[err.message] || [
+      500,
+      "Failed to start camera stream.",
+    ];
+
+    res.status(status).json({ error });
+  }
+};
+
+// =========================================
+// SERVE CAMERA STREAM FILES
+// =========================================
+// Serves the HLS playlist (index.m3u8) and
+// segment (.ts) files for an already-started
+// stream. Contains no credentials — this is
+// just the encoded video output.
+// =========================================
+
+exports.serveCameraStream = async (req, res) => {
+  try {
+    const { id, file } = req.params;
+
+    const filePath = cameraStreamService.resolveSegmentPath(id, file);
+
+    if (!filePath) {
+      return res.status(404).end();
+    }
+
+    if (file.endsWith(".m3u8")) {
+      res.setHeader("Content-Type", "application/vnd.apple.mpegurl");
+    } else if (file.endsWith(".ts")) {
+      res.setHeader("Content-Type", "video/mp2t");
+    }
+    res.setHeader("Cache-Control", "no-cache");
+
+    res.sendFile(filePath);
+  } catch (err) {
+    console.error("SERVE CAMERA STREAM ERROR:", err);
+
+    res.status(500).json({
+      error: "Failed to serve stream.",
+    });
+  }
+};
+
+// =========================================
+// STOP CAMERA STREAM
+// =========================================
+// Optional explicit stop, so the frontend can
+// tear down ffmpeg immediately instead of
+// waiting for the idle timeout.
+// =========================================
+
+exports.stopCameraStream = async (req, res) => {
+  try {
+    cameraStreamService.stopStream(req.params.id);
+
+    const io = req.app.get("io");
+
+    if (io) {
+      io.emit("cameraStreamStopped", { _id: req.params.id });
+    }
+
+    res.json({
+      success: true,
+    });
+  } catch (err) {
+    console.error("STOP CAMERA STREAM ERROR:", err);
+
+    res.status(500).json({
+      error: "Failed to stop camera stream.",
     });
   }
 };
