@@ -1,23 +1,34 @@
-const router = require("express").Router();
+const express = require("express");
 
-const { protect } = require("../middleware/authMiddleware");
+const router = express.Router();
 
 const {
-  sendNotification,
+  getManagers,
   getNotifications,
+  sendNotification,
   getUnreadCount,
   markAsRead,
   replyNotification,
 } = require("../controllers/notificationController");
 
-router.post("/", protect, sendNotification);
+const { protect } = require("../middleware/authMiddleware");
 
-router.post("/:id/reply", protect, replyNotification);
+// GET /api/notifications/managers
+router.get("/managers", protect, getManagers);
 
-router.get("/", protect, getNotifications);
-
+// GET /api/notifications/unread-count
 router.get("/unread-count", protect, getUnreadCount);
 
+// GET /api/notifications
+router.get("/", protect, getNotifications);
+
+// POST /api/notifications
+router.post("/", protect, sendNotification);
+
+// PUT /api/notifications/:id/read
 router.put("/:id/read", protect, markAsRead);
+
+// POST /api/notifications/:id/reply
+router.post("/:id/reply", protect, replyNotification);
 
 module.exports = router;

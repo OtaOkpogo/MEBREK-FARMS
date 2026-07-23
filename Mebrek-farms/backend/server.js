@@ -14,7 +14,7 @@ const notificationRoutes = require("./routes/notification");
 const roomInventoryRoutes = require("./routes/roomInventoryRoutes");
 const searchRoutes = require("./routes/search");
 const reportRoutes = require("./routes/reportRoutes");
-const camraRoutes = require("./routes/cameraRoutes");
+const cameraRoutes = require("./routes/cameraRoutes");
 
 dotenv.config();
 const app = express();
@@ -77,7 +77,7 @@ app.use("/api/room-inventory", roomInventoryRoutes);
 app.use("/api/search", searchRoutes);
 app.use("/api/reports", require("./routes/reportRoutes"));
 app.use("/api/backup", require("./routes/backup"));
-app.usw("/api/cameras", cameraRoutes);
+app.use("/api/cameras", cameraRoutes);
 
 const PORT = process.env.PORT || 5000;
 

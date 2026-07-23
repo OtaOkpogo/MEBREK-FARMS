@@ -2,6 +2,11 @@ const mongoose = require("mongoose");
 
 const cameraSchema = new mongoose.Schema(
   {
+    // =========================================
+    // PUBLIC CAMERA INFORMATION
+    // Safe to return to the frontend
+    // =========================================
+
     name: {
       type: String,
       required: true,
@@ -34,7 +39,11 @@ const cameraSchema = new mongoose.Schema(
       default: "",
     },
 
-    // Used later when connecting the actual Hikvision NVR
+    // =========================================
+    // PRIVATE NVR / STREAM CONFIGURATION
+    // Never return these fields to the frontend
+    // =========================================
+
     nvrIp: {
       type: String,
       trim: true,
@@ -46,32 +55,59 @@ const cameraSchema = new mongoose.Schema(
       default: 554,
     },
 
-    // Keep credentials server-side.
-    // Do NOT send these fields to the frontend.
+    // NVR credentials
+    // select: false prevents these from being
+    // returned by normal Mongoose queries
     nvrUsername: {
       type: String,
       trim: true,
       default: "",
+      select: false,
     },
 
     nvrPassword: {
       type: String,
       default: "",
+      select: false,
     },
 
-    // We will populate this after connecting the NVR
+    // RTSP credentials
+    // These are included now so the model is
+    // ready for the actual stream integration.
+    rtspUsername: {
+      type: String,
+      trim: true,
+      default: "",
+      select: false,
+    },
+
+    rtspPassword: {
+      type: String,
+      default: "",
+      select: false,
+    },
+
+    // Internal stream configuration.
+    // Do not expose this if it contains credentials.
     streamUrl: {
       type: String,
       default: "",
+      select: false,
     },
 
-    // Camera management status
+    // =========================================
+    // CAMERA MANAGEMENT
+    // =========================================
+
     isEnabled: {
       type: Boolean,
       default: true,
     },
 
-    // Soft-delete support
+    // =========================================
+    // SOFT DELETE
+    // =========================================
+
     isDeleted: {
       type: Boolean,
       default: false,
@@ -98,6 +134,10 @@ const cameraSchema = new mongoose.Schema(
       default: "",
     },
 
+    // =========================================
+    // AUDIT INFORMATION
+    // =========================================
+
     createdBy: {
       type: mongoose.Schema.Types.ObjectId,
       ref: "Admin",
@@ -114,7 +154,10 @@ const cameraSchema = new mongoose.Schema(
   },
 );
 
-// Useful indexes
+// =========================================
+// INDEXES
+// =========================================
+
 cameraSchema.index({ name: 1 });
 cameraSchema.index({ pen: 1 });
 cameraSchema.index({ channel: 1 });

@@ -33,6 +33,18 @@ const notificationSchema = new mongoose.Schema(
 
     senderRole: String,
 
+    // The manager this conversation belongs to.
+    recipientId: {
+      type: mongoose.Schema.Types.ObjectId,
+      ref: "Admin",
+      default: null,
+    },
+
+    recipientName: {
+      type: String,
+      default: null,
+    },
+
     subject: String,
 
     message: {
@@ -41,22 +53,11 @@ const notificationSchema = new mongoose.Schema(
       trim: true,
     },
 
-    // add inside notificationSchema fields:
-    recipientId: {
-      type: mongoose.Schema.Types.ObjectId,
-      ref: "Admin",
-      default: null,
-    },
-    recipientName: String,
-
-    // Who this notification is addressed to.
-    // Defaults to manager + superadmin — staff never see notifications.
     recipientRoles: {
       type: [String],
       default: ["manager", "superadmin"],
     },
 
-    // Per-admin read tracking (replaces the old flat `isRead` boolean).
     readBy: [
       {
         adminId: {
@@ -83,8 +84,14 @@ notificationSchema.index({
   senderName: "text",
 });
 
-notificationSchema.index({ recipientRoles: 1, createdAt: -1 });
-// add alongside the existing indexes:
-notificationSchema.index({ recipientId: 1, createdAt: -1 });
+notificationSchema.index({
+  recipientRoles: 1,
+  createdAt: -1,
+});
+
+notificationSchema.index({
+  recipientId: 1,
+  createdAt: -1,
+});
 
 module.exports = mongoose.model("Notification", notificationSchema);

@@ -1,19 +1,46 @@
 const Camera = require("../models/Camera");
 
 // =========================================
-// SUPERADMIN CHECK
+// SAFE CAMERA RESPONSE
+// =========================================
+// IMPORTANT:
+// Never send NVR credentials or stream information
+// to the frontend.
+//
+// Frontend receives only safe camera management data.
+// Backend keeps:
+// - nvrUsername
+// - nvrPassword
+// - nvrIp
+// - rtspPort
+// - streamUrl
 // =========================================
 
-const requireSuperadmin = (req, res) => {
-  if (req.user?.role !== "superadmin") {
-    res.status(403).json({
-      error: "Access denied. Superadmin privileges required.",
-    });
+const sanitizeCamera = (camera) => {
+  const obj = camera.toObject ? camera.toObject() : camera;
 
-    return false;
-  }
+  return {
+    _id: obj._id,
+    name: obj.name,
+    pen: obj.pen,
+    channel: obj.channel,
+    location: obj.location,
+    description: obj.description,
 
-  return true;
+    isEnabled: obj.isEnabled,
+    isDeleted: obj.isDeleted,
+
+    deletedAt: obj.deletedAt,
+    deletedBy: obj.deletedBy,
+    deletedByName: obj.deletedByName,
+    deletedByRole: obj.deletedByRole,
+
+    createdBy: obj.createdBy,
+    createdByName: obj.createdByName,
+
+    createdAt: obj.createdAt,
+    updatedAt: obj.updatedAt,
+  };
 };
 
 // =========================================
@@ -22,15 +49,15 @@ const requireSuperadmin = (req, res) => {
 
 exports.getCameras = async (req, res) => {
   try {
-    if (!requireSuperadmin(req, res)) return;
-
     const cameras = await Camera.find({
       isDeleted: false,
     }).sort({
       createdAt: -1,
     });
 
-    res.json(cameras);
+    const safeCameras = cameras.map(sanitizeCamera);
+
+    res.json(safeCameras);
   } catch (err) {
     console.error("GET CAMERAS ERROR:", err);
 
@@ -46,14 +73,15 @@ exports.getCameras = async (req, res) => {
 
 exports.createCamera = async (req, res) => {
   try {
-    if (!requireSuperadmin(req, res)) return;
-
     const {
       name,
       pen,
       channel,
       location,
       description,
+
+      // These are accepted by backend
+      // but NEVER returned to frontend.
       nvrIp,
       rtspPort,
       nvrUsername,
@@ -72,6 +100,8 @@ exports.createCamera = async (req, res) => {
       channel,
       location,
       description,
+
+      // Secure backend-only fields
       nvrIp,
       rtspPort,
       nvrUsername,
@@ -81,13 +111,16 @@ exports.createCamera = async (req, res) => {
       createdByName: req.user.name,
     });
 
+    // Create safe version for frontend
+    const safeCamera = sanitizeCamera(camera);
+
     const io = req.app.get("io");
 
     if (io) {
-      io.emit("cameraCreated", camera);
+      io.emit("cameraCreated", safeCamera);
     }
 
-    res.status(201).json(camera);
+    res.status(201).json(safeCamera);
   } catch (err) {
     console.error("CREATE CAMERA ERROR:", err);
 
@@ -103,8 +136,6 @@ exports.createCamera = async (req, res) => {
 
 exports.updateCamera = async (req, res) => {
   try {
-    if (!requireSuperadmin(req, res)) return;
-
     const camera = await Camera.findOne({
       _id: req.params.id,
       isDeleted: false,
@@ -122,6 +153,8 @@ exports.updateCamera = async (req, res) => {
       "channel",
       "location",
       "description",
+
+      // Backend-only fields
       "nvrIp",
       "rtspPort",
       "nvrUsername",
@@ -137,13 +170,17 @@ exports.updateCamera = async (req, res) => {
 
     await camera.save();
 
+    // IMPORTANT:
+    // Sanitize before sending anywhere.
+    const safeCamera = sanitizeCamera(camera);
+
     const io = req.app.get("io");
 
     if (io) {
-      io.emit("cameraUpdated", camera);
+      io.emit("cameraUpdated", safeCamera);
     }
 
-    res.json(camera);
+    res.json(safeCamera);
   } catch (err) {
     console.error("UPDATE CAMERA ERROR:", err);
 
@@ -159,8 +196,6 @@ exports.updateCamera = async (req, res) => {
 
 exports.disableCamera = async (req, res) => {
   try {
-    if (!requireSuperadmin(req, res)) return;
-
     const camera = await Camera.findOne({
       _id: req.params.id,
       isDeleted: false,
@@ -176,21 +211,24 @@ exports.disableCamera = async (req, res) => {
 
     await camera.save();
 
+    // Safe response
+    const safeCamera = sanitizeCamera(camera);
+
     const io = req.app.get("io");
 
     if (io) {
-      io.emit("cameraDisabled", camera);
+      io.emit("cameraDisabled", safeCamera);
     }
 
     res.json({
       message: "Camera disabled successfully.",
-      camera,
+      camera: safeCamera,
     });
   } catch (err) {
     console.error("DISABLE CAMERA ERROR:", err);
 
     res.status(500).json({
-      error: err.message,
+      error: "Failed to disable camera.",
     });
   }
 };
@@ -201,8 +239,6 @@ exports.disableCamera = async (req, res) => {
 
 exports.enableCamera = async (req, res) => {
   try {
-    if (!requireSuperadmin(req, res)) return;
-
     const camera = await Camera.findOne({
       _id: req.params.id,
       isDeleted: false,
@@ -218,21 +254,24 @@ exports.enableCamera = async (req, res) => {
 
     await camera.save();
 
+    // Safe response
+    const safeCamera = sanitizeCamera(camera);
+
     const io = req.app.get("io");
 
     if (io) {
-      io.emit("cameraEnabled", camera);
+      io.emit("cameraEnabled", safeCamera);
     }
 
     res.json({
       message: "Camera enabled successfully.",
-      camera,
+      camera: safeCamera,
     });
   } catch (err) {
     console.error("ENABLE CAMERA ERROR:", err);
 
     res.status(500).json({
-      error: err.message,
+      error: "Failed to enable camera.",
     });
   }
 };
@@ -244,8 +283,6 @@ exports.enableCamera = async (req, res) => {
 
 exports.deleteCamera = async (req, res) => {
   try {
-    if (!requireSuperadmin(req, res)) return;
-
     const camera = await Camera.findOne({
       _id: req.params.id,
       isDeleted: false,
@@ -267,10 +304,13 @@ exports.deleteCamera = async (req, res) => {
       validateModifiedOnly: true,
     });
 
+    // Safe response for Socket.IO
+    const safeCamera = sanitizeCamera(camera);
+
     const io = req.app.get("io");
 
     if (io) {
-      io.emit("cameraDeleted", camera);
+      io.emit("cameraDeleted", safeCamera);
     }
 
     res.json({
@@ -280,7 +320,7 @@ exports.deleteCamera = async (req, res) => {
     console.error("DELETE CAMERA ERROR:", err);
 
     res.status(500).json({
-      error: err.message,
+      error: "Failed to delete camera.",
     });
   }
 };
