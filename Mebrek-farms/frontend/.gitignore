@@ -1,0 +1,8 @@
+# =========================================
+# CCTV HLS Temporary Streams
+# Generated automatically by FFmpeg
+# Never commit these files
+# =========================================
+
+tmp/
+tmp/camera-streams/

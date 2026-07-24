@@ -28,7 +28,6 @@ import Attendance from "./admin/Attendance";
 import StaffAccounts from "./admin/StaffAccounts";
 import Profile from "./admin/Profile";
 import Backup from "./admin/Backup";
-import CameraManagement from "./admin/CameraManagement";
 
 import Expenses from "./pages/Expenses";
 
@@ -154,7 +153,6 @@ function App() {
             }
           />
 
-          <Route path="cctv" element={<CameraManagement />} />
           {/* SUPERADMIN ONLY */}
           <Route
             path="staff"

@@ -686,22 +686,6 @@ export default function AdminLayout() {
                 </>
               )}
 
-              {role === "superadmin" && (
-                <NavLink
-                  to="/cctv"
-                  className={({ isActive }) =>
-                    `flex items-center gap-3 px-4 py-3 rounded-lg transition ${
-                      isActive
-                        ? "bg-green-600 text-white"
-                        : "text-gray-700 hover:bg-green-100"
-                    }`
-                  }
-                >
-                  <span className="text-xl">📹</span>
-                  <span>Farm CCTV</span>
-                </NavLink>
-              )}
-
               {/* SUPER ADMIN + MANAGER */}
 
               <Link
