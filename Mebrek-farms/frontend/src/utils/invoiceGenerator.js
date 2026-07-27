@@ -2,6 +2,14 @@ import jsPDF from "jspdf";
 import autoTable from "jspdf-autotable";
 import logo from "../assets/logo.png";
 
+const EGG_CATEGORY_LABELS = {
+  big: "Big Eggs",
+  jumbo: "Jumbo Eggs",
+  turkey: "Turkey Eggs",
+  normal: "Normal Eggs",
+  small: "Small Eggs",
+};
+
 const getBase64Image = (img) => {
   const canvas = document.createElement("canvas");
   canvas.width = img.width;
@@ -58,42 +66,63 @@ export const generateInvoice = (sale) => {
     );
 
     // ================= CALCULATIONS =================
+    // Sales now hold one line item per egg category instead of a single
+    // flat crates/cratePrice/looseEggs/eggPrice set. Older sales saved
+    // before this change won't have lineItems, so fall back to [].
 
-    const crates = Number(sale.cratesSold || 0);
-    const cratePrice = Number(sale.cratePrice || 0);
-
-    const loose = Number(sale.looseEggs || 0);
-    const eggPrice = Number(sale.eggPrice || 0);
+    const lineItems = sale.lineItems || [];
 
     const transport = Number(sale.transportCharge || 0);
     const discount = Number(sale.discount || 0);
 
-    const crateTotal = crates * cratePrice;
-    const looseTotal = loose * eggPrice;
+    const itemsTotal = lineItems.reduce(
+      (sum, item) => sum + Number(item.subtotal || 0),
+      0,
+    );
 
-    const grandTotal =
-      sale.totalAmount ?? crateTotal + looseTotal + transport - discount;
+    const grandTotal = sale.totalAmount ?? itemsTotal + transport - discount;
 
     // ================= TABLE =================
+    // One row per egg category, then transport/discount as summary rows.
+
+    const categoryRows = lineItems.map((item) => {
+      const label = EGG_CATEGORY_LABELS[item.category] || item.category;
+      const crates = Number(item.cratesSold || 0);
+      const loose = Number(item.looseEggs || 0);
+      const cratePrice = Number(item.cratePrice || 0);
+      const eggPrice = Number(item.eggPrice || 0);
+
+      const quantityLabel = [
+        crates > 0 ? `${crates} crate${crates === 1 ? "" : "s"}` : null,
+        loose > 0 ? `${loose} loose` : null,
+      ]
+        .filter(Boolean)
+        .join(" + ");
+
+      const unitPriceLabel = [
+        crates > 0 ? `NGN ${cratePrice.toLocaleString()}/crate` : null,
+        loose > 0 ? `NGN ${eggPrice.toLocaleString()}/egg` : null,
+      ]
+        .filter(Boolean)
+        .join(", ");
+
+      return [
+        label,
+        quantityLabel || "-",
+        unitPriceLabel || "-",
+        `NGN ${Number(item.subtotal || 0).toLocaleString()}`,
+      ];
+    });
 
     autoTable(doc, {
       startY: 68,
       head: [["Item", "Quantity", "Unit Price", "Amount"]],
       body: [
-        [
-          "Egg Crates",
-          crates,
-          `₦${cratePrice.toLocaleString()}`,
-          `₦${crateTotal.toLocaleString()}`,
-        ],
-        [
-          "Loose Eggs",
-          loose,
-          `₦${eggPrice.toLocaleString()}`,
-          `₦${looseTotal.toLocaleString()}`,
-        ],
-        ["Transport", "", "", `₦${transport.toLocaleString()}`],
-        ["Discount", "", "", `- ₦${discount.toLocaleString()}`],
+        ...(categoryRows.length
+          ? categoryRows
+          : [["No item details recorded", "", "", "NGN 0"]]),
+        ["Transport", "", "", `NGN ${transport.toLocaleString()}`],
+        ["Discount", "", "", `- NGN ${discount.toLocaleString()}`],
       ],
       theme: "grid",
       headStyles: {
@@ -112,17 +141,21 @@ export const generateInvoice = (sale) => {
     doc.setFont("helvetica", "bold");
     doc.setFontSize(12);
 
-    doc.text(`Grand Total: ₦${Number(grandTotal).toLocaleString()}`, 125, y);
+    doc.text(`Grand Total: NGN ${Number(grandTotal).toLocaleString()}`, 125, y);
 
     y += 8;
     doc.text(
-      `Amount Paid: ₦${Number(sale.amountPaid || 0).toLocaleString()}`,
+      `Amount Paid: NGN ${Number(sale.amountPaid || 0).toLocaleString()}`,
       125,
       y,
     );
 
     y += 8;
-    doc.text(`Balance: ₦${Number(sale.balance || 0).toLocaleString()}`, 125, y);
+    doc.text(
+      `Balance: NGN ${Number(sale.balance || 0).toLocaleString()}`,
+      125,
+      y,
+    );
 
     y += 8;
     doc.text(`Status: ${sale.status || "UNPAID"}`, 125, y);

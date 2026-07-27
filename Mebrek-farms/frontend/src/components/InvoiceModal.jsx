@@ -3,6 +3,14 @@ import QRCode from "qrcode";
 import { useReactToPrint } from "react-to-print";
 import { generateInvoice } from "../utils/invoiceGenerator";
 
+const EGG_CATEGORY_LABELS = {
+  big: "Big Eggs",
+  jumbo: "Jumbo Eggs",
+  turkey: "Turkey Eggs",
+  normal: "Normal Eggs",
+  small: "Small Eggs",
+};
+
 export default function InvoiceModal({ open, onClose, sale }) {
   const printRef = useRef();
 
@@ -28,6 +36,10 @@ Balance: ₦${sale.balance}
   });
 
   if (!open || !sale) return null;
+
+  // Older sales recorded before the multi-category update won't have
+  // lineItems — fall back to an empty array rather than crashing.
+  const lineItems = sale.lineItems || [];
 
   return (
     <div className="fixed inset-0 z-50 bg-black/50 flex items-center justify-center p-6">
@@ -84,40 +96,59 @@ Balance: ₦${sale.balance}
           <table className="w-full mt-8 border">
             <thead className="bg-gray-100">
               <tr>
-                <th className="border p-3">Item</th>
+                <th className="border p-3 text-left">Item</th>
 
-                <th className="border p-3">Quantity</th>
+                <th className="border p-3">Crates</th>
 
-                <th className="border p-3">Unit Price</th>
+                <th className="border p-3">Crate Price</th>
+
+                <th className="border p-3">Loose Eggs</th>
+
+                <th className="border p-3">Egg Price</th>
 
                 <th className="border p-3">Total</th>
               </tr>
             </thead>
 
             <tbody>
-              <tr>
-                <td className="border p-3">Egg Crates</td>
+              {lineItems.length === 0 ? (
+                <tr>
+                  <td
+                    colSpan={6}
+                    className="border p-3 text-center text-gray-500"
+                  >
+                    No item details recorded for this sale.
+                  </td>
+                </tr>
+              ) : (
+                lineItems.map((item, index) => (
+                  <tr key={index}>
+                    <td className="border p-3">
+                      {EGG_CATEGORY_LABELS[item.category] || item.category}
+                    </td>
 
-                <td className="border p-3">{sale.cratesSold}</td>
+                    <td className="border p-3 text-center">
+                      {item.cratesSold || 0}
+                    </td>
 
-                <td className="border p-3">₦{sale.cratePrice}</td>
+                    <td className="border p-3 text-center">
+                      ₦{Number(item.cratePrice || 0).toLocaleString()}
+                    </td>
 
-                <td className="border p-3">
-                  ₦{(sale.cratesSold * sale.cratePrice).toLocaleString()}
-                </td>
-              </tr>
+                    <td className="border p-3 text-center">
+                      {item.looseEggs || 0}
+                    </td>
 
-              <tr>
-                <td className="border p-3">Loose Eggs</td>
+                    <td className="border p-3 text-center">
+                      ₦{Number(item.eggPrice || 0).toLocaleString()}
+                    </td>
 
-                <td className="border p-3">{sale.looseEggs}</td>
-
-                <td className="border p-3">₦{sale.eggPrice}</td>
-
-                <td className="border p-3">
-                  ₦{(sale.looseEggs * sale.eggPrice).toLocaleString()}
-                </td>
-              </tr>
+                    <td className="border p-3 text-right">
+                      ₦{Number(item.subtotal || 0).toLocaleString()}
+                    </td>
+                  </tr>
+                ))
+              )}
             </tbody>
           </table>
 

@@ -23,6 +23,31 @@ import {
   CartesianGrid,
 } from "recharts";
 
+// Must stay in sync with EGG_CATEGORY_PRICES in the backend EggSale model.
+// Keeping it here (rather than trusting form input) means the price shown
+// to staff always matches what the server will actually charge.
+const EGG_CATEGORY_PRICES = {
+  big: 5000,
+  jumbo: 5800,
+  turkey: 6000,
+  normal: 4900,
+  small: 4000,
+};
+
+const EGG_CATEGORY_LABELS = {
+  big: "Big",
+  jumbo: "Jumbo",
+  turkey: "Turkey Egg",
+  normal: "Normal",
+  small: "Small",
+};
+
+const emptyLineItem = () => ({
+  category: "big",
+  cratesSold: "",
+  looseEggs: "",
+});
+
 export default function EggSales() {
   // ==========================================
   // STATE
@@ -46,25 +71,15 @@ export default function EggSales() {
     customer: "",
     phone: "",
     date: "",
-
-    cratesSold: "",
-
-    looseEggs: "",
-
-    cratePrice: "",
-
-    eggPrice: "",
-
     discount: "",
-
     transportCharge: "",
-
     amountPaid: "",
-
     paymentMethod: "Cash",
-
     remarks: "",
   });
+
+  // One row per egg category the customer is buying in this sale.
+  const [lineItems, setLineItems] = useState([emptyLineItem()]);
 
   // ==========================================
   // LOAD SALES
@@ -99,7 +114,7 @@ export default function EggSales() {
   };
 
   // ==========================================
-  // FORM CHANGE
+  // FORM CHANGE (sale-level fields)
   // ==========================================
 
   const handleChange = (e) => {
@@ -110,18 +125,51 @@ export default function EggSales() {
   };
 
   // ==========================================
+  // LINE ITEM ROW HANDLING
+  // ==========================================
+
+  const handleLineItemChange = (index, field, value) => {
+    setLineItems((prev) =>
+      prev.map((item, i) => (i === index ? { ...item, [field]: value } : item)),
+    );
+  };
+
+  const addLineItemRow = () => {
+    setLineItems((prev) => [...prev, emptyLineItem()]);
+  };
+
+  const removeLineItemRow = (index) => {
+    setLineItems((prev) =>
+      prev.length === 1 ? prev : prev.filter((_, i) => i !== index),
+    );
+  };
+
+  // ==========================================
   // LIVE CALCULATIONS
   // ==========================================
 
-  const cratesTotal =
-    Number(formData.cratesSold || 0) * Number(formData.cratePrice || 0);
+  // Per-row subtotal: category's crate price is always looked up from
+  // EGG_CATEGORY_PRICES, never typed in, so it can't drift from what
+  // the backend will charge.
+  const lineItemsWithSubtotal = useMemo(() => {
+    return lineItems.map((item) => {
+      const cratePrice = EGG_CATEGORY_PRICES[item.category] || 0;
+      const eggPrice = Math.round(cratePrice / 30);
+      const cratesSold = Number(item.cratesSold || 0);
+      const looseEggs = Number(item.looseEggs || 0);
+      const subtotal = cratesSold * cratePrice + looseEggs * eggPrice;
 
-  const looseEggTotal =
-    Number(formData.looseEggs || 0) * Number(formData.eggPrice || 0);
+      return { ...item, cratePrice, eggPrice, cratesSold, looseEggs, subtotal };
+    });
+  }, [lineItems]);
+
+  const itemsTotal = lineItemsWithSubtotal.reduce(
+    (sum, item) => sum + item.subtotal,
+    0,
+  );
 
   const grandTotal =
-    cratesTotal +
-    looseEggTotal +
+    itemsTotal +
     Number(formData.transportCharge || 0) -
     Number(formData.discount || 0);
 
@@ -141,23 +189,30 @@ export default function EggSales() {
   const handleSubmit = async (e) => {
     e.preventDefault();
 
+    const validLineItems = lineItemsWithSubtotal.filter(
+      (item) => item.cratesSold > 0 || item.looseEggs > 0,
+    );
+
+    if (validLineItems.length === 0) {
+      alert("Add at least one egg category with a quantity.");
+      return;
+    }
+
     try {
       await createSale({
         ...formData,
 
-        cratesSold: Number(formData.cratesSold),
+        lineItems: validLineItems.map((item) => ({
+          category: item.category,
+          cratesSold: item.cratesSold,
+          looseEggs: item.looseEggs,
+        })),
 
-        looseEggs: Number(formData.looseEggs),
+        discount: Number(formData.discount || 0),
 
-        cratePrice: Number(formData.cratePrice),
+        transportCharge: Number(formData.transportCharge || 0),
 
-        eggPrice: Number(formData.eggPrice),
-
-        discount: Number(formData.discount),
-
-        transportCharge: Number(formData.transportCharge),
-
-        amountPaid: Number(formData.amountPaid),
+        amountPaid: Number(formData.amountPaid || 0),
       });
 
       alert("Sale recorded successfully.");
@@ -166,25 +221,14 @@ export default function EggSales() {
         customer: "",
         phone: "",
         date: "",
-
-        cratesSold: "",
-
-        looseEggs: "",
-
-        cratePrice: "",
-
-        eggPrice: "",
-
         discount: "",
-
         transportCharge: "",
-
         amountPaid: "",
-
         paymentMethod: "Cash",
-
         remarks: "",
       });
+
+      setLineItems([emptyLineItem()]);
 
       loadSales();
     } catch (err) {
@@ -251,6 +295,14 @@ export default function EggSales() {
     [filteredSales],
   );
 
+  // Helper: sum a numeric field across a sale's line items. Falls back
+  // to 0 for any sale that somehow has no lineItems.
+  const sumLineItemField = (sale, field) =>
+    (sale.lineItems || []).reduce(
+      (sum, item) => sum + Number(item[field] || 0),
+      0,
+    );
+
   // ==========================================
   // KPI CARDS
   // ==========================================
@@ -271,7 +323,7 @@ export default function EggSales() {
   );
 
   const totalCrates = activeSales.reduce(
-    (sum, sale) => sum + Number(sale.cratesSold || 0),
+    (sum, sale) => sum + sumLineItemField(sale, "cratesSold"),
     0,
   );
 
@@ -536,137 +588,175 @@ export default function EggSales() {
       <div className="bg-white rounded-xl shadow p-6 mb-10">
         <h2 className="text-2xl font-bold mb-6">Record Egg Sale</h2>
 
-        <form
-          onSubmit={handleSubmit}
-          className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-4 gap-4"
-        >
-          <input
-            type="text"
-            name="customer"
-            placeholder="Customer Name"
-            value={formData.customer}
-            onChange={handleChange}
-            className="border rounded-lg p-3"
-            required
-          />
+        <form onSubmit={handleSubmit}>
+          {/* Customer / sale-level fields */}
+          <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-4 gap-4 mb-6">
+            <input
+              type="text"
+              name="customer"
+              placeholder="Customer Name"
+              value={formData.customer}
+              onChange={handleChange}
+              className="border rounded-lg p-3"
+              required
+            />
 
-          <input
-            type="text"
-            name="phone"
-            placeholder="Phone Number"
-            value={formData.phone}
-            onChange={handleChange}
-            className="border rounded-lg p-3"
-          />
+            <input
+              type="text"
+              name="phone"
+              placeholder="Phone Number"
+              value={formData.phone}
+              onChange={handleChange}
+              className="border rounded-lg p-3"
+            />
 
-          <input
-            type="date"
-            name="date"
-            value={formData.date}
-            onChange={handleChange}
-            className="border rounded-lg p-3"
-            required
-          />
+            <input
+              type="date"
+              name="date"
+              value={formData.date}
+              onChange={handleChange}
+              className="border rounded-lg p-3"
+              required
+            />
 
-          <input
-            type="number"
-            name="cratesSold"
-            placeholder="Crates Sold"
-            value={formData.cratesSold}
-            onChange={handleChange}
-            className="border rounded-lg p-3"
-          />
+            <select
+              name="paymentMethod"
+              value={formData.paymentMethod}
+              onChange={handleChange}
+              className="border rounded-lg p-3"
+            >
+              <option>Cash</option>
+              <option>Transfer</option>
+              <option>POS</option>
+            </select>
+          </div>
 
-          <input
-            type="number"
-            name="cratePrice"
-            placeholder="Price Per Crate"
-            value={formData.cratePrice}
-            onChange={handleChange}
-            className="border rounded-lg p-3"
-          />
+          {/* ============ EGG CATEGORY LINE ITEMS ============ */}
+          <div className="mb-6">
+            <div className="flex items-center justify-between mb-3">
+              <h3 className="font-semibold text-lg">Egg Categories</h3>
 
-          <input
-            type="number"
-            name="looseEggs"
-            placeholder="Loose Eggs"
-            value={formData.looseEggs}
-            onChange={handleChange}
-            className="border rounded-lg p-3"
-          />
+              <button
+                type="button"
+                onClick={addLineItemRow}
+                className="bg-green-600 hover:bg-green-700 text-white px-4 py-2 rounded-lg text-sm font-semibold"
+              >
+                + Add Category
+              </button>
+            </div>
 
-          <input
-            type="number"
-            name="eggPrice"
-            placeholder="Price Per Egg"
-            value={formData.eggPrice}
-            onChange={handleChange}
-            className="border rounded-lg p-3"
-          />
+            <div className="space-y-3">
+              {lineItemsWithSubtotal.map((item, index) => (
+                <div
+                  key={index}
+                  className="grid grid-cols-1 md:grid-cols-6 gap-3 items-center bg-gray-50 rounded-lg p-3"
+                >
+                  <select
+                    value={item.category}
+                    onChange={(e) =>
+                      handleLineItemChange(index, "category", e.target.value)
+                    }
+                    className="border rounded-lg p-3"
+                  >
+                    {Object.keys(EGG_CATEGORY_PRICES).map((cat) => (
+                      <option key={cat} value={cat}>
+                        {EGG_CATEGORY_LABELS[cat]} (₦
+                        {EGG_CATEGORY_PRICES[cat].toLocaleString()}/crate)
+                      </option>
+                    ))}
+                  </select>
 
-          <input
-            type="number"
-            name="discount"
-            placeholder="Discount"
-            value={formData.discount}
-            onChange={handleChange}
-            className="border rounded-lg p-3"
-          />
+                  <input
+                    type="number"
+                    min="0"
+                    placeholder="Crates"
+                    value={item.cratesSold}
+                    onChange={(e) =>
+                      handleLineItemChange(index, "cratesSold", e.target.value)
+                    }
+                    className="border rounded-lg p-3"
+                  />
 
-          <input
-            type="number"
-            name="transportCharge"
-            placeholder="Transport Charge"
-            value={formData.transportCharge}
-            onChange={handleChange}
-            className="border rounded-lg p-3"
-          />
+                  <input
+                    type="number"
+                    min="0"
+                    placeholder="Loose Eggs"
+                    value={item.looseEggs}
+                    onChange={(e) =>
+                      handleLineItemChange(index, "looseEggs", e.target.value)
+                    }
+                    className="border rounded-lg p-3"
+                  />
 
-          <input
-            type="number"
-            name="amountPaid"
-            placeholder="Amount Paid"
-            value={formData.amountPaid}
-            onChange={handleChange}
-            className="border rounded-lg p-3"
-          />
+                  <div className="text-sm text-gray-500">
+                    ₦{item.cratePrice.toLocaleString()}/crate · ₦{item.eggPrice}
+                    /egg
+                  </div>
 
-          <select
-            name="paymentMethod"
-            value={formData.paymentMethod}
-            onChange={handleChange}
-            className="border rounded-lg p-3"
-          >
-            <option>Cash</option>
-            <option>Transfer</option>
-            <option>POS</option>
-          </select>
+                  <div className="font-bold text-green-700">
+                    ₦{item.subtotal.toLocaleString()}
+                  </div>
 
-          <textarea
-            name="remarks"
-            placeholder="Remarks"
-            value={formData.remarks}
-            onChange={handleChange}
-            className="border rounded-lg p-3 md:col-span-2"
-          />
+                  <button
+                    type="button"
+                    onClick={() => removeLineItemRow(index)}
+                    disabled={lineItems.length === 1}
+                    className="bg-red-100 hover:bg-red-200 disabled:opacity-40 disabled:cursor-not-allowed text-red-700 px-3 py-2 rounded-lg text-sm font-semibold"
+                  >
+                    Remove
+                  </button>
+                </div>
+              ))}
+            </div>
+          </div>
+
+          {/* Discount / transport / amount paid */}
+          <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-4 gap-4 mb-6">
+            <input
+              type="number"
+              name="discount"
+              placeholder="Discount"
+              value={formData.discount}
+              onChange={handleChange}
+              className="border rounded-lg p-3"
+            />
+
+            <input
+              type="number"
+              name="transportCharge"
+              placeholder="Transport Charge"
+              value={formData.transportCharge}
+              onChange={handleChange}
+              className="border rounded-lg p-3"
+            />
+
+            <input
+              type="number"
+              name="amountPaid"
+              placeholder="Amount Paid"
+              value={formData.amountPaid}
+              onChange={handleChange}
+              className="border rounded-lg p-3"
+            />
+
+            <textarea
+              name="remarks"
+              placeholder="Remarks"
+              value={formData.remarks}
+              onChange={handleChange}
+              className="border rounded-lg p-3"
+            />
+          </div>
 
           {/* Live Totals */}
 
-          <div className="md:col-span-4 bg-gray-50 rounded-xl p-5 mt-2">
-            <div className="grid md:grid-cols-5 gap-4">
+          <div className="bg-gray-50 rounded-xl p-5 mb-6">
+            <div className="grid md:grid-cols-4 gap-4">
               <div>
-                <p className="text-gray-500">Crates Total</p>
+                <p className="text-gray-500">Items Total</p>
 
                 <p className="font-bold text-lg">
-                  ₦{cratesTotal.toLocaleString()}
-                </p>
-              </div>
-
-              <div>
-                <p className="text-gray-500">Loose Eggs</p>
-
-                <p className="font-bold text-lg">
-                  ₦{looseEggTotal.toLocaleString()}
+                  ₦{itemsTotal.toLocaleString()}
                 </p>
               </div>
 
@@ -696,14 +786,12 @@ export default function EggSales() {
             </div>
           </div>
 
-          <div className="md:col-span-4">
-            <button
-              type="submit"
-              className="bg-green-600 hover:bg-green-700 text-white px-8 py-3 rounded-lg font-semibold"
-            >
-              Save Sale
-            </button>
-          </div>
+          <button
+            type="submit"
+            className="bg-green-600 hover:bg-green-700 text-white px-8 py-3 rounded-lg font-semibold"
+          >
+            Save Sale
+          </button>
         </form>
       </div>
 
@@ -728,9 +816,7 @@ export default function EggSales() {
 
                 <th className="p-3 text-left">Phone</th>
 
-                <th className="p-3 text-center">Crates</th>
-
-                <th className="p-3 text-center">Loose Eggs</th>
+                <th className="p-3 text-left">Categories</th>
 
                 <th className="p-3 text-right">Total</th>
 
@@ -754,7 +840,7 @@ export default function EggSales() {
               {filteredSales.length === 0 ? (
                 <tr>
                   <td
-                    colSpan={isSuperadmin ? 12 : 11}
+                    colSpan={isSuperadmin ? 11 : 10}
                     className="text-center py-12 text-gray-500"
                   >
                     No sales found.
@@ -778,9 +864,14 @@ export default function EggSales() {
 
                     <td className="p-3">{sale.phone || "-"}</td>
 
-                    <td className="p-3 text-center">{sale.cratesSold}</td>
-
-                    <td className="p-3 text-center">{sale.looseEggs}</td>
+                    <td className="p-3 text-sm">
+                      {(sale.lineItems || [])
+                        .map(
+                          (item) =>
+                            `${EGG_CATEGORY_LABELS[item.category] || item.category} (${item.cratesSold || 0}c${item.looseEggs ? ` +${item.looseEggs}` : ""})`,
+                        )
+                        .join(", ") || "-"}
+                    </td>
 
                     <td className="p-3 text-right font-semibold text-green-700">
                       ₦{Number(sale.totalAmount || 0).toLocaleString()}

@@ -1,520 +1,852 @@
-import { useEffect, useState } from "react";
-import { toast } from "react-toastify";
+import { useEffect, useRef, useState } from "react";
+import {
+  Outlet,
+  Link,
+  NavLink,
+  useNavigate,
+  useLocation,
+} from "react-router-dom";
+import { ToastContainer, toast } from "react-toastify";
+import "react-toastify/dist/ReactToastify.css";
+
+import logo from "../assets/logo.png";
+import GlobalSearch from "../components/GlobalSearch";
+import NotificationPopup from "../components/NotificationPopup";
+import socket from "../services/socket";
+import orderSound from "../assets/order-notification.mp3";
 
 import {
-  fetchCameras,
-  createCamera,
-  updateCamera,
-  disableCamera,
-  enableCamera,
-  deleteCamera,
-} from "../services/cameraService";
+  markNotificationRead,
+  replyNotification,
+  getUnreadCount,
+} from "../services/notificationService";
 
-import { PENS } from "../constants/pens";
-import socket from "../services/socket";
+import { FileBarChart2 } from "lucide-react";
 
-const emptyForm = {
-  name: "",
-  pen: "",
-  channel: "",
-  location: "",
-  description: "",
+const isOwnSender = (senderId, userId) => {
+  if (!senderId || !userId) return false;
+
+  const id = senderId?._id?.toString?.() || senderId?.toString?.();
+
+  return id === userId?.toString();
 };
 
-export default function CameraManagement() {
-  const [cameras, setCameras] = useState([]);
-  const [loading, setLoading] = useState(true);
-  const [saving, setSaving] = useState(false);
+export default function AdminLayout() {
+  const navigate = useNavigate();
+  const location = useLocation();
 
-  const [formData, setFormData] = useState(emptyForm);
-  const [editingCamera, setEditingCamera] = useState(null);
-  const [search, setSearch] = useState("");
+  // =============================
+  // CURRENT USER
+  // =============================
 
-  // =========================================
-  // LOAD CAMERAS
-  // =========================================
+  const user = JSON.parse(localStorage.getItem("user") || "{}");
 
-  const loadCameras = async () => {
-    try {
-      setLoading(true);
+  const role = user?.role || localStorage.getItem("role");
 
-      const data = await fetchCameras();
+  const name = user?.name || localStorage.getItem("adminName");
 
-      setCameras(Array.isArray(data) ? data : []);
-    } catch (error) {
-      console.error("LOAD CAMERAS ERROR:", error);
+  // =============================
+  // STATE
+  // =============================
 
-      toast.error(error.response?.data?.error || "Failed to load cameras");
-    } finally {
-      setLoading(false);
-    }
-  };
+  const [unreadOrders, setUnreadOrders] = useState(0);
+  const [unreadMessages, setUnreadMessages] = useState(0);
+  const [messageNotifications, setMessageNotifications] = useState([]);
 
-  useEffect(() => {
-    loadCameras();
-  }, []);
+  // =============================
+  // REFS
+  // =============================
 
-  // =========================================
-  // SOCKET LIVE UPDATES
-  // =========================================
+  const audioRef = useRef(null);
+  const roleRef = useRef(role);
+  const userIdRef = useRef(user?.id);
+
+  // =============================
+  // KEEP REFS UPDATED
+  // =============================
 
   useEffect(() => {
-    const handleCreated = (camera) => {
-      setCameras((prev) => [camera, ...prev]);
+    roleRef.current = role;
+    userIdRef.current = user?.id;
+  }, [role, user?.id]);
 
-      toast.success(`Camera "${camera.name}" added`);
-    };
+  // =============================
+  // PRELOAD NOTIFICATION SOUND
+  // =============================
 
-    const handleUpdated = (camera) => {
-      setCameras((prev) =>
-        prev.map((item) => (item._id === camera._id ? camera : item)),
-      );
-    };
-
-    const handleDisabled = (data) => {
-      const camera = data.camera || data;
-
-      setCameras((prev) =>
-        prev.map((item) => (item._id === camera._id ? camera : item)),
-      );
-
-      toast.info(`Camera "${camera.name}" disabled`);
-    };
-
-    const handleEnabled = (data) => {
-      const camera = data.camera || data;
-
-      setCameras((prev) =>
-        prev.map((item) => (item._id === camera._id ? camera : item)),
-      );
-
-      toast.success(`Camera "${camera.name}" enabled`);
-    };
-
-    const handleDeleted = (camera) => {
-      setCameras((prev) => prev.filter((item) => item._id !== camera._id));
-
-      toast.warning(`Camera "${camera.name}" deleted`);
-    };
-
-    socket.on("cameraCreated", handleCreated);
-    socket.on("cameraUpdated", handleUpdated);
-    socket.on("cameraDisabled", handleDisabled);
-    socket.on("cameraEnabled", handleEnabled);
-    socket.on("cameraDeleted", handleDeleted);
+  useEffect(() => {
+    audioRef.current = new Audio(orderSound);
+    audioRef.current.preload = "auto";
+    audioRef.current.volume = 1;
 
     return () => {
-      socket.off("cameraCreated", handleCreated);
-      socket.off("cameraUpdated", handleUpdated);
-      socket.off("cameraDisabled", handleDisabled);
-      socket.off("cameraEnabled", handleEnabled);
-      socket.off("cameraDeleted", handleDeleted);
+      if (audioRef.current) {
+        audioRef.current.pause();
+        audioRef.current = null;
+      }
     };
   }, []);
 
-  // =========================================
-  // FORM HANDLING
-  // =========================================
+  // =============================
+  // UNREAD MESSAGE COUNT
+  // =============================
 
-  const handleChange = (e) => {
-    const { name, value } = e.target;
+  const refreshUnreadCount = () => {
+    // Staff has no access to notifications
+    if (roleRef.current === "staff") {
+      return;
+    }
 
-    setFormData((prev) => ({
-      ...prev,
-      [name]: value,
-    }));
+    getUnreadCount()
+      .then((res) => {
+        setUnreadMessages(res?.count ?? 0);
+      })
+      .catch((err) => {
+        console.error("Failed to refresh unread notification count:", err);
+      });
   };
 
-  // =========================================
-  // RESET FORM
-  // =========================================
+  // =============================
+  // INITIAL UNREAD COUNT
+  // =============================
 
-  const resetForm = () => {
-    setFormData(emptyForm);
-    setEditingCamera(null);
-  };
+  useEffect(() => {
+    refreshUnreadCount();
+  }, []);
 
-  // =========================================
-  // SUBMIT
-  // =========================================
+  // =============================
+  // RESET ORDER BADGE
+  // WHEN VIEWING ORDERS
+  // =============================
 
-  const handleSubmit = async (e) => {
-    e.preventDefault();
+  useEffect(() => {
+    if (location.pathname === "/admin/orders") {
+      setUnreadOrders(0);
+    }
+  }, [location.pathname]);
 
-    try {
-      setSaving(true);
+  // =============================
+  // RESET MESSAGE BADGE
+  // WHEN VIEWING NOTIFICATIONS
+  // =============================
 
-      const payload = {
-        ...formData,
-        channel: Number(formData.channel),
-      };
+  useEffect(() => {
+    if (location.pathname === "/admin/notifications") {
+      setUnreadMessages(0);
+    }
+  }, [location.pathname]);
 
-      if (editingCamera) {
-        const updated = await updateCamera(editingCamera._id, payload);
+  // =============================
+  // SOCKET LISTENER — ORDERS
+  // =============================
 
-        setCameras((prev) =>
-          prev.map((item) => (item._id === updated._id ? updated : item)),
-        );
+  useEffect(() => {
+    const handleNewOrder = (order) => {
+      console.log("🔥 New Order Received", order);
 
-        toast.success("Camera updated successfully.");
-      } else {
-        const created = await createCamera(payload);
+      setUnreadOrders((prev) => prev + 1);
 
-        setCameras((prev) => [created, ...prev]);
+      // Play sound
+      if (audioRef.current) {
+        audioRef.current.currentTime = 0;
 
-        toast.success("Camera added successfully.");
+        audioRef.current.play().catch(() => {});
       }
 
-      resetForm();
-    } catch (error) {
-      console.error("SAVE CAMERA ERROR:", error);
+      // Toast notification
+      toast.success(`🛒 New order received from ${order.name}`, {
+        position: "top-right",
+        autoClose: 5000,
+        pauseOnHover: true,
+        theme: "colored",
+      });
 
-      toast.error(error.response?.data?.error || "Failed to save camera");
+      // Browser notification
+      if ("Notification" in window) {
+        if (Notification.permission === "granted") {
+          new Notification("Mebrek Farms", {
+            body: `New order received from ${order.name}`,
+            icon: "/favicon.ico",
+          });
+        } else if (Notification.permission !== "denied") {
+          Notification.requestPermission();
+        }
+      }
+
+      // Notify other components
+      window.dispatchEvent(
+        new CustomEvent("orderCreated", {
+          detail: order,
+        }),
+      );
+    };
+
+    socket.on("newOrder", handleNewOrder);
+
+    return () => {
+      socket.off("newOrder", handleNewOrder);
+    };
+  }, []);
+
+  // =============================
+  // SOCKET LISTENER —
+  // MESSAGE NOTIFICATIONS
+  //
+  // Manager <-> Super Admin inbox
+  // =============================
+
+  useEffect(() => {
+    // Staff never receives notification inbox events
+    if (roleRef.current === "staff") {
+      return;
+    }
+
+    // =============================
+    // NEW NOTIFICATION CREATED
+    // =============================
+
+    const handleCreated = (notification) => {
+      // ALWAYS refresh the unread badge first.
+      // This keeps the count accurate even when
+      // popup-specific logic skips the notification.
+      refreshUnreadCount();
+
+      const isOwnMessage = isOwnSender(
+        notification.senderId,
+        userIdRef.current,
+      );
+
+      // Only Super Admin receives
+      // new-message popup.
+      if (isOwnMessage || roleRef.current !== "superadmin") {
+        return;
+      }
+
+      // Don't stack a popup on top of
+      // the Notifications page.
+      if (location.pathname === "/admin/notifications") {
+        return;
+      }
+
+      // Play sound
+      if (audioRef.current) {
+        audioRef.current.currentTime = 0;
+
+        audioRef.current.play().catch(() => {});
+      }
+
+      // Show toast
+      toast.info(`🔔 New message from ${notification.senderName}`, {
+        position: "top-right",
+        autoClose: 4000,
+        theme: "colored",
+      });
+
+      // Add/update popup notification
+      setMessageNotifications((prev) => {
+        const idx = prev.findIndex((n) => n._id === notification._id);
+
+        if (idx === -1) {
+          return [...prev, notification];
+        }
+
+        const next = [...prev];
+
+        next[idx] = notification;
+
+        return next;
+      });
+    };
+
+    // =============================
+    // NOTIFICATION UPDATED
+    //
+    // Typically triggered when
+    // Super Admin replies to Manager
+    // =============================
+
+    const handleUpdated = (notification) => {
+      // ALWAYS refresh the unread badge first.
+      // This keeps the count accurate even when
+      // popup-specific logic skips the notification.
+      refreshUnreadCount();
+
+      const isOwnThread = isOwnSender(notification.senderId, userIdRef.current);
+
+      // Only the original sender,
+      // typically Manager, gets reply popup.
+      if (!isOwnThread || roleRef.current === "superadmin") {
+        return;
+      }
+
+      // Don't stack popup on Notifications page.
+      if (location.pathname === "/admin/notifications") {
+        return;
+      }
+
+      // Play sound
+      if (audioRef.current) {
+        audioRef.current.currentTime = 0;
+
+        audioRef.current.play().catch(() => {});
+      }
+
+      // Show toast
+      toast.success("Super Admin replied to your message", {
+        position: "top-right",
+        autoClose: 4000,
+        theme: "colored",
+      });
+
+      // Update popup with latest thread
+      setMessageNotifications((prev) => {
+        const idx = prev.findIndex((n) => n._id === notification._id);
+
+        if (idx === -1) {
+          return [...prev, notification];
+        }
+
+        const next = [...prev];
+
+        next[idx] = notification;
+
+        return next;
+      });
+    };
+
+    socket.on("notificationCreated", handleCreated);
+
+    socket.on("notificationUpdated", handleUpdated);
+
+    return () => {
+      socket.off("notificationCreated", handleCreated);
+
+      socket.off("notificationUpdated", handleUpdated);
+    };
+
+    // The location is intentionally included
+    // because popup behavior depends on the
+    // current page.
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [location.pathname]);
+
+  // =============================
+  // POPUP CLOSE
+  // =============================
+
+  const handlePopupClose = () => {
+    setMessageNotifications([]);
+  };
+
+  // =============================
+  // POPUP MARK AS READ
+  // =============================
+
+  const handlePopupMarkRead = async (id) => {
+    try {
+      await markNotificationRead(id);
+
+      // Refresh badge after marking read
+      refreshUnreadCount();
+    } catch (err) {
+      console.error("Failed to mark notification as read:", err);
     } finally {
-      setSaving(false);
+      setMessageNotifications((prev) => prev.filter((n) => n._id !== id));
     }
   };
 
-  // =========================================
-  // EDIT
-  // =========================================
+  // =============================
+  // POPUP REPLY
+  // =============================
 
-  const handleEdit = (camera) => {
-    setEditingCamera(camera);
-    setFormData({
-      name: camera.name || "",
-      pen: camera.pen || "",
-      channel: camera.channel || "",
-      location: camera.location || "",
-      description: camera.description || "",
-    });
-
-    window.scrollTo({
-      top: 0,
-      behavior: "smooth",
-    });
-  };
-
-  // =========================================
-  // ENABLE / DISABLE
-  // =========================================
-
-  const handleToggle = async (camera) => {
+  const handlePopupReply = async (id, message) => {
     try {
-      let result;
+      await replyNotification(id, {
+        message,
+      });
 
-      if (camera.isEnabled) {
-        result = await disableCamera(camera._id);
+      // Refresh badge after reply
+      refreshUnreadCount();
 
-        toast.success("Camera disabled.");
-      } else {
-        result = await enableCamera(camera._id);
-
-        toast.success("Camera enabled.");
-      }
-
-      const updatedCamera = result.camera;
-
-      setCameras((prev) =>
-        prev.map((item) =>
-          item._id === updatedCamera._id ? updatedCamera : item,
-        ),
-      );
-    } catch (error) {
-      console.error("TOGGLE CAMERA ERROR:", error);
-
-      toast.error(
-        error.response?.data?.error || "Failed to update camera status",
-      );
+      setMessageNotifications((prev) => prev.filter((n) => n._id !== id));
+    } catch (err) {
+      console.error("Failed to reply to notification:", err);
     }
   };
 
-  // =========================================
-  // DELETE
-  // =========================================
+  // =============================
+  // LOGOUT
+  // =============================
 
-  const handleDelete = async (camera) => {
-    const confirmed = window.confirm(
-      `Are you sure you want to delete "${camera.name}"?`,
-    );
+  const handleLogout = () => {
+    socket.off("newOrder");
 
-    if (!confirmed) return;
+    socket.off("notificationCreated");
 
-    try {
-      await deleteCamera(camera._id);
+    socket.off("notificationUpdated");
 
-      setCameras((prev) => prev.filter((item) => item._id !== camera._id));
+    localStorage.removeItem("token");
 
-      toast.success("Camera deleted successfully.");
-    } catch (error) {
-      console.error("DELETE CAMERA ERROR:", error);
+    localStorage.removeItem("role");
 
-      toast.error(error.response?.data?.error || "Failed to delete camera");
-    }
+    localStorage.removeItem("adminName");
+
+    localStorage.removeItem("user");
+
+    navigate("/login");
   };
-
-  // =========================================
-  // FILTER
-  // =========================================
-
-  const filteredCameras = cameras.filter((camera) => {
-    const keyword = search.toLowerCase().trim();
-
-    if (!keyword) return true;
-
-    return (
-      camera.name?.toLowerCase().includes(keyword) ||
-      camera.pen?.toLowerCase().includes(keyword) ||
-      camera.location?.toLowerCase().includes(keyword) ||
-      String(camera.channel).includes(keyword)
-    );
-  });
-
-  // =========================================
-  // LOADING
-  // =========================================
-
-  if (loading) {
-    return (
-      <div className="flex items-center justify-center h-64">
-        {" "}
-        <div className="w-12 h-12 border-4 border-green-600 border-t-transparent rounded-full animate-spin" />{" "}
-      </div>
-    );
-  }
-
-  // =========================================
-  // RENDER
-  // =========================================
 
   return (
-    <div className="p-6">
-      {/* HEADER */}
+    <div className="flex min-h-screen bg-gray-100">
+      {/* =============================
+          SIDEBAR
+      ============================== */}
 
-      <div className="mb-6">
-        <h1 className="text-3xl font-bold">📹 Farm CCTV Camera Management</h1>
+      <aside className="w-72 bg-green-800 text-white p-6 shadow-lg">
+        {/* LOGO */}
 
-        <p className="text-gray-500 mt-1">
-          Manage the 44 Hikvision farm cameras.
-        </p>
-      </div>
+        <div className="mb-8">
+          <div className="flex items-center gap-3">
+            <img
+              src={logo}
+              alt="logo"
+              className="w-14 h-14 object-contain rounded-full bg-white p-1"
+            />
 
-      {/* STATISTICS */}
+            <div>
+              <h2 className="text-2xl font-bold">Mebrek Farms</h2>
 
-      <div className="grid grid-cols-1 sm:grid-cols-3 gap-4 mb-6">
-        <div className="bg-white rounded-xl shadow p-5">
-          <p className="text-gray-500 text-sm">Total Cameras</p>
+              <p className="text-green-200 text-sm">Farm Management System</p>
 
-          <p className="text-3xl font-bold text-green-600">{cameras.length}</p>
+              {/* ROLE BADGE */}
+
+              <div
+                className={`
+                  mt-3
+                  inline-block
+                  px-3
+                  py-1
+                  rounded-full
+                  text-sm
+                  font-semibold
+                  ${
+                    role === "superadmin"
+                      ? "bg-red-500"
+                      : role === "manager"
+                        ? "bg-blue-500"
+                        : "bg-green-500"
+                  }
+                `}
+              >
+                {role?.toUpperCase()}
+              </div>
+            </div>
+          </div>
         </div>
 
-        <div className="bg-white rounded-xl shadow p-5">
-          <p className="text-gray-500 text-sm">Enabled</p>
+        {/* USER INFO */}
 
-          <p className="text-3xl font-bold text-blue-600">
-            {cameras.filter((camera) => camera.isEnabled).length}
+        <div className="bg-green-700 rounded-lg p-4 mb-6">
+          <p className="font-semibold text-lg">{name || "User"}</p>
+
+          <p className="text-green-200 text-sm">
+            Logged in as {role || "staff"}
           </p>
         </div>
 
-        <div className="bg-white rounded-xl shadow p-5">
-          <p className="text-gray-500 text-sm">Disabled</p>
+        {/* BACK TO WEBSITE */}
 
-          <p className="text-3xl font-bold text-red-600">
-            {cameras.filter((camera) => !camera.isEnabled).length}
-          </p>
-        </div>
-      </div>
-
-      {/* CAMERA FORM */}
-
-      <div className="bg-white rounded-xl shadow p-6 mb-8">
-        <div className="flex justify-between items-center mb-5">
-          <h2 className="text-xl font-bold">
-            {editingCamera ? "Edit Camera" : "Add Camera"}
-          </h2>
-
-          {editingCamera && (
-            <button
-              type="button"
-              onClick={resetForm}
-              className="text-gray-600 hover:text-gray-900"
-            >
-              Cancel Edit
-            </button>
-          )}
-        </div>
-
-        <form
-          onSubmit={handleSubmit}
-          className="grid grid-cols-1 md:grid-cols-3 gap-4"
+        <button
+          onClick={() => navigate("/")}
+          className="
+            w-full
+            bg-white
+            text-green-800
+            font-semibold
+            py-3
+            rounded-lg
+            mb-4
+            hover:bg-gray-200
+            transition
+          "
         >
-          <input
-            name="name"
-            value={formData.name}
-            onChange={handleChange}
-            placeholder="Camera Name"
-            className="border p-3 rounded-lg"
-            required
-          />
+          ← Back to Farm Website
+        </button>
 
-          <select
-            name="pen"
-            value={formData.pen}
-            onChange={handleChange}
-            className="border p-3 rounded-lg"
-            required
+        {/* LOGOUT */}
+
+        <button
+          onClick={handleLogout}
+          className="
+            w-full
+            bg-red-500
+            text-white
+            py-3
+            rounded-lg
+            mb-8
+            hover:bg-red-600
+            transition
+          "
+        >
+          Logout
+        </button>
+
+        {/* =============================
+            NAVIGATION
+        ============================== */}
+
+        <nav className="space-y-2">
+          {/* GENERAL */}
+
+          <div className="text-green-200 text-xs uppercase tracking-wider mb-2">
+            General
+          </div>
+
+          <Link
+            to="/admin"
+            className="block hover:bg-green-700 p-3 rounded-lg transition"
           >
-            <option value="">Select Pen</option>
+            Dashboard 📊
+          </Link>
 
-            {PENS.map((pen) => (
-              <option key={pen} value={pen}>
-                {pen}
-              </option>
-            ))}
-          </select>
+          {/* ORDERS */}
 
-          <input
-            type="number"
-            name="channel"
-            value={formData.channel}
-            onChange={handleChange}
-            placeholder="NVR Channel"
-            min="1"
-            className="border p-3 rounded-lg"
-            required
-          />
-
-          <input
-            name="location"
-            value={formData.location}
-            onChange={handleChange}
-            placeholder="Camera Location"
-            className="border p-3 rounded-lg"
-          />
-
-          <textarea
-            name="description"
-            value={formData.description}
-            onChange={handleChange}
-            placeholder="Camera Description"
-            rows="2"
-            className="border p-3 rounded-lg md:col-span-3"
-          />
-
-          <button
-            type="submit"
-            disabled={saving}
-            className="bg-green-600 hover:bg-green-700 text-white p-3 rounded-lg md:col-span-3 disabled:opacity-60"
+          <Link
+            to="/admin/orders"
+            onClick={() => setUnreadOrders(0)}
+            className="
+              flex
+              items-center
+              justify-between
+              hover:bg-green-700
+              p-3
+              rounded-lg
+              transition
+              relative
+            "
           >
-            {saving
-              ? "Saving..."
-              : editingCamera
-                ? "Update Camera"
-                : "Add Camera"}
-          </button>
-        </form>
-      </div>
+            <span>Orders 📦</span>
 
-      {/* SEARCH */}
+            {unreadOrders > 0 && (
+              <span
+                className="
+                  min-w-[24px]
+                  h-6
+                  px-2
+                  rounded-full
+                  bg-red-500
+                  text-white
+                  text-xs
+                  font-bold
+                  flex
+                  items-center
+                  justify-center
+                  animate-pulse
+                "
+              >
+                {unreadOrders > 99 ? "99+" : unreadOrders}
+              </span>
+            )}
+          </Link>
 
-      <div className="mb-5">
-        <input
-          type="text"
-          value={search}
-          onChange={(e) => setSearch(e.target.value)}
-          placeholder="Search cameras by name, pen, location, or channel..."
-          className="w-full border p-3 rounded-lg"
-        />
-      </div>
+          {/* ATTENDANCE */}
 
-      {/* CAMERAS */}
+          <Link
+            to="/admin/attendance"
+            className="block hover:bg-green-700 p-3 rounded-lg transition"
+          >
+            Attendance 📅
+          </Link>
 
-      {filteredCameras.length === 0 ? (
-        <div className="bg-white rounded-xl shadow p-12 text-center">
-          <div className="text-6xl mb-4">📹</div>
+          {/* PRODUCTION - ALL ROLES */}
 
-          <h2 className="text-xl font-bold">No cameras found</h2>
+          {["superadmin", "manager", "staff"].includes(role) && (
+            <Link
+              to="/admin/production"
+              className="block hover:bg-green-700 p-3 rounded-lg transition"
+            >
+              Production 🥚
+            </Link>
+          )}
 
-          <p className="text-gray-500 mt-2">
-            Add your first farm camera above.
-          </p>
+          {/* NOTIFICATIONS */}
+
+          <Link
+            to="/admin/notifications"
+            onClick={() => setUnreadMessages(0)}
+            className="
+              flex
+              items-center
+              justify-between
+              hover:bg-green-700
+              p-3
+              rounded-lg
+              transition
+              relative
+            "
+          >
+            <span>Notifications 🔔</span>
+
+            {unreadMessages > 0 && (
+              <span
+                className="
+                  min-w-[24px]
+                  h-6
+                  px-2
+                  rounded-full
+                  bg-red-500
+                  text-white
+                  text-xs
+                  font-bold
+                  flex
+                  items-center
+                  justify-center
+                  animate-pulse
+                "
+              >
+                {unreadMessages > 99 ? "99+" : unreadMessages}
+              </span>
+            )}
+          </Link>
+
+          {/* VACCINATIONS */}
+
+          <Link
+            to="/admin/vaccinations"
+            className="block hover:bg-green-700 p-3 rounded-lg transition"
+          >
+            Vaccinations 💉
+          </Link>
+
+          {/* BIRD HEALTH */}
+
+          <Link
+            to="/admin/bird-health"
+            className="block hover:bg-green-700 p-3 rounded-lg transition"
+          >
+            Bird Health 🐔
+          </Link>
+
+          {/* MEDICATIONS */}
+
+          <Link
+            to="/admin/medications"
+            className="block hover:bg-green-700 p-3 rounded-lg transition"
+          >
+            Medications 💊
+          </Link>
+
+          {/* MORTALITY */}
+
+          <Link
+            to="/admin/mortality"
+            className="block hover:bg-green-700 p-3 rounded-lg transition"
+          >
+            Mortality Tracking ☠️
+          </Link>
+
+          {/* =============================
+              MANAGEMENT
+          ============================== */}
+
+          {["superadmin", "manager"].includes(role) && (
+            <>
+              <hr className="border-green-600 my-4" />
+
+              <div className="text-green-200 text-xs uppercase tracking-wider mb-2">
+                Management
+              </div>
+
+              {/* REPORTS */}
+
+              <Link
+                to="/admin/reports"
+                className="block hover:bg-green-700 p-3 rounded-lg transition"
+              >
+                Reports 📊
+              </Link>
+
+              {/* SUPER ADMIN ONLY */}
+
+              {role === "superadmin" && (
+                <>
+                  <Link
+                    to="/admin/expenses"
+                    className="block hover:bg-green-700 p-3 rounded-lg transition"
+                  >
+                    Expenses 💰
+                  </Link>
+
+                  <Link
+                    to="/admin/workers"
+                    className="block hover:bg-green-700 p-3 rounded-lg transition"
+                  >
+                    Workers 👨‍🌾
+                  </Link>
+                </>
+              )}
+
+              {role === "superadmin" && (
+                <NavLink
+                  to="/cctv"
+                  className={({ isActive }) =>
+                    `flex items-center gap-3 px-4 py-3 rounded-lg transition ${
+                      isActive
+                        ? "bg-green-600 text-white"
+                        : "text-gray-700 hover:bg-green-100"
+                    }`
+                  }
+                >
+                  <span className="text-xl">📹</span>
+                  <span>Farm CCTV</span>
+                </NavLink>
+              )}
+
+              {/* SUPER ADMIN + MANAGER */}
+
+              <Link
+                to="/admin/egg-sales"
+                className="block hover:bg-green-700 p-3 rounded-lg transition"
+              >
+                Egg Sales 🥚
+              </Link>
+
+              <Link
+                to="/admin/feeds"
+                className="block hover:bg-green-700 p-3 rounded-lg transition"
+              >
+                Feed Inventory 🌽
+              </Link>
+
+              <Link
+                to="/admin/feed-invoices"
+                className="block hover:bg-green-700 p-3 rounded-lg transition"
+              >
+                Feed Invoices 🧾
+              </Link>
+
+              <Link
+                to="/admin/warehouse"
+                className="block hover:bg-green-700 p-3 rounded-lg transition"
+              >
+                Warehouse 🏬
+              </Link>
+
+              <Link
+                to="/admin/room-inventory"
+                className="block hover:bg-green-700 p-3 rounded-lg transition"
+              >
+                Room Inventory 🛏️
+              </Link>
+            </>
+          )}
+
+          {/* =============================
+              SUPER ADMIN ONLY
+          ============================== */}
+
+          {role === "superadmin" && (
+            <>
+              <hr className="border-green-600 my-4" />
+
+              <div className="text-green-200 text-xs uppercase tracking-wider mb-2">
+                System Administration
+              </div>
+
+              <Link
+                to="/admin/staff"
+                className="block hover:bg-green-700 p-3 rounded-lg transition"
+              >
+                Staff Accounts 👥
+              </Link>
+
+              <Link
+                to="/admin/backup"
+                className="block hover:bg-green-700 p-3 rounded-lg transition"
+              >
+                Backup 🗄️
+              </Link>
+            </>
+          )}
+        </nav>
+      </aside>
+
+      {/* =============================
+          MAIN AREA
+      ============================== */}
+
+      <main className="flex-1 min-w-0 bg-gray-100 overflow-y-auto">
+        {/* TOP HEADER */}
+
+        <div className="bg-white shadow-sm px-8 py-4 flex items-center justify-between">
+          {/* GLOBAL SEARCH */}
+
+          <div className="w-full max-w-xl">
+            <GlobalSearch />
+          </div>
+
+          {/* USER */}
+
+          <div className="flex items-center gap-3 ml-6">
+            <div className="text-right">
+              <p className="font-semibold">{name || "User"}</p>
+
+              <p className="text-sm text-gray-500">{role || "staff"}</p>
+            </div>
+
+            <button
+              onClick={() => navigate("/admin/profile")}
+              className="
+                w-10
+                h-10
+                rounded-full
+                bg-green-700
+                text-white
+                flex
+                items-center
+                justify-center
+                hover:bg-green-800
+                transition
+              "
+            >
+              👤
+            </button>
+          </div>
         </div>
-      ) : (
-        <div className="bg-white rounded-xl shadow overflow-x-auto">
-          <table className="w-full min-w-[1000px]">
-            <thead className="bg-green-600 text-white">
-              <tr>
-                <th className="p-3 text-left">Camera</th>
 
-                <th className="p-3 text-left">Pen</th>
+        {/* PAGE CONTENT */}
 
-                <th className="p-3 text-left">Channel</th>
-
-                <th className="p-3 text-left">Location</th>
-
-                <th className="p-3 text-left">Status</th>
-
-                <th className="p-3 text-center">Actions</th>
-              </tr>
-            </thead>
-
-            <tbody>
-              {filteredCameras.map((camera) => (
-                <tr key={camera._id} className="border-b hover:bg-green-50">
-                  <td className="p-3 font-semibold">{camera.name}</td>
-
-                  <td className="p-3">{camera.pen}</td>
-
-                  <td className="p-3">Channel {camera.channel}</td>
-
-                  <td className="p-3">{camera.location || "-"}</td>
-
-                  <td className="p-3">
-                    {camera.isEnabled ? (
-                      <span className="px-3 py-1 rounded-full bg-green-100 text-green-700 text-xs font-bold">
-                        Enabled
-                      </span>
-                    ) : (
-                      <span className="px-3 py-1 rounded-full bg-red-100 text-red-700 text-xs font-bold">
-                        Disabled
-                      </span>
-                    )}
-                  </td>
-
-                  <td className="p-3">
-                    <div className="flex justify-center gap-2">
-                      <button
-                        onClick={() => handleEdit(camera)}
-                        className="bg-blue-600 hover:bg-blue-700 text-white px-3 py-2 rounded"
-                      >
-                        Edit
-                      </button>
-
-                      <button
-                        onClick={() => handleToggle(camera)}
-                        className={`text-white px-3 py-2 rounded ${
-                          camera.isEnabled
-                            ? "bg-orange-500 hover:bg-orange-600"
-                            : "bg-green-600 hover:bg-green-700"
-                        }`}
-                      >
-                        {camera.isEnabled ? "Disable" : "Enable"}
-                      </button>
-
-                      <button
-                        onClick={() => handleDelete(camera)}
-                        className="bg-red-600 hover:bg-red-700 text-white px-3 py-2 rounded"
-                      >
-                        Delete
-                      </button>
-                    </div>
-                  </td>
-                </tr>
-              ))}
-            </tbody>
-          </table>
+        <div className="w-full min-w-0 p-8">
+          <Outlet />
         </div>
-      )}
+      </main>
+
+      {/* =============================
+          MESSAGE NOTIFICATION POPUP
+      ============================== */}
+
+      <NotificationPopup
+        notifications={messageNotifications}
+        onClose={handlePopupClose}
+        onMarkRead={handlePopupMarkRead}
+        onReply={handlePopupReply}
+      />
+
+      {/* =============================
+          TOAST CONTAINER
+      ============================== */}
+
+      <ToastContainer
+        position="top-right"
+        autoClose={5000}
+        hideProgressBar={false}
+        newestOnTop
+        closeOnClick
+        pauseOnFocusLoss
+        draggable
+        pauseOnHover
+        theme="colored"
+      />
     </div>
   );
 }
