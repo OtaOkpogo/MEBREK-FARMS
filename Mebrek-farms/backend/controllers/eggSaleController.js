@@ -270,7 +270,14 @@ exports.updateSale = async (req, res) => {
     sale.balance = balance;
     sale.status = status;
 
-    await sale.save();
+    // Legacy sales recorded before the lineItems change may still have
+    // no lineItems if the caller didn't send any — skip full validation
+    // in that case so a routine edit (e.g. amountPaid) doesn't get
+    // rejected. New/updated sales with real lineItems validate normally
+    // because buildValidatedLineItems already threw above if empty.
+    const skipValidation =
+      !lineItems && (!sale.lineItems || sale.lineItems.length === 0);
+    await sale.save({ validateBeforeSave: !skipValidation });
 
     res.json(sale);
   } catch (err) {
@@ -301,7 +308,12 @@ exports.deleteSale = async (req, res) => {
     sale.deletedAt = new Date();
     sale.deletedBy = req.user?.id;
 
-    await sale.save();
+    // validateBeforeSave: false — legacy sales recorded before the
+    // lineItems change don't have that field populated. We're only
+    // flipping soft-delete flags here, not touching sale contents, so
+    // full-document revalidation (which would fail on missing
+    // lineItems) is skipped, matching the pattern used elsewhere.
+    await sale.save({ validateBeforeSave: false });
 
     res.json({
       message: "Sale deleted successfully",
@@ -352,7 +364,9 @@ exports.restoreSale = async (req, res) => {
     sale.deletedAt = null;
     sale.deletedBy = null;
 
-    await sale.save();
+    // Same reasoning as deleteSale — skip full validation so legacy
+    // sales without lineItems can still be restored.
+    await sale.save({ validateBeforeSave: false });
 
     res.json(sale);
   } catch (err) {
