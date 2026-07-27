@@ -1,5 +1,9 @@
 const jwt = require("jsonwebtoken");
 
+// ============================================================
+// AUTHENTICATION
+// ============================================================
+
 const protect = (req, res, next) => {
   try {
     const authHeader = req.headers.authorization;
@@ -7,6 +11,12 @@ const protect = (req, res, next) => {
     if (!authHeader) {
       return res.status(401).json({
         message: "No token provided",
+      });
+    }
+
+    if (!authHeader.startsWith("Bearer ")) {
+      return res.status(401).json({
+        message: "Malformed authorization header",
       });
     }
 
@@ -24,21 +34,37 @@ const protect = (req, res, next) => {
 
     next();
   } catch (err) {
+    console.error("AUTH ERROR:", err.message);
+
     return res.status(401).json({
-      message: err.message,
+      message: "Invalid or expired token",
     });
   }
 };
 
+// ============================================================
+// ROLE AUTHORIZATION
+// ============================================================
+
 const allowRoles = (...roles) => {
   return (req, res, next) => {
-    if (!req.user || !roles.includes(req.user.role)) {
+    if (!req.user) {
+      return res.status(401).json({
+        message: "Authentication required",
+      });
+    }
+
+    if (!roles.includes(req.user.role)) {
       return res.status(403).json({
         message: "You do not have permission to perform this action",
       });
     }
+
     next();
   };
 };
 
-module.exports = { protect, allowRoles };
+module.exports = {
+  protect,
+  allowRoles,
+};

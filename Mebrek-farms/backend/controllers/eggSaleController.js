@@ -1,4 +1,5 @@
 const EggSale = require("../models/EggSale");
+const { EGG_CATEGORY_PRICES } = require("../models/EggSale");
 
 // =========================
 // GET ALL SALES
@@ -84,6 +85,63 @@ const generateInvoiceNumber = async (year) => {
 };
 
 // =========================
+// LINE ITEM VALIDATION + CALCULATION
+// =========================
+// Never trusts prices sent from the frontend. Each line item's
+// cratePrice is forced to match EGG_CATEGORY_PRICES for its category,
+// so a tampered request body can't undercharge a customer. eggPrice
+// (loose egg price) defaults to cratePrice / 30 unless explicitly sent.
+
+const buildValidatedLineItems = (lineItems) => {
+  if (!Array.isArray(lineItems) || lineItems.length === 0) {
+    throw new Error("At least one line item (egg category) is required.");
+  }
+
+  return lineItems.map((item) => {
+    const category = item.category;
+    const officialCratePrice = EGG_CATEGORY_PRICES[category];
+
+    if (!officialCratePrice) {
+      throw new Error(`Unknown egg category: ${category}`);
+    }
+
+    const cratesSold = Number(item.cratesSold || 0);
+    const looseEggs = Number(item.looseEggs || 0);
+    const cratePrice = officialCratePrice;
+    const eggPrice =
+      item.eggPrice !== undefined && item.eggPrice !== null
+        ? Number(item.eggPrice)
+        : Math.round(officialCratePrice / 30);
+
+    const subtotal = cratesSold * cratePrice + looseEggs * eggPrice;
+
+    return { category, cratesSold, looseEggs, cratePrice, eggPrice, subtotal };
+  });
+};
+
+const calculateTotals = (
+  validatedLineItems,
+  transportCharge = 0,
+  discount = 0,
+) => {
+  const itemsTotal = validatedLineItems.reduce(
+    (sum, item) => sum + item.subtotal,
+    0,
+  );
+  const totalAmount =
+    itemsTotal + Number(transportCharge || 0) - Number(discount || 0);
+  return totalAmount;
+};
+
+const resolveStatus = (totalAmount, amountPaid) => {
+  const balance = totalAmount - Number(amountPaid || 0);
+  let status = "Unpaid";
+  if (balance <= 0) status = "Paid";
+  else if (amountPaid > 0) status = "Part Paid";
+  return { balance, status };
+};
+
+// =========================
 // CREATE SALE
 // =========================
 
@@ -93,10 +151,7 @@ exports.createSale = async (req, res) => {
       customer,
       phone,
       date,
-      cratesSold,
-      looseEggs,
-      cratePrice,
-      eggPrice,
+      lineItems,
       discount,
       transportCharge,
       amountPaid,
@@ -104,22 +159,13 @@ exports.createSale = async (req, res) => {
       remarks,
     } = req.body;
 
-    const cratesTotal = Number(cratesSold || 0) * Number(cratePrice || 0);
-
-    const looseEggTotal = Number(looseEggs || 0) * Number(eggPrice || 0);
-
-    const totalAmount =
-      cratesTotal +
-      looseEggTotal +
-      Number(transportCharge || 0) -
-      Number(discount || 0);
-
-    const balance = totalAmount - Number(amountPaid || 0);
-
-    let status = "Unpaid";
-
-    if (balance <= 0) status = "Paid";
-    else if (amountPaid > 0) status = "Part Paid";
+    const validatedLineItems = buildValidatedLineItems(lineItems);
+    const totalAmount = calculateTotals(
+      validatedLineItems,
+      transportCharge,
+      discount,
+    );
+    const { balance, status } = resolveStatus(totalAmount, amountPaid);
 
     const year = new Date().getFullYear();
 
@@ -141,10 +187,7 @@ exports.createSale = async (req, res) => {
           customer,
           phone,
           date,
-          cratesSold,
-          looseEggs,
-          cratePrice,
-          eggPrice,
+          lineItems: validatedLineItems,
           discount,
           transportCharge,
           totalAmount,
@@ -166,7 +209,7 @@ exports.createSale = async (req, res) => {
 
     res.status(201).json(sale);
   } catch (err) {
-    res.status(500).json({
+    res.status(400).json({
       message: err.message,
     });
   }
@@ -186,26 +229,52 @@ exports.updateSale = async (req, res) => {
       });
     }
 
-    Object.assign(sale, req.body);
+    const {
+      customer,
+      phone,
+      date,
+      lineItems,
+      discount,
+      transportCharge,
+      amountPaid,
+      paymentMethod,
+      remarks,
+    } = req.body;
 
-    const cratesTotal = sale.cratesSold * sale.cratePrice;
+    // Only re-validate/recalculate line items if the caller actually
+    // sent new ones; otherwise keep the sale's existing items.
+    const validatedLineItems = lineItems
+      ? buildValidatedLineItems(lineItems)
+      : sale.lineItems;
 
-    const looseEggTotal = sale.looseEggs * sale.eggPrice;
+    sale.customer = customer ?? sale.customer;
+    sale.phone = phone ?? sale.phone;
+    sale.date = date ?? sale.date;
+    sale.lineItems = validatedLineItems;
+    sale.discount = discount ?? sale.discount;
+    sale.transportCharge = transportCharge ?? sale.transportCharge;
+    sale.amountPaid = amountPaid ?? sale.amountPaid;
+    sale.paymentMethod = paymentMethod ?? sale.paymentMethod;
+    sale.remarks = remarks ?? sale.remarks;
 
-    sale.totalAmount =
-      cratesTotal + looseEggTotal + sale.transportCharge - sale.discount;
+    sale.totalAmount = calculateTotals(
+      validatedLineItems,
+      sale.transportCharge,
+      sale.discount,
+    );
 
-    sale.balance = sale.totalAmount - sale.amountPaid;
-
-    if (sale.balance <= 0) sale.status = "Paid";
-    else if (sale.amountPaid > 0) sale.status = "Part Paid";
-    else sale.status = "Unpaid";
+    const { balance, status } = resolveStatus(
+      sale.totalAmount,
+      sale.amountPaid,
+    );
+    sale.balance = balance;
+    sale.status = status;
 
     await sale.save();
 
     res.json(sale);
   } catch (err) {
-    res.status(500).json({
+    res.status(400).json({
       message: err.message,
     });
   }
