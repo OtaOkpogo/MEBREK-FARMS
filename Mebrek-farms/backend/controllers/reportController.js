@@ -118,9 +118,9 @@ exports.getReport = async (req, res) => {
 
         report = {
           summary: {
-            totalProduction,
+            totalEggs: totalProduction,
             totalCrates,
-            totalFeedConsumed,
+            feedConsumed: totalFeedConsumed,
             totalMortality,
             averageProduction,
           },
