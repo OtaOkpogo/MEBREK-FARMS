@@ -438,6 +438,30 @@ export default function Reports() {
           },
         ];
 
+      case "Mortality":
+        return [
+          {
+            title: "Total Deaths",
+            value: summary.totalDeaths || 0,
+            color: "text-red-600",
+          },
+          {
+            title: "Estimated Loss",
+            value: `₦${(summary.totalLoss || 0).toLocaleString()}`,
+            color: "text-orange-600",
+          },
+          {
+            title: "Records",
+            value: summary.recordCount || 0,
+            color: "text-blue-600",
+          },
+          {
+            title: "Avg Loss / Record",
+            value: `₦${(summary.averageLossPerRecord || 0).toLocaleString()}`,
+            color: "text-purple-600",
+          },
+        ];
+
       default:
         return [];
     }

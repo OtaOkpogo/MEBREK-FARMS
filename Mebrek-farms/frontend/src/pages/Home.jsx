@@ -177,13 +177,13 @@ export default function Home() {
         <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-3 gap-6">
           <Card
             title="🥚 Crate of Eggs"
-            price="₦4,800"
+            price="₦5,000"
             description="Fresh daily supply"
             image="https://cdn.britannica.com/94/151894-050-F72A5317/Brown-eggs.jpg"
           />
           <Card
             title="🐓 Layers"
-            price="₦20,000"
+            price="₦10,000"
             description="Healthy and ready"
             image="https://www.shutterstock.com/image-photo/laying-hen-farm-iron-battery-600nw-2541880001.jpg"
           />

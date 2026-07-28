@@ -4,6 +4,7 @@ import InvoiceModal from "../components/InvoiceModal";
 import {
   fetchSales,
   createSale,
+  updateSale,
   deleteSale,
   restoreSale,
 } from "../services/eggSalesService";
@@ -80,6 +81,10 @@ export default function EggSales() {
 
   // One row per egg category the customer is buying in this sale.
   const [lineItems, setLineItems] = useState([emptyLineItem()]);
+
+  // Non-null while editing an existing sale; null means "creating new".
+  const [editingId, setEditingId] = useState(null);
+  const [saving, setSaving] = useState(false);
 
   // ==========================================
   // LOAD SALES
@@ -183,6 +188,56 @@ export default function EggSales() {
         : "Unpaid";
 
   // ==========================================
+  // EDIT MODE
+  // ==========================================
+  // Converts a saved sale's lineItems back into editable row shape
+  // (numbers → strings for the inputs) and prefills the sale-level
+  // fields, so the same form used for creating a sale can also edit
+  // an existing one.
+
+  const startEdit = (sale) => {
+    setEditingId(sale._id);
+
+    setFormData({
+      customer: sale.customer || "",
+      phone: sale.phone || "",
+      date: sale.date ? new Date(sale.date).toISOString().slice(0, 10) : "",
+      discount: sale.discount ?? "",
+      transportCharge: sale.transportCharge ?? "",
+      amountPaid: sale.amountPaid ?? "",
+      paymentMethod: sale.paymentMethod || "Cash",
+      remarks: sale.remarks || "",
+    });
+
+    setLineItems(
+      (sale.lineItems || []).length
+        ? sale.lineItems.map((item) => ({
+            category: item.category,
+            cratesSold: item.cratesSold ?? "",
+            looseEggs: item.looseEggs ?? "",
+          }))
+        : [emptyLineItem()],
+    );
+
+    window.scrollTo({ top: 0, behavior: "smooth" });
+  };
+
+  const cancelEdit = () => {
+    setEditingId(null);
+    setFormData({
+      customer: "",
+      phone: "",
+      date: "",
+      discount: "",
+      transportCharge: "",
+      amountPaid: "",
+      paymentMethod: "Cash",
+      remarks: "",
+    });
+    setLineItems([emptyLineItem()]);
+  };
+
+  // ==========================================
   // SAVE SALE
   // ==========================================
 
@@ -198,24 +253,36 @@ export default function EggSales() {
       return;
     }
 
+    const payload = {
+      ...formData,
+
+      lineItems: validLineItems.map((item) => ({
+        category: item.category,
+        cratesSold: item.cratesSold,
+        looseEggs: item.looseEggs,
+      })),
+
+      discount: Number(formData.discount || 0),
+
+      transportCharge: Number(formData.transportCharge || 0),
+
+      amountPaid: Number(formData.amountPaid || 0),
+    };
+
+    setSaving(true);
+
     try {
-      await createSale({
-        ...formData,
+      if (editingId) {
+        await updateSale(editingId, payload);
 
-        lineItems: validLineItems.map((item) => ({
-          category: item.category,
-          cratesSold: item.cratesSold,
-          looseEggs: item.looseEggs,
-        })),
+        alert("Sale updated successfully.");
 
-        discount: Number(formData.discount || 0),
+        setEditingId(null);
+      } else {
+        await createSale(payload);
 
-        transportCharge: Number(formData.transportCharge || 0),
-
-        amountPaid: Number(formData.amountPaid || 0),
-      });
-
-      alert("Sale recorded successfully.");
+        alert("Sale recorded successfully.");
+      }
 
       setFormData({
         customer: "",
@@ -234,7 +301,12 @@ export default function EggSales() {
     } catch (err) {
       console.error(err);
 
-      alert(err.response?.data?.message || "Unable to save sale.");
+      alert(
+        err.response?.data?.message ||
+          `Unable to ${editingId ? "update" : "save"} sale.`,
+      );
+    } finally {
+      setSaving(false);
     }
   };
 
@@ -247,6 +319,12 @@ export default function EggSales() {
 
     try {
       await deleteSale(id);
+
+      // If the sale being deleted was mid-edit, back out of edit mode
+      // so the form doesn't keep showing now-stale data.
+      if (editingId === id) {
+        cancelEdit();
+      }
 
       loadSales();
     } catch (err) {
@@ -586,7 +664,24 @@ export default function EggSales() {
       {/* ================= SALES ENTRY FORM ================= */}
 
       <div className="bg-white rounded-xl shadow p-6 mb-10">
-        <h2 className="text-2xl font-bold mb-6">Record Egg Sale</h2>
+        <h2 className="text-2xl font-bold mb-6">
+          {editingId ? "Edit Egg Sale" : "Record Egg Sale"}
+        </h2>
+
+        {editingId && (
+          <div className="flex items-center justify-between bg-blue-50 border border-blue-200 text-blue-700 rounded-lg px-4 py-3 mb-6">
+            <span className="font-semibold">
+              Editing this sale — update the fields below and save.
+            </span>
+            <button
+              type="button"
+              onClick={cancelEdit}
+              className="text-blue-700 underline hover:no-underline"
+            >
+              Cancel edit
+            </button>
+          </div>
+        )}
 
         <form onSubmit={handleSubmit}>
           {/* Customer / sale-level fields */}
@@ -786,12 +881,32 @@ export default function EggSales() {
             </div>
           </div>
 
-          <button
-            type="submit"
-            className="bg-green-600 hover:bg-green-700 text-white px-8 py-3 rounded-lg font-semibold"
-          >
-            Save Sale
-          </button>
+          <div className="flex gap-3">
+            <button
+              type="submit"
+              disabled={saving}
+              className="bg-green-600 hover:bg-green-700 text-white px-8 py-3 rounded-lg font-semibold disabled:opacity-60"
+            >
+              {saving
+                ? editingId
+                  ? "Updating..."
+                  : "Saving..."
+                : editingId
+                  ? "Update Sale"
+                  : "Save Sale"}
+            </button>
+
+            {editingId && (
+              <button
+                type="button"
+                onClick={cancelEdit}
+                disabled={saving}
+                className="bg-gray-200 hover:bg-gray-300 text-gray-700 px-8 py-3 rounded-lg font-semibold disabled:opacity-60"
+              >
+                Cancel
+              </button>
+            )}
+          </div>
         </form>
       </div>
 
@@ -851,7 +966,11 @@ export default function EggSales() {
                   <tr
                     key={sale._id}
                     className={`border-b hover:bg-gray-50 ${
-                      sale.isDeleted ? "bg-red-50" : ""
+                      sale.isDeleted
+                        ? "bg-red-50"
+                        : sale._id === editingId
+                          ? "bg-blue-50"
+                          : ""
                     }`}
                   >
                     <td className="p-3">
@@ -936,6 +1055,13 @@ export default function EggSales() {
                         )
                       ) : (
                         <>
+                          <button
+                            onClick={() => startEdit(sale)}
+                            className="bg-blue-600 hover:bg-blue-700 text-white px-3 py-1 rounded"
+                          >
+                            Edit
+                          </button>
+
                           <button
                             onClick={() => openInvoice(sale)}
                             className="bg-green-600 hover:bg-green-700 text-white px-3 py-1 rounded"

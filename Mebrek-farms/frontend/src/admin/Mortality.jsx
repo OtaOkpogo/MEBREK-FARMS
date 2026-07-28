@@ -43,6 +43,9 @@ export default function Mortality() {
     cause: "",
     estimatedLoss: "",
     notes: "",
+    // Defaults to today, but staff can back-date it to when the birds
+    // actually died rather than when the record was entered.
+    date: new Date().toISOString().slice(0, 10),
   });
 
   // ================= LOAD DATA =================
@@ -75,6 +78,7 @@ export default function Mortality() {
         cause: "",
         estimatedLoss: "",
         notes: "",
+        date: new Date().toISOString().slice(0, 10),
       });
 
       loadMortality();
@@ -192,6 +196,19 @@ export default function Mortality() {
           </select>
 
           <input
+            type="date"
+            value={formData.date}
+            onChange={(e) =>
+              setFormData({
+                ...formData,
+                date: e.target.value,
+              })
+            }
+            className="border p-3 rounded-lg"
+            required
+          />
+
+          <input
             type="number"
             placeholder="Number Dead"
             value={formData.numberDead}
@@ -250,7 +267,7 @@ export default function Mortality() {
             rows={4}
           />
 
-          <button className="bg-red-600 hover:bg-red-700 text-white rounded-lg py-3 transition">
+          <button className="bg-red-600 hover:bg-red-700 text-white rounded-lg py-3 transition md:col-span-2">
             Save Record
           </button>
         </form>
@@ -342,7 +359,11 @@ export default function Mortality() {
                       ₦{record.estimatedLoss?.toLocaleString()}
                     </td>
 
-                    <td>{new Date(record.createdAt).toLocaleDateString()}</td>
+                    <td>
+                      {record.date
+                        ? new Date(record.date).toLocaleDateString()
+                        : "—"}
+                    </td>
 
                     <td>
                       <button
