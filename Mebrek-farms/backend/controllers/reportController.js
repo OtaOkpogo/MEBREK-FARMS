@@ -251,7 +251,19 @@ exports.getReport = async (req, res) => {
           isDeleted: false,
         });
 
-        const productions = await Production.find(productionFilter);
+        const productions = await Production.find(productionFilter).sort({
+          date: 1,
+        });
+
+        // Feed purchased in the selected date range — filtered on the
+        // Feed model's own purchaseDate, separate from currentStock
+        // (which is always "right now" regardless of date range).
+        const purchaseFilter = {
+          ...buildDateFilter(req, "purchaseDate"),
+          isDeleted: false,
+        };
+
+        const purchasedFeeds = await Feed.find(purchaseFilter);
 
         // ==========================
         // SUMMARY
@@ -278,6 +290,11 @@ exports.getReport = async (req, res) => {
           0,
         );
 
+        const feedPurchased = purchasedFeeds.reduce(
+          (sum, item) => sum + (item.quantity || 0),
+          0,
+        );
+
         const averageDailyUsage =
           productions.length > 0
             ? Number((feedUsed / productions.length).toFixed(2))
@@ -286,10 +303,27 @@ exports.getReport = async (req, res) => {
         // ==========================
         // CHART DATA
         // ==========================
+        // Daily feed consumption, built from the same `productions`
+        // records used for feedUsed above — one point per calendar
+        // date, summing feedBagsConsumed in case multiple pens logged
+        // feed use on the same day. This gives Bar/Line/Pie a real
+        // time series instead of a one-off snapshot of current stock
+        // per feed type, which couldn't render a meaningful trend
+        // line with only one feed type in inventory.
+        const byDate = {};
+        productions.forEach((item) => {
+          const label = item.date
+            ? new Date(item.date).toLocaleDateString("en-US", {
+                month: "short",
+                day: "numeric",
+              })
+            : "Unknown";
+          byDate[label] = (byDate[label] || 0) + (item.feedBagsConsumed || 0);
+        });
 
-        const chartData = inventory.map((item) => ({
-          name: item.name,
-          value: item.quantity,
+        const chartData = Object.entries(byDate).map(([name, value]) => ({
+          name,
+          value,
         }));
 
         // ==========================
@@ -303,17 +337,24 @@ exports.getReport = async (req, res) => {
           Unit: item.unit,
           PricePerUnit: item.pricePerUnit,
           StockValue: item.quantity * item.pricePerUnit,
+          PurchaseDate: item.purchaseDate,
+          ExpiryDate: item.expiryDate,
           Status:
             item.quantity <= item.lowStockThreshold ? "Low Stock" : "In Stock",
         }));
 
+        // NOTE: keys here (stock, lowStock, feedPurchased) must match
+        // what Reports.jsx reads off `summary` for the Feed Usage card
+        // set — the underlying values keep their descriptive internal
+        // names above, only the outgoing key names changed.
         report = {
           summary: {
-            currentStock,
-            inventoryValue,
+            feedPurchased,
             feedUsed,
+            stock: currentStock,
+            lowStock: lowStockItems,
+            inventoryValue,
             averageDailyUsage,
-            lowStockItems,
             feedTypes,
           },
           chartData,
@@ -329,7 +370,67 @@ exports.getReport = async (req, res) => {
       case "mortality": {
         const filter = applyPenFilter(req, buildDateFilter(req, "date"));
 
-        report = await Mortality.find(filter).sort({ date: -1 });
+        const records = await Mortality.find(filter).sort({ date: -1 });
+
+        // ==========================
+        // SUMMARY
+        // ==========================
+
+        const totalDeaths = records.reduce(
+          (sum, item) => sum + (item.numberDead || 0),
+          0,
+        );
+
+        const totalLoss = records.reduce(
+          (sum, item) => sum + (item.estimatedLoss || 0),
+          0,
+        );
+
+        const recordCount = records.length;
+
+        const averageLossPerRecord =
+          recordCount > 0 ? Number((totalLoss / recordCount).toFixed(2)) : 0;
+
+        // ==========================
+        // CHART DATA
+        // ==========================
+        // Deaths grouped by cause, mirroring the pie/bar breakdown on
+        // the Mortality entry page itself.
+
+        const byCause = {};
+        records.forEach((item) => {
+          const cause = item.cause || "Unknown";
+          byCause[cause] = (byCause[cause] || 0) + (item.numberDead || 0);
+        });
+
+        const chartData = Object.entries(byCause).map(([name, value]) => ({
+          name,
+          value,
+        }));
+
+        // ==========================
+        // TABLE DATA
+        // ==========================
+
+        const tableData = records.map((item) => ({
+          Date: item.date,
+          Pen: item.birdBatch,
+          Deaths: item.numberDead,
+          Cause: item.cause,
+          EstimatedLoss: item.estimatedLoss,
+          Notes: item.notes || "-",
+        }));
+
+        report = {
+          summary: {
+            totalDeaths,
+            totalLoss,
+            recordCount,
+            averageLossPerRecord,
+          },
+          chartData,
+          tableData,
+        };
 
         break;
       }

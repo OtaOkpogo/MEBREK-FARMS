@@ -34,6 +34,19 @@ const feedSchema = new mongoose.Schema(
       min: [0, "lowStockThreshold cannot be negative"],
     },
 
+    // NEW — when this batch of feed was bought, and when it goes bad.
+    // Both optional: older records won't have either set, and not every
+    // feed type necessarily has a known expiry.
+    purchaseDate: {
+      type: Date,
+      default: Date.now,
+    },
+
+    expiryDate: {
+      type: Date,
+      default: null,
+    },
+
     // NEW
     isDeleted: {
       type: Boolean,
@@ -61,6 +74,11 @@ const feedSchema = new mongoose.Schema(
 );
 
 feedSchema.index({ createdAt: -1 });
+
+feedSchema.index({ purchaseDate: -1 });
+
+// Supports a "what's expiring soon" query without a full collection scan.
+feedSchema.index({ isDeleted: 1, expiryDate: 1 });
 
 feedSchema.index({
   name: "text",
