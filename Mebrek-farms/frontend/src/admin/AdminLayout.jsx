@@ -35,44 +35,24 @@ export default function AdminLayout() {
   const navigate = useNavigate();
   const location = useLocation();
 
-  // =============================
-  // CURRENT USER
-  // =============================
-
   const user = JSON.parse(localStorage.getItem("user") || "{}");
 
   const role = user?.role || localStorage.getItem("role");
 
   const name = user?.name || localStorage.getItem("adminName");
 
-  // =============================
-  // STATE
-  // =============================
-
   const [unreadOrders, setUnreadOrders] = useState(0);
   const [unreadMessages, setUnreadMessages] = useState(0);
   const [messageNotifications, setMessageNotifications] = useState([]);
-
-  // =============================
-  // REFS
-  // =============================
 
   const audioRef = useRef(null);
   const roleRef = useRef(role);
   const userIdRef = useRef(user?.id);
 
-  // =============================
-  // KEEP REFS UPDATED
-  // =============================
-
   useEffect(() => {
     roleRef.current = role;
     userIdRef.current = user?.id;
   }, [role, user?.id]);
-
-  // =============================
-  // PRELOAD NOTIFICATION SOUND
-  // =============================
 
   useEffect(() => {
     audioRef.current = new Audio(orderSound);
@@ -87,12 +67,7 @@ export default function AdminLayout() {
     };
   }, []);
 
-  // =============================
-  // UNREAD MESSAGE COUNT
-  // =============================
-
   const refreshUnreadCount = () => {
-    // Staff has no access to notifications
     if (roleRef.current === "staff") {
       return;
     }
@@ -106,18 +81,9 @@ export default function AdminLayout() {
       });
   };
 
-  // =============================
-  // INITIAL UNREAD COUNT
-  // =============================
-
   useEffect(() => {
     refreshUnreadCount();
   }, []);
-
-  // =============================
-  // RESET ORDER BADGE
-  // WHEN VIEWING ORDERS
-  // =============================
 
   useEffect(() => {
     if (location.pathname === "/admin/orders") {
@@ -125,20 +91,11 @@ export default function AdminLayout() {
     }
   }, [location.pathname]);
 
-  // =============================
-  // RESET MESSAGE BADGE
-  // WHEN VIEWING NOTIFICATIONS
-  // =============================
-
   useEffect(() => {
     if (location.pathname === "/admin/notifications") {
       setUnreadMessages(0);
     }
   }, [location.pathname]);
-
-  // =============================
-  // SOCKET LISTENER — ORDERS
-  // =============================
 
   useEffect(() => {
     const handleNewOrder = (order) => {
@@ -146,14 +103,12 @@ export default function AdminLayout() {
 
       setUnreadOrders((prev) => prev + 1);
 
-      // Play sound
       if (audioRef.current) {
         audioRef.current.currentTime = 0;
 
         audioRef.current.play().catch(() => {});
       }
 
-      // Toast notification
       toast.success(`🛒 New order received from ${order.name}`, {
         position: "top-right",
         autoClose: 5000,
@@ -161,7 +116,6 @@ export default function AdminLayout() {
         theme: "colored",
       });
 
-      // Browser notification
       if ("Notification" in window) {
         if (Notification.permission === "granted") {
           new Notification("Mebrek Farms", {
@@ -173,7 +127,6 @@ export default function AdminLayout() {
         }
       }
 
-      // Notify other components
       window.dispatchEvent(
         new CustomEvent("orderCreated", {
           detail: order,
@@ -188,27 +141,12 @@ export default function AdminLayout() {
     };
   }, []);
 
-  // =============================
-  // SOCKET LISTENER —
-  // MESSAGE NOTIFICATIONS
-  //
-  // Manager <-> Super Admin inbox
-  // =============================
-
   useEffect(() => {
-    // Staff never receives notification inbox events
     if (roleRef.current === "staff") {
       return;
     }
 
-    // =============================
-    // NEW NOTIFICATION CREATED
-    // =============================
-
     const handleCreated = (notification) => {
-      // ALWAYS refresh the unread badge first.
-      // This keeps the count accurate even when
-      // popup-specific logic skips the notification.
       refreshUnreadCount();
 
       const isOwnMessage = isOwnSender(
@@ -216,33 +154,26 @@ export default function AdminLayout() {
         userIdRef.current,
       );
 
-      // Only Super Admin receives
-      // new-message popup.
       if (isOwnMessage || roleRef.current !== "superadmin") {
         return;
       }
 
-      // Don't stack a popup on top of
-      // the Notifications page.
       if (location.pathname === "/admin/notifications") {
         return;
       }
 
-      // Play sound
       if (audioRef.current) {
         audioRef.current.currentTime = 0;
 
         audioRef.current.play().catch(() => {});
       }
 
-      // Show toast
       toast.info(`🔔 New message from ${notification.senderName}`, {
         position: "top-right",
         autoClose: 4000,
         theme: "colored",
       });
 
-      // Add/update popup notification
       setMessageNotifications((prev) => {
         const idx = prev.findIndex((n) => n._id === notification._id);
 
@@ -258,47 +189,31 @@ export default function AdminLayout() {
       });
     };
 
-    // =============================
-    // NOTIFICATION UPDATED
-    //
-    // Typically triggered when
-    // Super Admin replies to Manager
-    // =============================
-
     const handleUpdated = (notification) => {
-      // ALWAYS refresh the unread badge first.
-      // This keeps the count accurate even when
-      // popup-specific logic skips the notification.
       refreshUnreadCount();
 
       const isOwnThread = isOwnSender(notification.senderId, userIdRef.current);
 
-      // Only the original sender,
-      // typically Manager, gets reply popup.
       if (!isOwnThread || roleRef.current === "superadmin") {
         return;
       }
 
-      // Don't stack popup on Notifications page.
       if (location.pathname === "/admin/notifications") {
         return;
       }
 
-      // Play sound
       if (audioRef.current) {
         audioRef.current.currentTime = 0;
 
         audioRef.current.play().catch(() => {});
       }
 
-      // Show toast
       toast.success("Super Admin replied to your message", {
         position: "top-right",
         autoClose: 4000,
         theme: "colored",
       });
 
-      // Update popup with latest thread
       setMessageNotifications((prev) => {
         const idx = prev.findIndex((n) => n._id === notification._id);
 
@@ -324,29 +239,17 @@ export default function AdminLayout() {
       socket.off("notificationUpdated", handleUpdated);
     };
 
-    // The location is intentionally included
-    // because popup behavior depends on the
-    // current page.
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [location.pathname]);
-
-  // =============================
-  // POPUP CLOSE
-  // =============================
 
   const handlePopupClose = () => {
     setMessageNotifications([]);
   };
 
-  // =============================
-  // POPUP MARK AS READ
-  // =============================
-
   const handlePopupMarkRead = async (id) => {
     try {
       await markNotificationRead(id);
 
-      // Refresh badge after marking read
       refreshUnreadCount();
     } catch (err) {
       console.error("Failed to mark notification as read:", err);
@@ -355,17 +258,12 @@ export default function AdminLayout() {
     }
   };
 
-  // =============================
-  // POPUP REPLY
-  // =============================
-
   const handlePopupReply = async (id, message) => {
     try {
       await replyNotification(id, {
         message,
       });
 
-      // Refresh badge after reply
       refreshUnreadCount();
 
       setMessageNotifications((prev) => prev.filter((n) => n._id !== id));
@@ -373,10 +271,6 @@ export default function AdminLayout() {
       console.error("Failed to reply to notification:", err);
     }
   };
-
-  // =============================
-  // LOGOUT
-  // =============================
 
   const handleLogout = () => {
     socket.off("newOrder");
@@ -398,13 +292,7 @@ export default function AdminLayout() {
 
   return (
     <div className="flex min-h-screen bg-gray-100">
-      {/* =============================
-          SIDEBAR
-      ============================== */}
-
       <aside className="w-72 bg-green-800 text-white p-6 shadow-lg">
-        {/* LOGO */}
-
         <div className="mb-8">
           <div className="flex items-center gap-3">
             <img
@@ -417,8 +305,6 @@ export default function AdminLayout() {
               <h2 className="text-2xl font-bold">Mebrek Farms</h2>
 
               <p className="text-green-200 text-sm">Farm Management System</p>
-
-              {/* ROLE BADGE */}
 
               <div
                 className={`
@@ -444,8 +330,6 @@ export default function AdminLayout() {
           </div>
         </div>
 
-        {/* USER INFO */}
-
         <div className="bg-green-700 rounded-lg p-4 mb-6">
           <p className="font-semibold text-lg">{name || "User"}</p>
 
@@ -453,8 +337,6 @@ export default function AdminLayout() {
             Logged in as {role || "staff"}
           </p>
         </div>
-
-        {/* BACK TO WEBSITE */}
 
         <button
           onClick={() => navigate("/")}
@@ -473,8 +355,6 @@ export default function AdminLayout() {
           ← Back to Farm Website
         </button>
 
-        {/* LOGOUT */}
-
         <button
           onClick={handleLogout}
           className="
@@ -491,13 +371,7 @@ export default function AdminLayout() {
           Logout
         </button>
 
-        {/* =============================
-            NAVIGATION
-        ============================== */}
-
         <nav className="space-y-2">
-          {/* GENERAL */}
-
           <div className="text-green-200 text-xs uppercase tracking-wider mb-2">
             General
           </div>
@@ -508,8 +382,6 @@ export default function AdminLayout() {
           >
             Dashboard 📊
           </Link>
-
-          {/* ORDERS */}
 
           <Link
             to="/admin/orders"
@@ -549,16 +421,12 @@ export default function AdminLayout() {
             )}
           </Link>
 
-          {/* ATTENDANCE */}
-
           <Link
             to="/admin/attendance"
             className="block hover:bg-green-700 p-3 rounded-lg transition"
           >
             Attendance 📅
           </Link>
-
-          {/* PRODUCTION - ALL ROLES */}
 
           {["superadmin", "manager", "staff"].includes(role) && (
             <Link
@@ -568,8 +436,6 @@ export default function AdminLayout() {
               Production 🥚
             </Link>
           )}
-
-          {/* NOTIFICATIONS */}
 
           <Link
             to="/admin/notifications"
@@ -609,16 +475,12 @@ export default function AdminLayout() {
             )}
           </Link>
 
-          {/* VACCINATIONS */}
-
           <Link
             to="/admin/vaccinations"
             className="block hover:bg-green-700 p-3 rounded-lg transition"
           >
             Vaccinations 💉
           </Link>
-
-          {/* BIRD HEALTH */}
 
           <Link
             to="/admin/bird-health"
@@ -627,8 +489,6 @@ export default function AdminLayout() {
             Bird Health 🐔
           </Link>
 
-          {/* MEDICATIONS */}
-
           <Link
             to="/admin/medications"
             className="block hover:bg-green-700 p-3 rounded-lg transition"
@@ -636,18 +496,12 @@ export default function AdminLayout() {
             Medications 💊
           </Link>
 
-          {/* MORTALITY */}
-
           <Link
             to="/admin/mortality"
             className="block hover:bg-green-700 p-3 rounded-lg transition"
           >
             Mortality Tracking ☠️
           </Link>
-
-          {/* =============================
-              MANAGEMENT
-          ============================== */}
 
           {["superadmin", "manager"].includes(role) && (
             <>
@@ -657,16 +511,12 @@ export default function AdminLayout() {
                 Management
               </div>
 
-              {/* REPORTS */}
-
               <Link
                 to="/admin/reports"
                 className="block hover:bg-green-700 p-3 rounded-lg transition"
               >
                 Reports 📊
               </Link>
-
-              {/* SUPER ADMIN ONLY */}
 
               {role === "superadmin" && (
                 <>
@@ -686,13 +536,18 @@ export default function AdminLayout() {
                 </>
               )}
 
-              {/* SUPER ADMIN + MANAGER */}
-
               <Link
                 to="/admin/egg-sales"
                 className="block hover:bg-green-700 p-3 rounded-lg transition"
               >
                 Egg Sales 🥚
+              </Link>
+
+              <Link
+                to="/admin/manure-sales"
+                className="block hover:bg-green-700 p-3 rounded-lg transition"
+              >
+                Manure Sales 🌾
               </Link>
 
               <Link
@@ -725,10 +580,6 @@ export default function AdminLayout() {
             </>
           )}
 
-          {/* =============================
-              SUPER ADMIN ONLY
-          ============================== */}
-
           {role === "superadmin" && (
             <>
               <hr className="border-green-600 my-4" />
@@ -755,21 +606,11 @@ export default function AdminLayout() {
         </nav>
       </aside>
 
-      {/* =============================
-          MAIN AREA
-      ============================== */}
-
       <main className="flex-1 min-w-0 bg-gray-100 overflow-y-auto">
-        {/* TOP HEADER */}
-
         <div className="bg-white shadow-sm px-8 py-4 flex items-center justify-between">
-          {/* GLOBAL SEARCH */}
-
           <div className="w-full max-w-xl">
             <GlobalSearch />
           </div>
-
-          {/* USER */}
 
           <div className="flex items-center gap-3 ml-6">
             <div className="text-right">
@@ -798,16 +639,10 @@ export default function AdminLayout() {
           </div>
         </div>
 
-        {/* PAGE CONTENT */}
-
         <div className="w-full min-w-0 p-8">
           <Outlet />
         </div>
       </main>
-
-      {/* =============================
-          MESSAGE NOTIFICATION POPUP
-      ============================== */}
 
       <NotificationPopup
         notifications={messageNotifications}
@@ -815,10 +650,6 @@ export default function AdminLayout() {
         onMarkRead={handlePopupMarkRead}
         onReply={handlePopupReply}
       />
-
-      {/* =============================
-          TOAST CONTAINER
-      ============================== */}
 
       <ToastContainer
         position="top-right"
