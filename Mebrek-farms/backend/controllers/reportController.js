@@ -56,7 +56,13 @@ exports.getReport = async (req, res) => {
       // PRODUCTION REPORT
       // =====================================
       case "production": {
-        const filter = applyPenFilter(req, buildDateFilter(req, "date"));
+        // isDeleted: false — soft-deleted production entries were
+        // previously being counted into report totals because this
+        // filter never excluded them, unlike other modules.
+        const filter = applyPenFilter(req, {
+          ...buildDateFilter(req, "date"),
+          isDeleted: false,
+        });
 
         const productions = await Production.find(filter).sort({
           date: -1,
@@ -116,6 +122,10 @@ exports.getReport = async (req, res) => {
           ProductionPercentage: item.productionPercentage,
         }));
 
+        // NOTE: keys here (totalEggs, feedConsumed) must match what
+        // Reports.jsx reads off `summary` for the Production card set.
+        // The underlying values are still totalProduction/totalFeedConsumed
+        // internally — only the outgoing key names changed.
         report = {
           summary: {
             totalEggs: totalProduction,
@@ -135,7 +145,10 @@ exports.getReport = async (req, res) => {
       // EGG SALES REPORT
       // =====================================
       case "eggsales": {
-        const filter = buildDateFilter(req, "date");
+        const filter = {
+          ...buildDateFilter(req, "date"),
+          isDeleted: false,
+        };
 
         const sales = await EggSale.find(filter).sort({
           date: -1,
@@ -144,9 +157,12 @@ exports.getReport = async (req, res) => {
         // ==========================
         // SUMMARY
         // ==========================
+        // EggSale no longer has flat grandTotal/cratesSold/looseEggs
+        // fields — those moved into totalAmount and a per-category
+        // lineItems[] array when multi-category sales were added.
 
         const totalRevenue = sales.reduce(
-          (sum, sale) => sum + (sale.grandTotal || 0),
+          (sum, sale) => sum + (sale.totalAmount || 0),
           0,
         );
 
@@ -161,12 +177,22 @@ exports.getReport = async (req, res) => {
         );
 
         const totalCrates = sales.reduce(
-          (sum, sale) => sum + (sale.cratesSold || 0),
+          (sum, sale) =>
+            sum +
+            (sale.lineItems || []).reduce(
+              (itemSum, item) => itemSum + (item.cratesSold || 0),
+              0,
+            ),
           0,
         );
 
         const totalLooseEggs = sales.reduce(
-          (sum, sale) => sum + (sale.looseEggs || 0),
+          (sum, sale) =>
+            sum +
+            (sale.lineItems || []).reduce(
+              (itemSum, item) => itemSum + (item.looseEggs || 0),
+              0,
+            ),
           0,
         );
 
@@ -176,7 +202,7 @@ exports.getReport = async (req, res) => {
 
         const chartData = sales.map((sale) => ({
           name: sale.customer,
-          value: sale.grandTotal || 0,
+          value: sale.totalAmount || 0,
         }));
 
         // ==========================
@@ -187,9 +213,10 @@ exports.getReport = async (req, res) => {
           Date: sale.date,
           Customer: sale.customer,
           Phone: sale.phone,
-          CratesSold: sale.cratesSold,
-          LooseEggs: sale.looseEggs,
-          GrandTotal: sale.grandTotal,
+          Categories: (sale.lineItems || [])
+            .map((item) => `${item.category} (${item.cratesSold || 0}c)`)
+            .join(", "),
+          GrandTotal: sale.totalAmount,
           AmountPaid: sale.amountPaid,
           Balance: sale.balance,
           PaymentMethod: sale.paymentMethod,
@@ -197,11 +224,11 @@ exports.getReport = async (req, res) => {
 
         report = {
           summary: {
-            totalRevenue,
-            totalPaid,
-            totalOutstanding,
-            totalCrates,
-            totalLooseEggs,
+            revenue: totalRevenue,
+            amountPaid: totalPaid,
+            outstanding: totalOutstanding,
+            cratesSold: totalCrates,
+            looseEggsSold: totalLooseEggs,
           },
           chartData,
           tableData,
@@ -219,10 +246,10 @@ exports.getReport = async (req, res) => {
         }).sort({ name: 1 });
 
         // Feed usage comes from Production records
-        const productionFilter = applyPenFilter(
-          req,
-          buildDateFilter(req, "date"),
-        );
+        const productionFilter = applyPenFilter(req, {
+          ...buildDateFilter(req, "date"),
+          isDeleted: false,
+        });
 
         const productions = await Production.find(productionFilter);
 
