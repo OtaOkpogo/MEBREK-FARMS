@@ -8,6 +8,7 @@ import { PENS } from "../constants/pens";
 import {
   fetchProductions,
   createProduction,
+  updateProduction,
   deleteProduction,
 } from "../services/productionService";
 import socket from "../services/socket";
@@ -34,6 +35,26 @@ const emptyFormData = {
   remarks: "",
 };
 
+// Converts a stored record into form-shaped values for editing —
+// numbers become strings for the inputs, date becomes yyyy-mm-dd for
+// the <input type="date">.
+const toFormData = (record) => ({
+  pen: record.pen || "",
+  date: record.date ? new Date(record.date).toISOString().slice(0, 10) : "",
+  days: record.days ?? "",
+  openingStock: record.openingStock ?? "",
+  mortality: record.mortality ?? "",
+  sickBirds: record.sickBirds ?? "",
+  feedBagsConsumed: record.feedBagsConsumed ?? "",
+  waterConsumed: record.waterConsumed ?? "",
+  drugsUsed: record.drugsUsed || "",
+  cratesProduced: record.cratesProduced ?? "",
+  extraEggPieces: record.extraEggPieces ?? "",
+  miscarriageProduction: record.miscarriageProduction ?? "",
+  crackedEggs: record.crackedEggs ?? "",
+  remarks: record.remarks || "",
+});
+
 const Production = () => {
   const [productions, setProductions] = useState([]);
   const [selectedPen, setSelectedPen] = useState("All");
@@ -47,6 +68,10 @@ const Production = () => {
   const [deleting, setDeleting] = useState(false);
 
   const [formData, setFormData] = useState(emptyFormData);
+
+  // Non-null while editing an existing record; null means "creating new".
+  const [editingId, setEditingId] = useState(null);
+  const [saving, setSaving] = useState(false);
 
   // ==========================
   // LOAD PRODUCTIONS
@@ -121,36 +146,72 @@ const Production = () => {
     }));
   };
 
+  // ==========================
+  // EDIT MODE
+  // ==========================
+  const startEdit = (record) => {
+    setEditingId(record._id);
+    setFormData(toFormData(record));
+    // Scroll the form into view so the user actually sees it switch
+    // into edit mode, especially useful when editing from a row far
+    // down the table.
+    window.scrollTo({ top: 0, behavior: "smooth" });
+  };
+
+  const cancelEdit = () => {
+    setEditingId(null);
+    setFormData(emptyFormData);
+  };
+
   const handleSubmit = async (e) => {
     e.preventDefault();
 
+    const payload = {
+      ...formData,
+
+      days: Number(formData.days),
+      openingStock: Number(formData.openingStock),
+      mortality: Number(formData.mortality),
+      sickBirds: Number(formData.sickBirds),
+      feedBagsConsumed: Number(formData.feedBagsConsumed),
+      waterConsumed: Number(formData.waterConsumed),
+      cratesProduced: Number(formData.cratesProduced),
+      extraEggPieces: Number(formData.extraEggPieces),
+      miscarriageProduction: Number(formData.miscarriageProduction),
+      crackedEggs: Number(formData.crackedEggs),
+    };
+
+    setSaving(true);
+
     try {
-      await createProduction({
-        ...formData,
+      if (editingId) {
+        const updated = await updateProduction(editingId, payload);
 
-        days: Number(formData.days),
-        openingStock: Number(formData.openingStock),
-        mortality: Number(formData.mortality),
-        sickBirds: Number(formData.sickBirds),
-        feedBagsConsumed: Number(formData.feedBagsConsumed),
-        waterConsumed: Number(formData.waterConsumed),
-        cratesProduced: Number(formData.cratesProduced),
-        extraEggPieces: Number(formData.extraEggPieces),
-        miscarriageProduction: Number(formData.miscarriageProduction),
-        crackedEggs: Number(formData.crackedEggs),
-      });
+        setProductions((prev) =>
+          prev.map((item) => (item._id === editingId ? updated : item)),
+        );
 
-      toast.success("Production record saved successfully");
+        toast.success("Production record updated successfully");
 
-      loadProductions(false);
+        setEditingId(null);
+      } else {
+        await createProduction(payload);
+
+        toast.success("Production record saved successfully");
+
+        loadProductions(false);
+      }
 
       setFormData(emptyFormData);
     } catch (error) {
       console.error(error);
 
       toast.error(
-        error.response?.data?.message || "Failed to save production record",
+        error.response?.data?.message ||
+          `Failed to ${editingId ? "update" : "save"} production record`,
       );
+    } finally {
+      setSaving(false);
     }
   };
 
@@ -178,6 +239,11 @@ const Production = () => {
       toast.success("Production record deleted");
       loadProductions(false);
       setShowDeleteModal(false);
+
+      if (editingId === selectedRecord._id) {
+        cancelEdit();
+      }
+
       setSelectedRecord(null);
     } catch (error) {
       console.error(error);
@@ -396,6 +462,22 @@ const Production = () => {
         )}
       </div>
 
+      {/* EDIT MODE BANNER */}
+      {editingId && (
+        <div className="flex items-center justify-between bg-blue-50 border border-blue-200 text-blue-700 rounded-lg px-4 py-3 mb-4">
+          <span className="font-semibold">
+            Editing production record — update the fields below and save.
+          </span>
+          <button
+            type="button"
+            onClick={cancelEdit}
+            className="text-blue-700 underline hover:no-underline"
+          >
+            Cancel edit
+          </button>
+        </div>
+      )}
+
       <form
         onSubmit={handleSubmit}
         className="grid grid-cols-1 md:grid-cols-3 gap-4"
@@ -548,12 +630,32 @@ const Production = () => {
           </p>
         </div>
 
-        <button
-          type="submit"
-          className="bg-green-600 text-white p-3 rounded md:col-span-3"
-        >
-          Save Production Record
-        </button>
+        <div className="md:col-span-3 flex gap-3">
+          <button
+            type="submit"
+            disabled={saving}
+            className="flex-1 bg-green-600 hover:bg-green-700 text-white p-3 rounded disabled:opacity-60"
+          >
+            {saving
+              ? editingId
+                ? "Updating..."
+                : "Saving..."
+              : editingId
+                ? "Update Record"
+                : "Save Production Record"}
+          </button>
+
+          {editingId && (
+            <button
+              type="button"
+              onClick={cancelEdit}
+              disabled={saving}
+              className="bg-gray-200 hover:bg-gray-300 text-gray-700 px-6 rounded disabled:opacity-60"
+            >
+              Cancel
+            </button>
+          )}
+        </div>
       </form>
 
       <div className="mt-8">
@@ -631,7 +733,13 @@ const Production = () => {
                   {paginatedProductions.map((item) => (
                     <tr
                       key={item._id}
-                      className={item.isDeleted ? "bg-red-50 opacity-70" : ""}
+                      className={
+                        item.isDeleted
+                          ? "bg-red-50 opacity-70"
+                          : item._id === editingId
+                            ? "bg-blue-50"
+                            : ""
+                      }
                     >
                       <td className="border p-2">{item.pen}</td>
 
@@ -689,12 +797,21 @@ const Production = () => {
                             )}
                           </div>
                         ) : (
-                          <button
-                            onClick={() => openDeleteModal(item)}
-                            className="bg-red-600 hover:bg-red-700 text-white px-3 py-1 rounded"
-                          >
-                            Delete
-                          </button>
+                          <div className="flex gap-2">
+                            <button
+                              onClick={() => startEdit(item)}
+                              className="bg-blue-600 hover:bg-blue-700 text-white px-3 py-1 rounded"
+                            >
+                              Edit
+                            </button>
+
+                            <button
+                              onClick={() => openDeleteModal(item)}
+                              className="bg-red-600 hover:bg-red-700 text-white px-3 py-1 rounded"
+                            >
+                              Delete
+                            </button>
+                          </div>
                         )}
                       </td>
                     </tr>
@@ -709,7 +826,11 @@ const Production = () => {
                 <div
                   key={item._id}
                   className={`bg-white rounded-xl shadow p-4 ${
-                    item.isDeleted ? "opacity-70 border border-red-200" : ""
+                    item.isDeleted
+                      ? "opacity-70 border border-red-200"
+                      : item._id === editingId
+                        ? "border border-blue-300"
+                        : ""
                   }`}
                 >
                   <div className="flex justify-between items-start">
@@ -753,12 +874,21 @@ const Production = () => {
                           : ""}
                       </div>
                     ) : (
-                      <button
-                        onClick={() => openDeleteModal(item)}
-                        className="w-full bg-red-600 hover:bg-red-700 text-white px-3 py-2 rounded"
-                      >
-                        Delete
-                      </button>
+                      <div className="flex gap-2">
+                        <button
+                          onClick={() => startEdit(item)}
+                          className="flex-1 bg-blue-600 hover:bg-blue-700 text-white px-3 py-2 rounded"
+                        >
+                          Edit
+                        </button>
+
+                        <button
+                          onClick={() => openDeleteModal(item)}
+                          className="flex-1 bg-red-600 hover:bg-red-700 text-white px-3 py-2 rounded"
+                        >
+                          Delete
+                        </button>
+                      </div>
                     )}
                   </div>
                 </div>

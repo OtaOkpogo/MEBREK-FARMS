@@ -52,6 +52,43 @@ const COLORS = [
 ];
 
 // ======================================
+// CELL VALUE FORMATTING
+// ======================================
+// Backend report endpoints sometimes send raw Date objects/ISO strings
+// (e.g. Production's tableData.Date) that haven't been formatted for
+// display. Serialized over JSON these arrive as strings like
+// "2026-07-27T00:00:00.000Z" — this catches that shape and renders it
+// as a readable date instead, everywhere records get displayed or
+// exported (web table, Excel, PDF).
+const ISO_DATE_PATTERN = /^\d{4}-\d{2}-\d{2}T\d{2}:\d{2}:\d{2}(\.\d+)?Z?$/;
+
+const formatCellValue = (value) => {
+  if (value instanceof Date) {
+    return value.toLocaleDateString("en-US", {
+      month: "short",
+      day: "numeric",
+      year: "numeric",
+    });
+  }
+  if (typeof value === "string" && ISO_DATE_PATTERN.test(value)) {
+    return new Date(value).toLocaleDateString("en-US", {
+      month: "short",
+      day: "numeric",
+      year: "numeric",
+    });
+  }
+  return value;
+};
+
+const formatRecordForDisplay = (record) => {
+  const formatted = {};
+  Object.entries(record).forEach(([key, value]) => {
+    formatted[key] = formatCellValue(value);
+  });
+  return formatted;
+};
+
+// ======================================
 // RAW → REPORT-SHAPE TRANSFORMERS
 // ======================================
 // Some backend endpoints (currently /reports/production) return a bare
@@ -196,38 +233,37 @@ const RAW_ARRAY_TRANSFORMERS = {
  * - If it's a bare array (current behavior for Production), run it through
  *   the matching transformer, or fall back to records-only if no
  *   transformer exists yet for that report type.
+ * - Every record then passes through formatRecordForDisplay so any raw
+ *   Date objects/ISO strings the backend sent (e.g. tableData.Date) show
+ *   up as readable dates instead of full timestamps, in the table and
+ *   in Excel/PDF exports.
  */
 const normalizeReportResponse = (reportTypeKey, data) => {
+  let result;
+
   // New object response (Feed Usage and future reports)
   if (!Array.isArray(data) && data) {
-    return {
+    result = {
       records: data.tableData || data.records || [],
       summary: data.summary || {},
       chartData: data.chartData || [],
     };
-  }
-
-  // Old array response
-  if (Array.isArray(data)) {
+  } else if (Array.isArray(data)) {
+    // Old array response
     const activeRows = data.filter((row) => row?.isDeleted !== true);
 
     const transform = RAW_ARRAY_TRANSFORMERS[reportTypeKey];
 
-    if (transform) {
-      return transform(activeRows);
-    }
-
-    return {
-      records: activeRows,
-      summary: {},
-      chartData: [],
-    };
+    result = transform
+      ? transform(activeRows)
+      : { records: activeRows, summary: {}, chartData: [] };
+  } else {
+    result = { records: [], summary: {}, chartData: [] };
   }
 
   return {
-    records: [],
-    summary: {},
-    chartData: [],
+    ...result,
+    records: result.records.map(formatRecordForDisplay),
   };
 };
 
@@ -486,7 +522,10 @@ export default function Reports() {
 
     doc.text(`Generated: ${new Date().toLocaleString()}`, 14, 28);
 
-    doc.text(`Period: ${startDate}  →  ${endDate}`, 14, 36);
+    // jsPDF's default Helvetica font can't render the "→" glyph — it
+    // draws garbage characters in its place. Use plain ASCII instead
+    // (same root cause as the ₦ symbol issue in the invoice PDF).
+    doc.text(`Period: ${startDate}  to  ${endDate}`, 14, 36);
 
     const headers = [Object.keys(filteredRecords[0])];
 
