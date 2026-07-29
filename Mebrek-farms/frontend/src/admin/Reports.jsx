@@ -23,6 +23,7 @@ import autoTable from "jspdf-autotable";
 import {
   getProductionReport,
   getEggSalesReport,
+  getManureSalesReport,
   getFeedReport,
   getMortalityReport,
   getVaccinationReport,
@@ -33,6 +34,7 @@ import {
 const REPORT_TYPES = [
   "Production",
   "Egg Sales",
+  "Manure Sales",
   "Feed Usage",
   "Mortality",
   "Vaccination",
@@ -306,6 +308,10 @@ export default function Reports() {
           response = await getEggSalesReport({ startDate, endDate });
           break;
 
+        case "Manure Sales":
+          response = await getManureSalesReport({ startDate, endDate });
+          break;
+
         case "Feed Usage":
           response = await getFeedReport({ startDate, endDate });
           break;
@@ -411,6 +417,30 @@ export default function Reports() {
             title: "Crates Sold",
             value: summary.cratesSold || 0,
             color: "text-purple-600",
+          },
+        ];
+
+      case "Manure Sales":
+        return [
+          {
+            title: "Revenue",
+            value: `₦${(summary.revenue || 0).toLocaleString()}`,
+            color: "text-green-600",
+          },
+          {
+            title: "Amount Paid",
+            value: `₦${(summary.amountPaid || 0).toLocaleString()}`,
+            color: "text-blue-600",
+          },
+          {
+            title: "Outstanding",
+            value: `₦${(summary.outstanding || 0).toLocaleString()}`,
+            color: "text-red-600",
+          },
+          {
+            title: "Bags Sold (Dry / Wet)",
+            value: `${summary.bagsSold || 0} (${summary.dryBags || 0} / ${summary.wetBags || 0})`,
+            color: "text-amber-600",
           },
         ];
 

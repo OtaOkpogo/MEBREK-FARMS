@@ -23,6 +23,9 @@ export const getProductionReport = (filters = {}) =>
 export const getEggSalesReport = (filters = {}) =>
   fetchReport("eggsales", filters);
 
+export const getManureSalesReport = (filters = {}) =>
+  fetchReport("manuresales", filters);
+
 export const getFeedReport = (filters = {}) =>
   fetchReport("feedusage", filters);
 

@@ -425,23 +425,41 @@ export default function EggSales() {
   // ==========================================
   // DAILY / WEEKLY / MONTHLY SALES
   // ==========================================
+  // These compare calendar dates using UTC components rather than the
+  // viewer's local timezone. sale.date comes from a plain date input
+  // ("2026-07-28") which Mongoose stores as UTC midnight — comparing
+  // it with toDateString()/getMonth() (both local-timezone) silently
+  // shifts the "day" depending on what timezone the person viewing
+  // the dashboard happens to be in, which can make a sale entered
+  // "today" in Nigeria compute as "yesterday" for a superadmin
+  // checking from elsewhere, undercounting Daily Sales.
+
+  const toUTCDayNumber = (value) => {
+    const d = new Date(value);
+    return Math.floor(
+      Date.UTC(d.getUTCFullYear(), d.getUTCMonth(), d.getUTCDate()) /
+        (1000 * 60 * 60 * 24),
+    );
+  };
 
   const today = new Date();
+  const todayUTCDay = toUTCDayNumber(today);
 
   const dailySales = activeSales
-    .filter((sale) => {
-      if (!sale.date) return false;
-      return new Date(sale.date).toDateString() === today.toDateString();
-    })
+    .filter((sale) => sale.date && toUTCDayNumber(sale.date) === todayUTCDay)
     .reduce((sum, sale) => sum + Number(sale.totalAmount || 0), 0);
 
   const weeklySales = activeSales
     .filter((sale) => {
       if (!sale.date) return false;
 
-      const diff = (today - new Date(sale.date)) / (1000 * 60 * 60 * 24);
+      const diffDays = todayUTCDay - toUTCDayNumber(sale.date);
 
-      return diff <= 7;
+      // Lower bound matters: without it, a sale accidentally dated in
+      // the future (e.g. picked next month by mistake) produces a
+      // negative diff that still satisfies "<= 7" and gets wrongly
+      // counted as part of "this week."
+      return diffDays >= 0 && diffDays <= 6;
     })
     .reduce((sum, sale) => sum + Number(sale.totalAmount || 0), 0);
 
@@ -452,8 +470,8 @@ export default function EggSales() {
       const d = new Date(sale.date);
 
       return (
-        d.getMonth() === today.getMonth() &&
-        d.getFullYear() === today.getFullYear()
+        d.getUTCMonth() === today.getUTCMonth() &&
+        d.getUTCFullYear() === today.getUTCFullYear()
       );
     })
     .reduce((sum, sale) => sum + Number(sale.totalAmount || 0), 0);
