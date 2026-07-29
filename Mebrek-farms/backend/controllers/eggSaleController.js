@@ -1,44 +1,204 @@
 const EggSale = require("../models/EggSale");
 const { EGG_CATEGORY_PRICES } = require("../models/EggSale");
 
-// =========================
+// =====================================================
+// CONSTANTS
+// =====================================================
+
+const EGGS_PER_CRATE = 30;
+
+// =====================================================
+// EGG CATEGORY VALIDATION
+// =====================================================
+
+const buildValidatedLineItems = (lineItems) => {
+  if (!Array.isArray(lineItems) || lineItems.length === 0) {
+    throw new Error("At least one egg category is required.");
+  }
+
+  const seenCategories = new Set();
+
+  return lineItems.map((item) => {
+    const category = String(item.category || "").toLowerCase();
+
+    if (!Object.prototype.hasOwnProperty.call(EGG_CATEGORY_PRICES, category)) {
+      throw new Error(`Unknown egg category: ${category}`);
+    }
+
+    // Prevent the same category from being entered twice.
+    if (seenCategories.has(category)) {
+      throw new Error(
+        `The ${category} egg category has been entered more than once.`,
+      );
+    }
+
+    seenCategories.add(category);
+
+    const cratesSold = Number(item.cratesSold || 0);
+    const looseEggs = Number(item.looseEggs || 0);
+
+    if (cratesSold < 0 || looseEggs < 0) {
+      throw new Error("Egg quantities cannot be negative.");
+    }
+
+    const cratePrice = EGG_CATEGORY_PRICES[category];
+
+    const eggPrice = Math.round(cratePrice / EGGS_PER_CRATE);
+
+    const subtotal = cratesSold * cratePrice + looseEggs * eggPrice;
+
+    return {
+      category,
+      cratesSold,
+      looseEggs,
+      cratePrice,
+      eggPrice,
+      subtotal,
+    };
+  });
+};
+
+// =====================================================
+// LEGACY SALE CALCULATION
+// =====================================================
+// Used only for old records that don't have lineItems.
+
+const getLegacySaleTotal = (sale) => {
+  const cratesTotal =
+    Number(sale.cratesSold || 0) * Number(sale.cratePrice || 0);
+
+  const looseEggTotal =
+    Number(sale.looseEggs || 0) * Number(sale.eggPrice || 0);
+
+  return cratesTotal + looseEggTotal;
+};
+
+// =====================================================
+// CALCULATE TOTAL
+// =====================================================
+
+const calculateTotal = (lineItems, transportCharge = 0, discount = 0) => {
+  const itemsTotal = lineItems.reduce(
+    (sum, item) => sum + Number(item.subtotal || 0),
+    0,
+  );
+
+  const totalAmount =
+    itemsTotal + Number(transportCharge || 0) - Number(discount || 0);
+
+  return Math.max(0, totalAmount);
+};
+
+// =====================================================
+// PAYMENT STATUS
+// =====================================================
+
+const calculatePayment = (totalAmount, amountPaid) => {
+  const paid = Number(amountPaid || 0);
+
+  const balance = Math.max(0, totalAmount - paid);
+
+  let status = "Unpaid";
+
+  if (paid >= totalAmount && totalAmount > 0) {
+    status = "Paid";
+  } else if (paid > 0) {
+    status = "Part Paid";
+  }
+
+  return {
+    balance,
+    status,
+  };
+};
+
+// =====================================================
+// INVOICE NUMBER
+// =====================================================
+
+const generateInvoiceNumber = async (year) => {
+  const prefix = `INV-${year}-`;
+
+  const lastSale = await EggSale.findOne({
+    invoiceNumber: {
+      $regex: `^${prefix}`,
+    },
+  })
+    .sort({
+      invoiceNumber: -1,
+    })
+    .select("invoiceNumber");
+
+  let nextSequence = 1;
+
+  if (lastSale?.invoiceNumber) {
+    const lastSequence = parseInt(
+      lastSale.invoiceNumber.replace(prefix, ""),
+      10,
+    );
+
+    if (!Number.isNaN(lastSequence)) {
+      nextSequence = lastSequence + 1;
+    }
+  }
+
+  return `${prefix}${String(nextSequence).padStart(5, "0")}`;
+};
+
+// =====================================================
 // GET ALL SALES
-// =========================
+// =====================================================
 
 exports.getSales = async (req, res) => {
   try {
     const isSuperadmin = req.user?.role === "superadmin";
 
-    let filter = {};
+    let filter;
 
-    if (!isSuperadmin) {
-      // Non-superadmin roles only see active sales entered in the
-      // last 24 hours. Deleted records are never visible to them.
+    if (isSuperadmin) {
+      // Superadmin sees active and deleted records
+      // for audit purposes.
+      filter = {};
+    } else {
+      // Other users see only active records
+      // entered in the last 24 hours.
       const cutoff = new Date(Date.now() - 24 * 60 * 60 * 1000);
-      filter = { isDeleted: false, createdAt: { $gte: cutoff } };
+
+      filter = {
+        isDeleted: false,
+        createdAt: {
+          $gte: cutoff,
+        },
+      };
     }
-    // Superadmin: no filter at all — sees every sale, active or
-    // deleted, regardless of age.
 
     const sales = await EggSale.find(filter)
-      .sort({ createdAt: -1 })
-      .populate("deletedBy", "role name");
+      .sort({
+        date: -1,
+        createdAt: -1,
+      })
+      .populate("deletedBy", "role name")
+      .populate("soldBy", "role name");
 
     res.json(sales);
   } catch (err) {
+    console.error("GET SALES ERROR:", err);
+
     res.status(500).json({
       message: err.message,
     });
   }
 };
 
-// =========================
+// =====================================================
 // GET SINGLE SALE
-// =========================
+// =====================================================
 
 exports.getSale = async (req, res) => {
   try {
-    const sale = await EggSale.findById(req.params.id);
+    const sale = await EggSale.findById(req.params.id)
+      .populate("deletedBy", "role name")
+      .populate("soldBy", "role name");
 
     if (!sale) {
       return res.status(404).json({
@@ -48,102 +208,17 @@ exports.getSale = async (req, res) => {
 
     res.json(sale);
   } catch (err) {
+    console.error("GET SINGLE SALE ERROR:", err);
+
     res.status(500).json({
       message: err.message,
     });
   }
 };
 
-// =========================
-// INVOICE NUMBER GENERATION
-// =========================
-// Derives the next invoice number from the highest one actually issued
-// this year, instead of a document count (which drops whenever a sale
-// is deleted and causes collisions). Invoice numbers are zero-padded
-// to a fixed width, so string sort order matches numeric order.
-
-const generateInvoiceNumber = async (year) => {
-  const prefix = `INV-${year}-`;
-
-  const lastSale = await EggSale.findOne({
-    invoiceNumber: { $regex: `^${prefix}` },
-  })
-    .sort({ invoiceNumber: -1 })
-    .select("invoiceNumber");
-
-  let nextSeq = 1;
-
-  if (lastSale?.invoiceNumber) {
-    const lastSeq = parseInt(lastSale.invoiceNumber.replace(prefix, ""), 10);
-
-    if (!Number.isNaN(lastSeq)) {
-      nextSeq = lastSeq + 1;
-    }
-  }
-
-  return `${prefix}${String(nextSeq).padStart(5, "0")}`;
-};
-
-// =========================
-// LINE ITEM VALIDATION + CALCULATION
-// =========================
-// Never trusts prices sent from the frontend. Each line item's
-// cratePrice is forced to match EGG_CATEGORY_PRICES for its category,
-// so a tampered request body can't undercharge a customer. eggPrice
-// (loose egg price) defaults to cratePrice / 30 unless explicitly sent.
-
-const buildValidatedLineItems = (lineItems) => {
-  if (!Array.isArray(lineItems) || lineItems.length === 0) {
-    throw new Error("At least one line item (egg category) is required.");
-  }
-
-  return lineItems.map((item) => {
-    const category = item.category;
-    const officialCratePrice = EGG_CATEGORY_PRICES[category];
-
-    if (!officialCratePrice) {
-      throw new Error(`Unknown egg category: ${category}`);
-    }
-
-    const cratesSold = Number(item.cratesSold || 0);
-    const looseEggs = Number(item.looseEggs || 0);
-    const cratePrice = officialCratePrice;
-    const eggPrice =
-      item.eggPrice !== undefined && item.eggPrice !== null
-        ? Number(item.eggPrice)
-        : Math.round(officialCratePrice / 30);
-
-    const subtotal = cratesSold * cratePrice + looseEggs * eggPrice;
-
-    return { category, cratesSold, looseEggs, cratePrice, eggPrice, subtotal };
-  });
-};
-
-const calculateTotals = (
-  validatedLineItems,
-  transportCharge = 0,
-  discount = 0,
-) => {
-  const itemsTotal = validatedLineItems.reduce(
-    (sum, item) => sum + item.subtotal,
-    0,
-  );
-  const totalAmount =
-    itemsTotal + Number(transportCharge || 0) - Number(discount || 0);
-  return totalAmount;
-};
-
-const resolveStatus = (totalAmount, amountPaid) => {
-  const balance = totalAmount - Number(amountPaid || 0);
-  let status = "Unpaid";
-  if (balance <= 0) status = "Paid";
-  else if (amountPaid > 0) status = "Part Paid";
-  return { balance, status };
-};
-
-// =========================
+// =====================================================
 // CREATE SALE
-// =========================
+// =====================================================
 
 exports.createSale = async (req, res) => {
   try {
@@ -159,65 +234,96 @@ exports.createSale = async (req, res) => {
       remarks,
     } = req.body;
 
+    if (!customer?.trim()) {
+      return res.status(400).json({
+        message: "Customer name is required.",
+      });
+    }
+
+    const saleDate = date ? new Date(`${date}T12:00:00`) : new Date();
+
+    if (Number.isNaN(saleDate.getTime())) {
+      return res.status(400).json({
+        message: "Invalid sale date.",
+      });
+    }
+
     const validatedLineItems = buildValidatedLineItems(lineItems);
-    const totalAmount = calculateTotals(
+
+    const totalAmount = calculateTotal(
       validatedLineItems,
       transportCharge,
       discount,
     );
-    const { balance, status } = resolveStatus(totalAmount, amountPaid);
 
-    const year = new Date().getFullYear();
+    const { balance, status } = calculatePayment(totalAmount, amountPaid);
 
-    // Retry loop: if two requests race and both grab the same invoice
-    // number, the unique index rejects the second insert (E11000).
-    // Regenerate and try again rather than failing the request.
+    const year = saleDate.getFullYear();
+
     let sale;
+
     let attempts = 0;
+
     const maxAttempts = 5;
 
-    while (!sale) {
-      attempts += 1;
+    while (!sale && attempts < maxAttempts) {
+      attempts++;
 
       const invoiceNumber = await generateInvoiceNumber(year);
 
       try {
         sale = await EggSale.create({
           invoiceNumber,
-          customer,
-          phone,
-          date,
+          customer: customer.trim(),
+          phone: phone || "",
+          date: saleDate,
+
           lineItems: validatedLineItems,
-          discount,
-          transportCharge,
+
+          discount: Number(discount || 0),
+
+          transportCharge: Number(transportCharge || 0),
+
           totalAmount,
-          amountPaid,
+
+          amountPaid: Number(amountPaid || 0),
+
           balance,
-          paymentMethod,
+
+          paymentMethod: paymentMethod || "Cash",
+
           status,
-          remarks,
+
+          remarks: remarks || "",
+
           soldBy: req.user?.id,
         });
       } catch (err) {
         if (err.code === 11000 && attempts < maxAttempts) {
-          // Someone else took this invoice number first — retry.
           continue;
         }
+
         throw err;
       }
     }
 
+    if (!sale) {
+      throw new Error("Unable to generate a unique invoice number.");
+    }
+
     res.status(201).json(sale);
   } catch (err) {
+    console.error("CREATE SALE ERROR:", err);
+
     res.status(400).json({
       message: err.message,
     });
   }
 };
 
-// =========================
+// =====================================================
 // UPDATE SALE
-// =========================
+// =====================================================
 
 exports.updateSale = async (req, res) => {
   try {
@@ -241,55 +347,101 @@ exports.updateSale = async (req, res) => {
       remarks,
     } = req.body;
 
-    // Only re-validate/recalculate line items if the caller actually
-    // sent new ones; otherwise keep the sale's existing items.
-    const validatedLineItems = lineItems
-      ? buildValidatedLineItems(lineItems)
-      : sale.lineItems;
+    if (customer !== undefined) {
+      sale.customer = customer.trim();
+    }
 
-    sale.customer = customer ?? sale.customer;
-    sale.phone = phone ?? sale.phone;
-    sale.date = date ?? sale.date;
-    sale.lineItems = validatedLineItems;
-    sale.discount = discount ?? sale.discount;
-    sale.transportCharge = transportCharge ?? sale.transportCharge;
-    sale.amountPaid = amountPaid ?? sale.amountPaid;
-    sale.paymentMethod = paymentMethod ?? sale.paymentMethod;
-    sale.remarks = remarks ?? sale.remarks;
+    if (phone !== undefined) {
+      sale.phone = phone;
+    }
 
-    sale.totalAmount = calculateTotals(
-      validatedLineItems,
-      sale.transportCharge,
-      sale.discount,
+    if (date !== undefined) {
+      const newDate = new Date(`${date}T12:00:00`);
+
+      if (Number.isNaN(newDate.getTime())) {
+        return res.status(400).json({
+          message: "Invalid sale date.",
+        });
+      }
+
+      sale.date = newDate;
+    }
+
+    if (lineItems !== undefined) {
+      const validatedLineItems = buildValidatedLineItems(lineItems);
+
+      sale.lineItems = validatedLineItems;
+    }
+
+    if (discount !== undefined) {
+      sale.discount = Number(discount || 0);
+    }
+
+    if (transportCharge !== undefined) {
+      sale.transportCharge = Number(transportCharge || 0);
+    }
+
+    if (amountPaid !== undefined) {
+      sale.amountPaid = Number(amountPaid || 0);
+    }
+
+    if (paymentMethod !== undefined) {
+      sale.paymentMethod = paymentMethod;
+    }
+
+    if (remarks !== undefined) {
+      sale.remarks = remarks;
+    }
+
+    // =================================================
+    // RECALCULATE
+    // =================================================
+
+    let itemsTotal = 0;
+
+    if (Array.isArray(sale.lineItems) && sale.lineItems.length > 0) {
+      itemsTotal = sale.lineItems.reduce(
+        (sum, item) => sum + Number(item.subtotal || 0),
+        0,
+      );
+    } else {
+      // Legacy sale support.
+      itemsTotal = getLegacySaleTotal(sale);
+    }
+
+    sale.totalAmount = Math.max(
+      0,
+      itemsTotal +
+        Number(sale.transportCharge || 0) -
+        Number(sale.discount || 0),
     );
 
-    const { balance, status } = resolveStatus(
+    const { balance, status } = calculatePayment(
       sale.totalAmount,
       sale.amountPaid,
     );
+
     sale.balance = balance;
+
     sale.status = status;
 
-    // Legacy sales recorded before the lineItems change may still have
-    // no lineItems if the caller didn't send any — skip full validation
-    // in that case so a routine edit (e.g. amountPaid) doesn't get
-    // rejected. New/updated sales with real lineItems validate normally
-    // because buildValidatedLineItems already threw above if empty.
-    const skipValidation =
-      !lineItems && (!sale.lineItems || sale.lineItems.length === 0);
-    await sale.save({ validateBeforeSave: !skipValidation });
+    await sale.save({
+      validateBeforeSave: false,
+    });
 
     res.json(sale);
   } catch (err) {
+    console.error("UPDATE SALE ERROR:", err);
+
     res.status(400).json({
       message: err.message,
     });
   }
 };
 
-// =========================
-// DELETE SALE (soft delete)
-// =========================
+// =====================================================
+// DELETE SALE — SOFT DELETE
+// =====================================================
 
 exports.deleteSale = async (req, res) => {
   try {
@@ -305,34 +457,39 @@ exports.deleteSale = async (req, res) => {
     }
 
     sale.isDeleted = true;
+
     sale.deletedAt = new Date();
+
     sale.deletedBy = req.user?.id;
 
-    // validateBeforeSave: false — legacy sales recorded before the
-    // lineItems change don't have that field populated. We're only
-    // flipping soft-delete flags here, not touching sale contents, so
-    // full-document revalidation (which would fail on missing
-    // lineItems) is skipped, matching the pattern used elsewhere.
-    await sale.save({ validateBeforeSave: false });
+    await sale.save({
+      validateBeforeSave: false,
+    });
 
     res.json({
       message: "Sale deleted successfully",
     });
   } catch (err) {
+    console.error("DELETE SALE ERROR:", err);
+
     res.status(500).json({
       message: err.message,
     });
   }
 };
 
-// =========================
-// GET DELETED SALES (superadmin only — gated in route)
-// =========================
+// =====================================================
+// GET DELETED SALES
+// =====================================================
 
 exports.getDeletedSales = async (req, res) => {
   try {
-    const sales = await EggSale.find({ isDeleted: true })
-      .sort({ deletedAt: -1 })
+    const sales = await EggSale.find({
+      isDeleted: true,
+    })
+      .sort({
+        deletedAt: -1,
+      })
       .populate("deletedBy", "role name");
 
     res.json(sales);
@@ -343,9 +500,9 @@ exports.getDeletedSales = async (req, res) => {
   }
 };
 
-// =========================
-// RESTORE SALE (superadmin only — gated in route)
-// =========================
+// =====================================================
+// RESTORE SALE
+// =====================================================
 
 exports.restoreSale = async (req, res) => {
   try {
@@ -353,7 +510,6 @@ exports.restoreSale = async (req, res) => {
       _id: req.params.id,
       isDeleted: true,
     });
-
     if (!sale) {
       return res.status(404).json({
         message: "Deleted sale not found",
@@ -361,15 +517,19 @@ exports.restoreSale = async (req, res) => {
     }
 
     sale.isDeleted = false;
+
     sale.deletedAt = null;
+
     sale.deletedBy = null;
 
-    // Same reasoning as deleteSale — skip full validation so legacy
-    // sales without lineItems can still be restored.
-    await sale.save({ validateBeforeSave: false });
+    await sale.save({
+      validateBeforeSave: false,
+    });
 
     res.json(sale);
   } catch (err) {
+    console.error("RESTORE SALE ERROR:", err);
+
     res.status(500).json({
       message: err.message,
     });

@@ -1,5 +1,6 @@
 const Production = require("../models/Production");
 const EggSale = require("../models/EggSale");
+const ManureSale = require("../models/ManureSale");
 const Feed = require("../models/Feed");
 const Mortality = require("../models/Mortality");
 const Vaccination = require("../models/Vaccination");
@@ -229,6 +230,108 @@ exports.getReport = async (req, res) => {
             outstanding: totalOutstanding,
             cratesSold: totalCrates,
             looseEggsSold: totalLooseEggs,
+          },
+          chartData,
+          tableData,
+        };
+
+        break;
+      }
+
+      // =====================================
+      // MANURE SALES REPORT
+      // =====================================
+      case "manuresales": {
+        const filter = {
+          ...buildDateFilter(req, "date"),
+          isDeleted: false,
+        };
+
+        const sales = await ManureSale.find(filter).sort({
+          date: -1,
+        });
+
+        // ==========================
+        // SUMMARY
+        // ==========================
+
+        const totalRevenue = sales.reduce(
+          (sum, sale) => sum + (sale.totalAmount || 0),
+          0,
+        );
+
+        const totalPaid = sales.reduce(
+          (sum, sale) => sum + (sale.amountPaid || 0),
+          0,
+        );
+
+        const totalOutstanding = sales.reduce(
+          (sum, sale) => sum + (sale.balance || 0),
+          0,
+        );
+
+        const totalBags = sales.reduce(
+          (sum, sale) =>
+            sum +
+            (sale.lineItems || []).reduce(
+              (itemSum, item) => itemSum + (item.bags || 0),
+              0,
+            ),
+          0,
+        );
+
+        const dryBags = sales.reduce(
+          (sum, sale) =>
+            sum +
+            (sale.lineItems || [])
+              .filter((item) => item.category === "dry")
+              .reduce((itemSum, item) => itemSum + (item.bags || 0), 0),
+          0,
+        );
+
+        const wetBags = sales.reduce(
+          (sum, sale) =>
+            sum +
+            (sale.lineItems || [])
+              .filter((item) => item.category === "wet")
+              .reduce((itemSum, item) => itemSum + (item.bags || 0), 0),
+          0,
+        );
+
+        // ==========================
+        // CHART DATA
+        // ==========================
+
+        const chartData = sales.map((sale) => ({
+          name: sale.customer,
+          value: sale.totalAmount || 0,
+        }));
+
+        // ==========================
+        // TABLE DATA
+        // ==========================
+
+        const tableData = sales.map((sale) => ({
+          Date: sale.date,
+          Customer: sale.customer,
+          Phone: sale.phone,
+          Categories: (sale.lineItems || [])
+            .map((item) => `${item.category} (${item.bags || 0} bags)`)
+            .join(", "),
+          GrandTotal: sale.totalAmount,
+          AmountPaid: sale.amountPaid,
+          Balance: sale.balance,
+          PaymentMethod: sale.paymentMethod,
+        }));
+
+        report = {
+          summary: {
+            revenue: totalRevenue,
+            amountPaid: totalPaid,
+            outstanding: totalOutstanding,
+            bagsSold: totalBags,
+            dryBags,
+            wetBags,
           },
           chartData,
           tableData,
