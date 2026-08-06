@@ -52,7 +52,7 @@ exports.updateOrderStatus = async (req, res) => {
   try {
     const { status } = req.body;
 
-    const allowedStatuses = ["Pending", "Contacted", "Completed"];
+    const allowedStatuses = ["Pending", "Contacted", "Completed", "Cancelled"];
 
     if (!allowedStatuses.includes(status)) {
       return res.status(400).json({
