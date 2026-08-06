@@ -1,4 +1,4 @@
-# Ì∞î MEBREK FARMS ‚Äì Poultry Farm Management Web Application
+MEBREK FARMS ‚Äì Poultry Farm Management Web Application
 
 MEBREK FARMS is a **full-stack poultry farm web application** designed to support **commercial egg production**, combining a **public-facing farm website** with a **secure admin dashboard** for managing farm operations.
 
@@ -6,7 +6,7 @@ The system is tailored to **Nigerian poultry farming standards**, focusing on **
 
 ---
 
-## Ìº± Project Overview
+# Project Overview
 
 MEBREK FARMS provides:
 - A modern website to showcase the farm, its products, and partnerships
@@ -18,14 +18,14 @@ MEBREK FARMS provides:
 
 ## ‚ú® Key Features
 
-### Ìºê Public Website
+### ÔøΩÔøΩÔøΩ Public Website
 - Farm overview and mission
 - Egg products and supply options
 - Poultry production process
 - Sustainability and waste management practices
 - Contact and distributor inquiry forms
 
-### Ìª†Ô∏è Admin Dashboard
+### ÔøΩÔøΩÔøΩÔ∏è Admin Dashboard
 - Secure admin access
 - Daily egg production tracking
 - Worker management and shift tracking
@@ -33,7 +33,7 @@ MEBREK FARMS provides:
 - Order and distribution management
 - Operational overview with key metrics
 
-### Ì∑≥Ì∑¨ Nigerian Poultry Standards Compliance
+### ÔøΩÔøΩÔøΩÔøΩÔøΩÔøΩ Nigerian Poultry Standards Compliance
 - NAFDAC-compliant egg handling
 - Biosecurity measures (foot dips, restricted access, sanitation routines)
 - Standard vaccination schedules (Newcastle, Gumboro, Fowl Pox)
@@ -42,7 +42,7 @@ MEBREK FARMS provides:
 
 ---
 
-## Ì∑± Technology Stack
+## Technology Stack
 
 ### Frontend
 - **React (Vite)**
@@ -61,11 +61,7 @@ MEBREK FARMS provides:
 - Backend: **Render / Railway**
 - Database: **MongoDB Atlas**
 
----
-
-## Ì≥Ç Project Structure
-
-Authors
-Ì±§ Ota Okpogo
+Author
+Ota Okpogo
 
 GitHub: OtaOkpogo
