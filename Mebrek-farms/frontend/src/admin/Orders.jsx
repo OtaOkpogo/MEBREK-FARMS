@@ -20,6 +20,13 @@ export default function Orders() {
   const [search, setSearch] = useState("");
   const [updatingId, setUpdatingId] = useState(null);
   const [page, setPage] = useState(1);
+  const [showAddModal, setShowAddModal] = useState(false);
+  const [submitting, setSubmitting] = useState(false);
+  const [newOrder, setNewOrder] = useState({
+    name: "",
+    contact: "",
+    message: "",
+  });
   const PAGE_SIZE = 10;
 
   // ==========================
@@ -177,6 +184,69 @@ export default function Orders() {
     }
   };
 
+  // ==========================
+  // ADD ORDER (manual entry)
+  // ==========================
+
+  const openAddModal = () => {
+    setNewOrder({ name: "", contact: "", message: "" });
+    setShowAddModal(true);
+  };
+
+  const closeAddModal = () => {
+    if (submitting) return;
+    setShowAddModal(false);
+  };
+
+  const handleNewOrderChange = (field, value) => {
+    setNewOrder((prev) => ({ ...prev, [field]: value }));
+  };
+
+  const handleAddOrder = async (e) => {
+    e.preventDefault();
+
+    if (
+      !newOrder.name.trim() ||
+      !newOrder.contact.trim() ||
+      !newOrder.message.trim()
+    ) {
+      toast.error("Name, contact, and message are all required.");
+      return;
+    }
+
+    setSubmitting(true);
+
+    try {
+      const token = localStorage.getItem("token");
+
+      await axios.post(
+        "http://localhost:5000/api/orders",
+        {
+          name: newOrder.name.trim(),
+          contact: newOrder.contact.trim(),
+          message: newOrder.message.trim(),
+        },
+        {
+          headers: {
+            Authorization: `Bearer ${token}`,
+          },
+        },
+      );
+
+      toast.success("Order added.");
+      setShowAddModal(false);
+
+      // Fallback refresh in case the socket "newOrder" event doesn't fire
+      // for admin-created orders.
+      fetchOrders(false);
+    } catch (err) {
+      console.error(err);
+      toast.error("Failed to add order.");
+    } finally {
+      setSubmitting(false);
+    }
+  };
+
   return (
     <div className="p-6">
       {/* HEADER */}
@@ -185,13 +255,21 @@ export default function Orders() {
           <h2 className="text-3xl font-bold">Customer Orders 📦</h2>
           <p className="text-gray-500">Manage customer enquiries and orders</p>
         </div>
-        <button
-          onClick={() => fetchOrders(false)}
-          disabled={refreshing}
-          className="bg-green-600 hover:bg-green-700 text-white px-5 py-3 rounded-lg shadow"
-        >
-          {refreshing ? "Refreshing..." : "🔄 Refresh"}
-        </button>
+        <div className="flex gap-3">
+          <button
+            onClick={openAddModal}
+            className="bg-blue-600 hover:bg-blue-700 text-white px-5 py-3 rounded-lg shadow"
+          >
+            + Add Order
+          </button>
+          <button
+            onClick={() => fetchOrders(false)}
+            disabled={refreshing}
+            className="bg-green-600 hover:bg-green-700 text-white px-5 py-3 rounded-lg shadow"
+          >
+            {refreshing ? "Refreshing..." : "🔄 Refresh"}
+          </button>
+        </div>
       </div>
 
       {/* STATISTICS */}
@@ -348,6 +426,85 @@ export default function Orders() {
                 Next
               </button>
             </div>
+          </div>
+        </div>
+      )}
+
+      {/* ADD ORDER MODAL */}
+
+      {showAddModal && (
+        <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/50 backdrop-blur-sm">
+          <div className="bg-white rounded-2xl shadow-2xl w-full max-w-md p-6">
+            <h2 className="text-2xl font-bold mb-1">Add Order</h2>
+            <p className="text-gray-500 text-sm mb-6">
+              Manually log an order taken by phone, WhatsApp, or in person.
+            </p>
+
+            <form onSubmit={handleAddOrder} className="space-y-4">
+              <div>
+                <label className="block text-sm font-semibold mb-2">
+                  Customer Name
+                </label>
+                <input
+                  type="text"
+                  value={newOrder.name}
+                  onChange={(e) => handleNewOrderChange("name", e.target.value)}
+                  className="w-full border rounded-lg p-3"
+                  placeholder="e.g. Victory Chiedozie Ogidi"
+                  required
+                />
+              </div>
+
+              <div>
+                <label className="block text-sm font-semibold mb-2">
+                  Contact (Phone or Email)
+                </label>
+                <input
+                  type="text"
+                  value={newOrder.contact}
+                  onChange={(e) =>
+                    handleNewOrderChange("contact", e.target.value)
+                  }
+                  className="w-full border rounded-lg p-3"
+                  placeholder="e.g. 08136292177"
+                  required
+                />
+              </div>
+
+              <div>
+                <label className="block text-sm font-semibold mb-2">
+                  Order Details
+                </label>
+                <textarea
+                  value={newOrder.message}
+                  onChange={(e) =>
+                    handleNewOrderChange("message", e.target.value)
+                  }
+                  className="w-full border rounded-lg p-3 min-h-[100px]"
+                  placeholder="What did the customer ask for?"
+                  required
+                />
+              </div>
+
+              <div className="flex justify-end gap-3 pt-2">
+                <button
+                  type="button"
+                  onClick={closeAddModal}
+                  disabled={submitting}
+                  className="px-5 py-2 rounded-lg bg-gray-200 hover:bg-gray-300 transition disabled:opacity-50"
+                >
+                  Cancel
+                </button>
+
+                <button
+                  type="submit"
+                  disabled={submitting}
+                  className="px-5 py-2 rounded-lg bg-blue-600 hover:bg-blue-700 text-white transition disabled:opacity-50"
+                >
+                  {submitting ? "Adding..." : "Add Order"}
+                </button>
+              </div>
+            </form>
           </div>
         </div>
       )}
