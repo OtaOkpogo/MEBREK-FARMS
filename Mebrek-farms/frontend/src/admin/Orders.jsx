@@ -3,12 +3,13 @@ import axios from "axios";
 import { toast } from "react-toastify";
 import socket from "../services/socket";
 
-const STATUS_OPTIONS = ["Pending", "Contacted", "Completed"];
+const STATUS_OPTIONS = ["Pending", "Contacted", "Completed", "Cancelled"];
 
 const STATUS_COLORS = {
   Pending: "bg-yellow-100 text-yellow-700",
   Contacted: "bg-blue-100 text-blue-700",
   Completed: "bg-green-100 text-green-700",
+  Cancelled: "bg-red-100 text-red-700",
 };
 
 export default function Orders() {
@@ -18,8 +19,6 @@ export default function Orders() {
   const [refreshing, setRefreshing] = useState(false);
   const [search, setSearch] = useState("");
   const [updatingId, setUpdatingId] = useState(null);
-  const [showDeleteModal, setShowDeleteModal] = useState(false);
-  const [selectedOrder, setSelectedOrder] = useState(null);
   const [page, setPage] = useState(1);
   const PAGE_SIZE = 10;
 
@@ -82,6 +81,7 @@ export default function Orders() {
       pending: orders.filter((o) => o.status === "Pending").length,
       contacted: orders.filter((o) => o.status === "Contacted").length,
       completed: orders.filter((o) => o.status === "Completed").length,
+      cancelled: orders.filter((o) => o.status === "Cancelled").length,
     };
   }, [orders]);
 
@@ -177,49 +177,6 @@ export default function Orders() {
     }
   };
 
-  // ==========================
-  // DELETE ORDER
-  // ==========================
-
-  const openDeleteModal = (order) => {
-    setSelectedOrder(order);
-    setShowDeleteModal(true);
-  };
-
-  const closeDeleteModal = () => {
-    setSelectedOrder(null);
-    setShowDeleteModal(false);
-  };
-
-  const confirmDelete = async () => {
-    if (!selectedOrder) return;
-
-    try {
-      const token = localStorage.getItem("token");
-
-      await axios.delete(
-        `http://localhost:5000/api/orders/${selectedOrder._id}`,
-        {
-          headers: {
-            Authorization: `Bearer ${token}`,
-          },
-        },
-      );
-
-      setOrders((prev) =>
-        prev.filter((order) => order._id !== selectedOrder._id),
-      );
-
-      toast.success("Order deleted successfully");
-
-      closeDeleteModal();
-    } catch (err) {
-      console.error(err);
-
-      toast.error("Unable to delete order");
-    }
-  };
-
   return (
     <div className="p-6">
       {/* HEADER */}
@@ -238,7 +195,7 @@ export default function Orders() {
       </div>
 
       {/* STATISTICS */}
-      <div className="grid md:grid-cols-4 gap-5 mb-8">
+      <div className="grid md:grid-cols-5 gap-5 mb-8">
         <div className="bg-white rounded-xl shadow p-5">
           <p className="text-gray-500">Total Orders</p>
           <h2 className="text-4xl font-bold text-green-700">{stats.total}</h2>
@@ -260,6 +217,10 @@ export default function Orders() {
           <h2 className="text-4xl font-bold text-green-600">
             {stats.completed}
           </h2>
+        </div>
+        <div className="bg-white rounded-xl shadow p-5">
+          <p className="text-gray-500">Cancelled</p>
+          <h2 className="text-4xl font-bold text-red-600">{stats.cancelled}</h2>
         </div>
       </div>
 
@@ -300,7 +261,6 @@ export default function Orders() {
                 <th className="p-3 text-left">Message</th>
                 <th className="p-3 text-left">Date</th>
                 <th className="p-3 text-left">Status</th>
-                <th className="p-3 text-center">Actions</th>
               </tr>
             </thead>
 
@@ -350,15 +310,6 @@ export default function Orders() {
                       </select>
                     </div>
                   </td>
-
-                  <td className="p-3 text-center">
-                    <button
-                      onClick={() => openDeleteModal(order)}
-                      className="bg-red-600 hover:bg-red-700 text-white px-4 py-2 rounded-lg transition"
-                    >
-                      Delete
-                    </button>
-                  </td>
                 </tr>
               ))}
             </tbody>
@@ -395,46 +346,6 @@ export default function Orders() {
                 className="px-4 py-2 rounded-lg bg-gray-200 disabled:opacity-40"
               >
                 Next
-              </button>
-            </div>
-          </div>
-        </div>
-      )}
-
-      {/* DELETE CONFIRMATION MODAL */}
-
-      {showDeleteModal && (
-        <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/50 backdrop-blur-sm">
-          <div className="bg-white rounded-2xl shadow-2xl w-full max-w-md p-6 animate-[fadeIn_.25s_ease]">
-            <div className="text-center">
-              <div className="text-6xl mb-4">⚠️</div>
-
-              <h2 className="text-2xl font-bold mb-2">Delete Order?</h2>
-
-              <p className="text-gray-600">
-                Are you sure you want to permanently delete the order from
-              </p>
-
-              <p className="font-bold text-lg mt-2">{selectedOrder?.name}</p>
-
-              <p className="text-sm text-gray-500 mt-2">
-                This action cannot be undone.
-              </p>
-            </div>
-
-            <div className="flex justify-end gap-3 mt-8">
-              <button
-                onClick={closeDeleteModal}
-                className="px-5 py-2 rounded-lg bg-gray-200 hover:bg-gray-300 transition"
-              >
-                Cancel
-              </button>
-
-              <button
-                onClick={confirmDelete}
-                className="px-5 py-2 rounded-lg bg-red-600 hover:bg-red-700 text-white transition"
-              >
-                Delete
               </button>
             </div>
           </div>
