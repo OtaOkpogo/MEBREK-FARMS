@@ -17,6 +17,11 @@ const Vaccination = require("../models/Vaccination");
 // Keep this in sync with ROLE_PERMISSIONS in Dashboard.jsx if you also
 // want the frontend map to match — but this backend copy is what
 // actually enforces access, since the frontend map is just UI polish.
+//
+// feedStock/roomInventory withheld from staff to match the module-level
+// restriction on Feed Inventory and Room Inventory — those pages and
+// their APIs are superadmin+manager only, so the dashboard summary
+// can't hand staff the same raw data through a side door.
 const ROLE_PERMISSIONS = {
   superadmin: {
     revenue: true,
@@ -47,10 +52,10 @@ const ROLE_PERMISSIONS = {
     orders: false,
     workers: false,
     production: true,
-    feedStock: true,
+    feedStock: false,
     mortality: false,
     attendance: true,
-    roomInventory: true,
+    roomInventory: false,
     workerPerformance: false,
     vaccinations: true,
   },

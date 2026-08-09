@@ -58,7 +58,6 @@ mongoose
 app.use("/api/workers", require("./routes/workers"));
 app.use("/api/expenses", require("./routes/expenseRoutes"));
 app.use("/api/attendance", attendanceRoutes);
-app.use("/api/production", require("./routes/production"));
 app.use("/api/production", require("./routes/productionRoutes"));
 app.use("/api/auth", require("./routes/auth"));
 app.use("/api/staff", require("./routes/staffRoutes"));

@@ -12,13 +12,38 @@ const {
   restoreWarehouseItem,
 } = require("../controllers/warehouseController");
 
-router.get("/", protect, getWarehouseItems);
+// SUPERADMIN + MANAGER — matches Warehouse's access level in App.jsx.
+// Previously these four routes only checked authentication, meaning
+// staff could hit them directly regardless of what the frontend hid.
+// (restoreWarehouseItem below was already correctly superadmin-only.)
 
-router.post("/", protect, createWarehouseItem);
+router.get(
+  "/",
+  protect,
+  allowRoles("superadmin", "manager"),
+  getWarehouseItems,
+);
 
-router.put("/:id", protect, updateWarehouseItem);
+router.post(
+  "/",
+  protect,
+  allowRoles("superadmin", "manager"),
+  createWarehouseItem,
+);
 
-router.delete("/:id", protect, deleteWarehouseItem);
+router.put(
+  "/:id",
+  protect,
+  allowRoles("superadmin", "manager"),
+  updateWarehouseItem,
+);
+
+router.delete(
+  "/:id",
+  protect,
+  allowRoles("superadmin", "manager"),
+  deleteWarehouseItem,
+);
 
 router.put(
   "/:id/restore",

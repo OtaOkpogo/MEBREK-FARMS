@@ -14,19 +14,24 @@ const {
   restoreSale,
 } = require("../controllers/eggSaleController");
 
-router.get("/", auth, getSales);
+// SUPERADMIN + MANAGER — matches Egg Sales' access level in App.jsx.
+// These main routes previously only checked authentication, meaning
+// staff could hit them directly regardless of what the frontend hid.
+// Deleted-record visibility and restore stay superadmin-only, unchanged.
+
+router.get("/", auth, allowRoles("superadmin", "manager"), getSales);
 
 // Must come before "/:id" — otherwise Express treats "deleted" as an id.
 router.get("/deleted", auth, allowRoles("superadmin"), getDeletedSales);
 
-router.get("/:id", auth, getSale);
+router.get("/:id", auth, allowRoles("superadmin", "manager"), getSale);
 
-router.post("/", auth, createSale);
+router.post("/", auth, allowRoles("superadmin", "manager"), createSale);
 
-router.put("/:id", auth, updateSale);
+router.put("/:id", auth, allowRoles("superadmin", "manager"), updateSale);
 
 router.put("/:id/restore", auth, allowRoles("superadmin"), restoreSale);
 
-router.delete("/:id", auth, deleteSale);
+router.delete("/:id", auth, allowRoles("superadmin", "manager"), deleteSale);
 
 module.exports = router;

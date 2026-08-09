@@ -1,10 +1,15 @@
 const express = require("express");
 const router = express.Router();
 
-const { protect } = require("../middleware/authMiddleware");
+const { protect, allowRoles } = require("../middleware/authMiddleware");
 const reportController = require("../controllers/reportController");
 
-// Generate Reports
-router.get("/:type", protect, reportController.getReport);
+// Generate Reports — Super Admin & Manager only (Workers/"staff" are blocked)
+router.get(
+  "/:type",
+  protect,
+  allowRoles("superadmin", "manager"),
+  reportController.getReport,
+);
 
 module.exports = router;

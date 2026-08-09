@@ -18,16 +18,25 @@ const {
 // Adjust these to match your actual auth/role-check middleware names
 const { protect, allowRoles } = require("../middleware/authMiddleware");
 
-// Manager + super admin can manage inventory; staff has no write access,
-// matching the notifications module's access pattern.
+// Manager + super admin can manage inventory; staff has no access at
+// all, matching the App.jsx frontend restriction on the Room
+// Inventory page (allowedRoles=["superadmin","manager"]).
 router.use(protect);
 
-router.get("/", getAllItems);
-router.get("/summary", getInventorySummary);
-router.get("/missing", getMissingItems);
-router.get("/rooms", listRooms);
-router.get("/rooms/:roomName", getItemsByRoom);
-router.get("/:id", getItemById);
+router.get("/", allowRoles("manager", "superadmin"), getAllItems);
+router.get(
+  "/summary",
+  allowRoles("manager", "superadmin"),
+  getInventorySummary,
+);
+router.get("/missing", allowRoles("manager", "superadmin"), getMissingItems);
+router.get("/rooms", allowRoles("manager", "superadmin"), listRooms);
+router.get(
+  "/rooms/:roomName",
+  allowRoles("manager", "superadmin"),
+  getItemsByRoom,
+);
+router.get("/:id", allowRoles("manager", "superadmin"), getItemById);
 
 router.post("/", allowRoles("manager", "superadmin"), createItem);
 router.put("/:id", allowRoles("manager", "superadmin"), updateItem);
