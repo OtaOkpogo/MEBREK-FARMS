@@ -29,6 +29,11 @@ import { fetchDashboardData } from "../services/dashboardService";
 // The backend is the actual enforcement point — fields a role can't see
 // are never sent in the response at all. This map only controls which
 // cards/charts render, and should stay in sync with the backend copy.
+//
+// staff.feedStock / staff.roomInventory set to false to match the
+// backend fix — those modules are superadmin+manager only everywhere
+// else in the app, so staff shouldn't see even an empty/zeroed-out
+// card or chart for them here.
 const ROLE_PERMISSIONS = {
   superadmin: {
     revenue: true,
@@ -57,10 +62,10 @@ const ROLE_PERMISSIONS = {
     orders: false,
     workers: false,
     production: true,
-    feedStock: true,
+    feedStock: false,
     mortality: false,
     attendance: true,
-    roomInventory: true,
+    roomInventory: false,
     workerPerformance: false,
   },
 };
@@ -152,11 +157,6 @@ export default function Dashboard() {
 
       const res = await getNotifications();
 
-      // getNotifications() may return a bare array, or a wrapped object
-      // like { notifications: [...] } or { data: [...] } depending on
-      // how notificationService.js unwraps the axios response. Normalize
-      // here so a shape change on the service/backend side can't crash
-      // this screen again.
       const notifications = Array.isArray(res)
         ? res
         : Array.isArray(res?.notifications)
@@ -185,7 +185,6 @@ export default function Dashboard() {
     try {
       await replyNotification(id, data);
 
-      // Refresh notifications so the popup has the latest data
       await checkNotifications();
     } catch (err) {
       console.error("REPLY NOTIFICATION ERROR:", err);
@@ -193,10 +192,6 @@ export default function Dashboard() {
       throw err;
     }
   };
-
-  // =========================================
-  // MARK NOTIFICATION AS READ
-  // =========================================
 
   const markRead = async (id) => {
     try {
@@ -236,8 +231,6 @@ export default function Dashboard() {
     0,
   );
 
-  // Revenue now comes from the backend, computed only for permitted roles.
-  // No client-side computation from totalEggs anymore.
   const estimatedRevenue = data.estimatedRevenue || 0;
 
   const totalFeedStock = feeds.reduce(
@@ -291,7 +284,6 @@ export default function Dashboard() {
     performance: worker.performance || 0,
   }));
 
-  // Farm Overview pie only includes metrics this role can see
   const farmOverview = [
     perms.orders && { name: "Orders", value: totalOrders },
     perms.workers && { name: "Workers", value: totalWorkers },
@@ -354,7 +346,6 @@ export default function Dashboard() {
     },
   ].filter(Boolean);
 
-  // Which chart rows are visible, used to keep grids balanced
   const showEggTrend = perms.production;
   const showFarmOverview = farmOverview.length > 0;
   const row1Count = [showEggTrend, showFarmOverview].filter(Boolean).length;
@@ -407,8 +398,6 @@ export default function Dashboard() {
   }
   return (
     <div className="p-6 bg-gray-100 min-h-screen">
-      {/* HEADER */}
-
       <div className="mb-8">
         <h1 className="text-4xl font-bold text-green-700">
           Mebrek Farms Dashboard 🚜
@@ -416,8 +405,6 @@ export default function Dashboard() {
 
         <p className="text-gray-600 mt-2">Farm Operations Monitoring Center</p>
       </div>
-
-      {/* USER PROFILE CARD */}
 
       <div className="bg-white rounded-2xl shadow-lg p-6 mb-8">
         <h2 className="text-3xl font-bold text-green-700">
@@ -427,8 +414,6 @@ export default function Dashboard() {
         <p className="text-gray-500 mt-2">Farm Management Dashboard</p>
 
         <div className="grid md:grid-cols-3 gap-4 mt-6">
-          {/* ROLE */}
-
           <div className="bg-gray-50 p-4 rounded-xl">
             <p className="text-gray-500 text-sm">Role</p>
 
@@ -436,8 +421,6 @@ export default function Dashboard() {
               {user?.role || "staff"}
             </p>
           </div>
-
-          {/* STATUS */}
 
           <div className="bg-gray-50 p-4 rounded-xl">
             <p className="text-gray-500 text-sm">Status</p>
@@ -451,8 +434,6 @@ export default function Dashboard() {
             </p>
           </div>
 
-          {/* LAST LOGIN */}
-
           <div className="bg-gray-50 p-4 rounded-xl">
             <p className="text-gray-500 text-sm">Last Login</p>
 
@@ -465,8 +446,6 @@ export default function Dashboard() {
         </div>
       </div>
 
-      {/* KPI CARDS — permission-driven, grid auto-sizes to card count */}
-
       {kpiCards.length > 0 && (
         <div className={`grid ${gridColsClass(kpiCards.length)} gap-6 mb-8`}>
           {kpiCards.map((card) => (
@@ -477,8 +456,6 @@ export default function Dashboard() {
           ))}
         </div>
       )}
-
-      {/* ROOM INVENTORY KPI */}
 
       {perms.roomInventory && (
         <div className="grid md:grid-cols-5 gap-6 mb-8">
@@ -515,8 +492,6 @@ export default function Dashboard() {
           </div>
         </div>
       )}
-
-      {/* FIRST ROW — Egg Trend + Farm Overview, grid balances to what's visible */}
 
       {row1Count > 0 && (
         <div className={`grid ${gridColsClass(row1Count)} gap-6 mb-8`}>
@@ -582,8 +557,6 @@ export default function Dashboard() {
         </div>
       )}
 
-      {/* FEED INVENTORY */}
-
       {perms.feedStock && (
         <div className="bg-white p-6 rounded-2xl shadow mb-8">
           <h2 className="text-xl font-bold mb-4">Feed Inventory 🌽</h2>
@@ -606,8 +579,6 @@ export default function Dashboard() {
           </ResponsiveContainer>
         </div>
       )}
-
-      {/* ATTENDANCE + PERFORMANCE — grid balances to what's visible */}
 
       {row2Count > 0 && (
         <div className={`grid ${gridColsClass(row2Count)} gap-6`}>
@@ -667,8 +638,6 @@ export default function Dashboard() {
           )}
         </div>
       )}
-
-      {/* ROOM INVENTORY */}
 
       {perms.roomInventory && (
         <div className="grid md:grid-cols-2 gap-6 mt-8">

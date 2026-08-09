@@ -1,8 +1,6 @@
-import { Navigate, Outlet } from "react-router-dom";
+import { Navigate } from "react-router-dom";
 
-export default function ProtectedRoute({
-  allowedRoles = [],
-}) {
+export default function ProtectedRoute({ children, allowedRoles = [] }) {
   const token = localStorage.getItem("token");
   const role = localStorage.getItem("role");
 
@@ -10,12 +8,9 @@ export default function ProtectedRoute({
     return <Navigate to="/login" replace />;
   }
 
-  if (
-    allowedRoles.length > 0 &&
-    !allowedRoles.includes(role)
-  ) {
+  if (allowedRoles.length > 0 && !allowedRoles.includes(role)) {
     return <Navigate to="/admin" replace />;
   }
 
-  return <Outlet />;
+  return children;
 }

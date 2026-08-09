@@ -56,12 +56,6 @@ const COLORS = [
 // ======================================
 // CELL VALUE FORMATTING
 // ======================================
-// Backend report endpoints sometimes send raw Date objects/ISO strings
-// (e.g. Production's tableData.Date) that haven't been formatted for
-// display. Serialized over JSON these arrive as strings like
-// "2026-07-27T00:00:00.000Z" — this catches that shape and renders it
-// as a readable date instead, everywhere records get displayed or
-// exported (web table, Excel, PDF).
 const ISO_DATE_PATTERN = /^\d{4}-\d{2}-\d{2}T\d{2}:\d{2}:\d{2}(\.\d+)?Z?$/;
 
 const formatCellValue = (value) => {
@@ -93,12 +87,6 @@ const formatRecordForDisplay = (record) => {
 // ======================================
 // RAW → REPORT-SHAPE TRANSFORMERS
 // ======================================
-// Some backend endpoints (currently /reports/production) return a bare
-// array of Mongoose documents instead of { records, summary, chartData }.
-// These transformers compute the summary/chart data on the client so the
-// rest of the page can keep assuming the normalized shape. Once an
-// endpoint is updated to aggregate server-side, its entry here can be
-// removed and the raw response will be used as-is.
 
 const buildProductionSummary = (rows) => {
   const totalEggs = rows.reduce((sum, r) => sum + (r.totalEggs || 0), 0);
@@ -121,8 +109,6 @@ const buildProductionSummary = (rows) => {
 };
 
 const buildProductionChartData = (rows) => {
-  // One point per calendar date, summing totalEggs in case multiple
-  // pens logged production on the same day.
   const byDate = {};
   rows.forEach((r) => {
     const label = r.date
@@ -179,8 +165,6 @@ const buildEggSalesSummary = (rows) => {
 };
 
 const buildEggSalesChartData = (rows) => {
-  // One point per calendar date, summing revenue in case of multiple
-  // sales on the same day.
   const byDate = {};
   rows.forEach((r) => {
     const label = r.date
@@ -227,23 +211,9 @@ const RAW_ARRAY_TRANSFORMERS = {
   }),
 };
 
-/**
- * Normalizes whatever the backend returned into { records, summary, chartData }.
- * - Soft-deleted rows (isDeleted: true) are stripped out first — the
- *   backend currently returns them alongside active records.
- * - If it's already in { records, summary, chartData } shape, pass through.
- * - If it's a bare array (current behavior for Production), run it through
- *   the matching transformer, or fall back to records-only if no
- *   transformer exists yet for that report type.
- * - Every record then passes through formatRecordForDisplay so any raw
- *   Date objects/ISO strings the backend sent (e.g. tableData.Date) show
- *   up as readable dates instead of full timestamps, in the table and
- *   in Excel/PDF exports.
- */
 const normalizeReportResponse = (reportTypeKey, data) => {
   let result;
 
-  // New object response (Feed Usage and future reports)
   if (!Array.isArray(data) && data) {
     result = {
       records: data.tableData || data.records || [],
@@ -251,7 +221,6 @@ const normalizeReportResponse = (reportTypeKey, data) => {
       chartData: data.chartData || [],
     };
   } else if (Array.isArray(data)) {
-    // Old array response
     const activeRows = data.filter((row) => row?.isDeleted !== true);
 
     const transform = RAW_ARRAY_TRANSFORMERS[reportTypeKey];
@@ -270,6 +239,19 @@ const normalizeReportResponse = (reportTypeKey, data) => {
 };
 
 export default function Reports() {
+  // ======================================
+  // ACCESS CONTROL
+  // ======================================
+  const storedUser = (() => {
+    try {
+      return JSON.parse(localStorage.getItem("user") || "null");
+    } catch {
+      return null;
+    }
+  })();
+  const userRole = storedUser?.role;
+  const hasReportsAccess = userRole === "superadmin" || userRole === "manager";
+
   const today = new Date().toISOString().slice(0, 10);
   const sevenDaysAgo = new Date();
   sevenDaysAgo.setDate(sevenDaysAgo.getDate() - 6);
@@ -288,10 +270,6 @@ export default function Reports() {
   const [chartData, setChartData] = useState([]);
 
   const [summary, setSummary] = useState({});
-
-  // ======================================
-  // LOAD REPORT
-  // ======================================
 
   const loadReport = async () => {
     try {
@@ -353,7 +331,13 @@ export default function Reports() {
       }
     } catch (err) {
       console.error(err);
-      toast.error("Failed to generate report.");
+
+      if (err?.response?.status === 403) {
+        toast.error("You do not have permission to view reports.");
+      } else {
+        toast.error("Failed to generate report.");
+      }
+
       setRecords([]);
       setSummary({});
       setChartData([]);
@@ -363,12 +347,11 @@ export default function Reports() {
   };
 
   useEffect(() => {
-    loadReport();
+    if (hasReportsAccess) {
+      loadReport();
+    }
+    // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [reportType, startDate, endDate]);
-
-  // ======================================
-  // SUMMARY CARDS
-  // ======================================
 
   const cards = useMemo(() => {
     switch (reportType) {
@@ -497,17 +480,9 @@ export default function Reports() {
     }
   }, [reportType, summary]);
 
-  // ======================================
-  // SEARCH + PAGINATION STATE
-  // ======================================
-
   const [search, setSearch] = useState("");
   const [page, setPage] = useState(1);
   const [pageSize, setPageSize] = useState(10);
-
-  // ======================================
-  // FILTER RECORDS
-  // ======================================
 
   const filteredRecords = useMemo(() => {
     if (!search) return records;
@@ -529,10 +504,6 @@ export default function Reports() {
   useEffect(() => {
     setPage(1);
   }, [search, pageSize, reportType]);
-
-  // ======================================
-  // EXPORT TO EXCEL
-  // ======================================
 
   const exportExcel = () => {
     if (!filteredRecords.length) {
@@ -556,10 +527,6 @@ export default function Reports() {
     toast.success("Excel report exported.");
   };
 
-  // ======================================
-  // EXPORT TO PDF
-  // ======================================
-
   const exportPDF = () => {
     if (!filteredRecords.length) {
       toast.error("No records to export.");
@@ -576,9 +543,6 @@ export default function Reports() {
 
     doc.text(`Generated: ${new Date().toLocaleString()}`, 14, 28);
 
-    // jsPDF's default Helvetica font can't render the "→" glyph — it
-    // draws garbage characters in its place. Use plain ASCII instead
-    // (same root cause as the ₦ symbol issue in the invoice PDF).
     doc.text(`Period: ${startDate}  to  ${endDate}`, 14, 36);
 
     const headers = [Object.keys(filteredRecords[0])];
@@ -617,9 +581,19 @@ export default function Reports() {
     toast.success("PDF report exported.");
   };
 
-  // ======================================
-  // UI
-  // ======================================
+  if (!hasReportsAccess) {
+    return (
+      <div className="p-6">
+        <div className="bg-white rounded-xl shadow p-16 text-center">
+          <div className="text-6xl mb-4">🔒</div>
+          <h2 className="text-2xl font-bold">Access Restricted</h2>
+          <p className="text-gray-500 mt-2">
+            Reports are only available to Managers and Super Admins.
+          </p>
+        </div>
+      </div>
+    );
+  }
 
   return (
     <div className="p-6">
@@ -719,11 +693,8 @@ export default function Reports() {
         ))}
       </div>
 
-      {/* ============================
-          CHARTS
-      ============================ */}
+      {/* CHARTS */}
       <div className="grid grid-cols-1 xl:grid-cols-2 gap-6 mb-8">
-        {/* BAR CHART */}
         <div className="bg-white rounded-xl shadow p-5">
           <h2 className="text-lg font-bold mb-4">{reportType} Overview</h2>
           <ResponsiveContainer width="100%" height={320}>
@@ -737,7 +708,6 @@ export default function Reports() {
             </BarChart>
           </ResponsiveContainer>
         </div>
-        {/* LINE CHART */}
         <div className="bg-white rounded-xl shadow p-5">
           <h2 className="text-lg font-bold mb-4">Trend Analysis</h2>
           <ResponsiveContainer width="100%" height={320}>
@@ -780,11 +750,8 @@ export default function Reports() {
         </ResponsiveContainer>
       </div>
 
-      {/* ============================
-          SEARCH + TABLE
-      ============================ */}
+      {/* SEARCH + TABLE */}
 
-      {/* Search Bar */}
       <div className="bg-white rounded-xl shadow p-5 mb-5">
         <div className="flex flex-col lg:flex-row gap-4 justify-between">
           <input
@@ -807,7 +774,6 @@ export default function Reports() {
         </div>
       </div>
 
-      {/* Improved Table */}
       <div className="bg-white rounded-xl shadow overflow-x-auto">
         <table className="min-w-full">
           <thead className="bg-green-600 text-white">
@@ -853,7 +819,6 @@ export default function Reports() {
         </table>
       </div>
 
-      {/* Pagination */}
       <div className="bg-white rounded-xl shadow mt-5 p-5">
         <div className="flex flex-col lg:flex-row justify-between items-center gap-5">
           <div className="text-gray-600">
@@ -894,7 +859,6 @@ export default function Reports() {
         </div>
       </div>
 
-      {/* LOADING OVERLAY */}
       {loading && (
         <div className="fixed inset-0 bg-black/30 backdrop-blur-sm flex justify-center items-center z-50">
           <div className="bg-white rounded-2xl shadow-xl p-10 flex flex-col items-center">
