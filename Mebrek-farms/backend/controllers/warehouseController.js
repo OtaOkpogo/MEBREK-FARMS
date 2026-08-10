@@ -44,9 +44,33 @@ exports.createWarehouseItem = async (req, res) => {
 
 // ================= UPDATE =================
 
+// Only these fields can be changed through the regular update
+// endpoint. isDeleted/deletedAt/deletedBy are deliberately excluded —
+// previously req.body was passed through unfiltered, so a manager
+// could include isDeleted: false in an update payload and silently
+// restore a soft-deleted item without going through
+// restoreWarehouseItem's superadmin-only route, or set arbitrary
+// values for those fields directly.
+const UPDATABLE_FIELDS = [
+  "itemName",
+  "category",
+  "quantity",
+  "unit",
+  "location",
+  "status",
+];
+
 exports.updateWarehouseItem = async (req, res) => {
   try {
-    const item = await Warehouse.findByIdAndUpdate(req.params.id, req.body, {
+    const updates = {};
+
+    UPDATABLE_FIELDS.forEach((field) => {
+      if (req.body[field] !== undefined) {
+        updates[field] = req.body[field];
+      }
+    });
+
+    const item = await Warehouse.findByIdAndUpdate(req.params.id, updates, {
       new: true,
       runValidators: true,
     });

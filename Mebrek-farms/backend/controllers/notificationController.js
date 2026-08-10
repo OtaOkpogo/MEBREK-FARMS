@@ -9,6 +9,20 @@ const withReadState = (notification, adminId) => {
   return { ...doc, isReadByMe };
 };
 
+// A manager may only touch (reply to / mark read) a notification thread
+// they're actually a party to — same ownership rule getNotifications
+// already enforces when listing. Superadmin, as the central inbox
+// across every manager thread, is unrestricted.
+const canAccessThread = (notification, user) => {
+  if (user.role !== "manager") return true;
+
+  const senderId = notification.senderId?.toString?.();
+  const recipientId = notification.recipientId?.toString?.();
+  const userId = user.id?.toString?.();
+
+  return senderId === userId || recipientId === userId;
+};
+
 // ======================
 // List managers (for the super admin "new conversation" picker)
 // ======================
@@ -90,7 +104,12 @@ exports.sendNotification = async (req, res) => {
       message: req.body.message.trim(),
       recipientId: admin.role === "superadmin" ? managerId : null,
       recipientName: admin.role === "superadmin" ? recipient.name : undefined,
-      recipientRoles: req.body.recipientRoles || ["manager", "superadmin"],
+      // Hardcoded, not taken from req.body — this thread type is only
+      // ever manager<->superadmin, and accepting a client-supplied
+      // recipientRoles previously let a manager set it to anything
+      // (e.g. include "staff"), which would silently expand who this
+      // thread is visible to on any code path that trusts this field.
+      recipientRoles: ["manager", "superadmin"],
     });
 
     io.emit("notificationCreated", withReadState(notification, req.user.id));
@@ -188,12 +207,21 @@ exports.getUnreadCount = async (req, res) => {
 
 // ======================
 // Mark as Read
+// SUPERADMIN: any thread. MANAGER: only threads they're a party to —
+// previously any manager could mark any notification as read
+// regardless of whether it was their conversation.
 // ======================
 exports.markAsRead = async (req, res) => {
   try {
     const notification = await Notification.findById(req.params.id);
     if (!notification)
       return res.status(404).json({ message: "Notification not found" });
+
+    if (!canAccessThread(notification, req.user)) {
+      return res.status(403).json({
+        message: "You do not have access to this conversation.",
+      });
+    }
 
     const alreadyRead = notification.readBy.some(
       (entry) => entry.adminId?.toString() === req.user.id,
@@ -216,8 +244,10 @@ exports.markAsRead = async (req, res) => {
 
 // ======================
 // Reply to Notification
-// (still used to continue a specific known thread — from the thread view
-// or the popup — unchanged from before)
+// SUPERADMIN: any thread. MANAGER: only threads they're a party to —
+// previously any manager could reply into any other manager's private
+// thread with the superadmin, since the notification ID alone was
+// enough with no check the caller actually belonged to that thread.
 // ======================
 exports.replyNotification = async (req, res) => {
   try {
@@ -231,6 +261,12 @@ exports.replyNotification = async (req, res) => {
     const notification = await Notification.findById(req.params.id);
     if (!notification)
       return res.status(404).json({ message: "Notification not found" });
+
+    if (!canAccessThread(notification, req.user)) {
+      return res.status(403).json({
+        message: "You do not have access to this conversation.",
+      });
+    }
 
     notification.replies.push({
       senderId: admin._id,

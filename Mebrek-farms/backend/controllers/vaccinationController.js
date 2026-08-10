@@ -143,6 +143,32 @@ exports.createVaccination = async (req, res) => {
 // =========================================
 // UPDATE VACCINATION
 // =========================================
+
+// Only these fields can be changed through the regular update
+// endpoint. isDeleted/deletedAt/deletedBy* are deliberately excluded —
+// previously Object.assign(vaccination, req.body) copied every field
+// from the request body unfiltered, so a manager could include
+// isDeleted: false in an update payload and silently restore a
+// soft-deleted record without going through restoreVaccination's
+// superadmin-only route, or set arbitrary values for those fields
+// directly. administeredBy is also excluded so an update can't
+// impersonate a different administerer after the fact.
+const UPDATABLE_FIELDS = [
+  "pen",
+  "vaccineName",
+  "vaccineType",
+  "batchNumber",
+  "manufacturer",
+  "quantityUsed",
+  "unit",
+  "birdsVaccinated",
+  "vaccinationDate",
+  "nextDueDate",
+  "route",
+  "cost",
+  "notes",
+];
+
 exports.updateVaccination = async (req, res) => {
   try {
     const vaccination = await Vaccination.findById(req.params.id);
@@ -153,7 +179,11 @@ exports.updateVaccination = async (req, res) => {
       });
     }
 
-    Object.assign(vaccination, req.body);
+    UPDATABLE_FIELDS.forEach((field) => {
+      if (req.body[field] !== undefined) {
+        vaccination[field] = req.body[field];
+      }
+    });
 
     vaccination.status = calculateStatus(vaccination.nextDueDate);
 
@@ -175,7 +205,7 @@ exports.updateVaccination = async (req, res) => {
 };
 
 // =========================================
-// DELETE VACCINATION (SOFT DELETE — all roles)
+// DELETE VACCINATION (SOFT DELETE)
 // =========================================
 exports.deleteVaccination = async (req, res) => {
   try {

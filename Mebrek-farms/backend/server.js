@@ -48,6 +48,22 @@ app.use(
 
 app.use(express.json());
 
+// Catches malformed JSON bodies (e.g. a client sending a bare string
+// or otherwise invalid JSON) and returns a clean 400 instead of
+// letting body-parser's SyntaxError fall through as an unhandled
+// crash-looking stack trace in the console.
+app.use((err, req, res, next) => {
+  if (err.type === "entity.parse.failed" || err instanceof SyntaxError) {
+    console.error("Malformed JSON body:", err.message);
+
+    return res.status(400).json({
+      message: "Invalid JSON in request body.",
+    });
+  }
+
+  next(err);
+});
+
 // MongoDB
 mongoose
   .connect(process.env.MONGO_URI)
