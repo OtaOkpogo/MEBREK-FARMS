@@ -4,98 +4,76 @@ import {
   fetchAttendance,
   createAttendance,
   deleteAttendance,
+  restoreAttendance,
 } from "../services/attendanceService";
 
-
 export default function Attendance() {
+  const role = localStorage.getItem("role");
+  const canDelete = role === "manager" || role === "superadmin";
+  const isSuperadmin = role === "superadmin";
 
-  const [attendance, setAttendance] =
-    useState([]);
+  const [attendance, setAttendance] = useState([]);
 
-  const [formData, setFormData] =
-    useState({
-
-      workerName: "",
-      role: "",
-      status: "Present",
-
-    });
-
+  const [formData, setFormData] = useState({
+    workerName: "",
+    role: "",
+    status: "Present",
+  });
 
   useEffect(() => {
-
     loadAttendance();
-
   }, []);
 
-
   const loadAttendance = async () => {
-
     try {
-
-      const data =
-        await fetchAttendance();
+      const data = await fetchAttendance();
 
       setAttendance(data);
-
     } catch (err) {
-
       console.error(err);
-
     }
   };
 
-
-  const handleSubmit =
-    async (e) => {
-
+  const handleSubmit = async (e) => {
     e.preventDefault();
 
     try {
-
-      await createAttendance(
-        formData
-      );
+      await createAttendance(formData);
 
       setFormData({
-
         workerName: "",
         role: "",
         status: "Present",
-
       });
 
       loadAttendance();
-
     } catch (err) {
-
       console.error(err);
-
     }
   };
 
-
-  const handleDelete =
-    async (id) => {
-
+  const handleDelete = async (id) => {
     try {
-
       await deleteAttendance(id);
 
       loadAttendance();
-
     } catch (err) {
-
       console.error(err);
-
     }
   };
 
+  const handleRestore = async (id) => {
+    try {
+      await restoreAttendance(id);
+
+      loadAttendance();
+    } catch (err) {
+      console.error(err);
+    }
+  };
 
   return (
-
     <div className="p-6">
-
       <h1
         className="
           text-3xl
@@ -106,12 +84,10 @@ export default function Attendance() {
         Farm Attendance 👨‍🌾
       </h1>
 
-
       {/* FORM */}
 
       <form
         onSubmit={handleSubmit}
-
         className="
           grid
           md:grid-cols-4
@@ -119,96 +95,65 @@ export default function Attendance() {
           mb-8
         "
       >
-
         <input
           type="text"
           placeholder="Worker Name"
-
           value={formData.workerName}
-
           onChange={(e) =>
             setFormData({
-
               ...formData,
 
-              workerName:
-                e.target.value,
-
+              workerName: e.target.value,
             })
           }
-
           className="
             border
             p-3
             rounded-lg
           "
-
           required
         />
-
 
         <input
           type="text"
           placeholder="Role"
-
           value={formData.role}
-
           onChange={(e) =>
             setFormData({
-
               ...formData,
 
-              role:
-                e.target.value,
-
+              role: e.target.value,
             })
           }
-
           className="
             border
             p-3
             rounded-lg
           "
-
           required
         />
 
-
         <select
           value={formData.status}
-
           onChange={(e) =>
             setFormData({
-
               ...formData,
 
-              status:
-                e.target.value,
-
+              status: e.target.value,
             })
           }
-
           className="
             border
             p-3
             rounded-lg
           "
         >
+          <option>Present</option>
 
-          <option>
-            Present
-          </option>
+          <option>Absent</option>
 
-          <option>
-            Absent
-          </option>
-
-          <option>
-            Late
-          </option>
-
+          <option>Late</option>
         </select>
-
 
         <button
           className="
@@ -219,9 +164,7 @@ export default function Attendance() {
         >
           Save Attendance
         </button>
-
       </form>
-
 
       {/* TABLE */}
 
@@ -233,62 +176,48 @@ export default function Attendance() {
           overflow-x-auto
         "
       >
-
         <table className="w-full">
-
           <thead
             className="
               bg-green-700
               text-white
             "
           >
-
             <tr>
+              <th className="p-3">Worker</th>
 
-              <th className="p-3">
-                Worker
-              </th>
+              <th>Role</th>
 
-              <th>
-                Role
-              </th>
+              <th>Status</th>
 
-              <th>
-                Status
-              </th>
+              <th>Date</th>
 
-              <th>
-                Date
-              </th>
+              {isSuperadmin && <th>Deleted By</th>}
 
-              <th>
-                Action
-              </th>
-
+              {(canDelete || isSuperadmin) && <th>Action</th>}
             </tr>
-
           </thead>
 
-
           <tbody>
-
             {attendance.map((item) => (
-
               <tr
                 key={item._id}
-                className="border-b"
+                className={`border-b ${
+                  item.isDeleted ? "bg-red-50 opacity-70" : ""
+                }`}
               >
-
                 <td className="p-3">
                   {item.workerName}
+                  {item.isDeleted && (
+                    <span className="ml-2 bg-red-600 text-white px-2 py-1 rounded text-xs">
+                      Deleted
+                    </span>
+                  )}
                 </td>
 
-                <td>
-                  {item.role}
-                </td>
+                <td>{item.role}</td>
 
                 <td>
-
                   <span
                     className={`
 
@@ -299,65 +228,75 @@ export default function Attendance() {
 
                       ${
                         item.status === "Present"
-
                           ? "bg-green-600"
-
                           : item.status === "Late"
-
-                          ? "bg-yellow-500"
-
-                          : "bg-red-500"
+                            ? "bg-yellow-500"
+                            : "bg-red-500"
                       }
 
                     `}
                   >
-
                     {item.status}
-
                   </span>
-
                 </td>
 
-                <td>
+                <td>{new Date(item.createdAt).toLocaleDateString()}</td>
 
-                  {new Date(
-                    item.createdAt
-                  ).toLocaleDateString()}
+                {isSuperadmin && (
+                  <td className="text-sm">
+                    {item.isDeleted ? (
+                      <div>
+                        <p className="text-gray-600">
+                          {item.deletedByName || "Unknown"}
+                        </p>
+                        <p className="text-gray-400 text-xs">
+                          {item.deletedByRole || ""}
+                        </p>
+                      </div>
+                    ) : (
+                      <span className="text-gray-400">-</span>
+                    )}
+                  </td>
+                )}
 
-                </td>
-
-                <td>
-
-                  <button
-                    onClick={() =>
-                      handleDelete(
-                        item._id
-                      )
-                    }
-
-                    className="
-                      bg-red-500
-                      text-white
-                      px-3
-                      py-1
-                      rounded
-                    "
-                  >
-                    Delete
-                  </button>
-
-                </td>
-
+                {(canDelete || isSuperadmin) && (
+                  <td>
+                    {item.isDeleted
+                      ? isSuperadmin && (
+                          <button
+                            onClick={() => handleRestore(item._id)}
+                            className="
+                            bg-green-600
+                            text-white
+                            px-3
+                            py-1
+                            rounded
+                          "
+                          >
+                            Restore
+                          </button>
+                        )
+                      : canDelete && (
+                          <button
+                            onClick={() => handleDelete(item._id)}
+                            className="
+                            bg-red-500
+                            text-white
+                            px-3
+                            py-1
+                            rounded
+                          "
+                          >
+                            Delete
+                          </button>
+                        )}
+                  </td>
+                )}
               </tr>
-
             ))}
-
           </tbody>
-
         </table>
-
       </div>
-
     </div>
   );
 }
