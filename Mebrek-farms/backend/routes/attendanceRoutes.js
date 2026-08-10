@@ -6,20 +6,48 @@ const {
   getAttendance,
   createAttendance,
   deleteAttendance,
+  getDeletedAttendance,
+  restoreAttendance,
 } = require("../controllers/attendanceController");
 
-const { protect: authMiddleware } = require("../middleware/authMiddleware");
+const {
+  protect: authMiddleware,
+  allowRoles,
+} = require("../middleware/authMiddleware");
 
-// GET ALL
+// GET ALL — all roles
 
 router.get("/", authMiddleware, getAttendance);
 
-// CREATE
+// CREATE — all roles
 
 router.post("/", authMiddleware, createAttendance);
 
-// DELETE
+// DELETE (soft delete) — manager + superadmin only, matching
+// Attendance.jsx's canDelete check. Previously had no role
+// restriction at all.
 
-router.delete("/:id", authMiddleware, deleteAttendance);
+router.delete(
+  "/:id",
+  authMiddleware,
+  allowRoles("manager", "superadmin"),
+  deleteAttendance,
+);
+
+// Superadmin-only: view and restore deleted records
+
+router.get(
+  "/deleted",
+  authMiddleware,
+  allowRoles("superadmin"),
+  getDeletedAttendance,
+);
+
+router.put(
+  "/:id/restore",
+  authMiddleware,
+  allowRoles("superadmin"),
+  restoreAttendance,
+);
 
 module.exports = router;
