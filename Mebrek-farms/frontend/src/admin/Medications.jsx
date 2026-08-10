@@ -131,6 +131,11 @@ export default function Medications() {
   };
 
   const isSuperadmin = user?.role === "superadmin";
+  // Matches BirdHealth.jsx / Vaccinations.jsx — staff gets view + create
+  // only, edit/delete is manager+superadmin. Previously this page had
+  // no such check at all, so staff could edit/delete medication
+  // records here even though they can't anywhere else in the app.
+  const canEdit = user?.role === "manager" || user?.role === "superadmin";
 
   const filteredMedications = medications.filter((med) => {
     const term = search.toLowerCase();
@@ -335,31 +340,31 @@ export default function Medications() {
                     )}
 
                     <td>
-                      {med.isDeleted ? (
-                        isSuperadmin && (
-                          <button
-                            onClick={() => handleRestore(med._id)}
-                            className="text-green-600 hover:text-green-800 text-sm font-semibold"
-                          >
-                            Restore
-                          </button>
-                        )
-                      ) : (
-                        <div className="flex gap-3">
-                          <button
-                            onClick={() => handleEdit(med)}
-                            className="text-blue-600 hover:text-blue-800 text-sm font-semibold"
-                          >
-                            Edit
-                          </button>
-                          <button
-                            onClick={() => handleDelete(med._id)}
-                            className="text-red-600 hover:text-red-800 text-sm font-semibold"
-                          >
-                            Delete
-                          </button>
-                        </div>
-                      )}
+                      {med.isDeleted
+                        ? isSuperadmin && (
+                            <button
+                              onClick={() => handleRestore(med._id)}
+                              className="text-green-600 hover:text-green-800 text-sm font-semibold"
+                            >
+                              Restore
+                            </button>
+                          )
+                        : canEdit && (
+                            <div className="flex gap-3">
+                              <button
+                                onClick={() => handleEdit(med)}
+                                className="text-blue-600 hover:text-blue-800 text-sm font-semibold"
+                              >
+                                Edit
+                              </button>
+                              <button
+                                onClick={() => handleDelete(med._id)}
+                                className="text-red-600 hover:text-red-800 text-sm font-semibold"
+                              >
+                                Delete
+                              </button>
+                            </div>
+                          )}
                     </td>
                   </tr>
                 ))}

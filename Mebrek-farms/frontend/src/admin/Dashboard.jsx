@@ -181,9 +181,9 @@ export default function Dashboard() {
     }
   };
 
-  const handleReply = async (id, data) => {
+  const handleReply = async (id, message) => {
     try {
-      await replyNotification(id, data);
+      await replyNotification(id, { message });
 
       await checkNotifications();
     } catch (err) {
