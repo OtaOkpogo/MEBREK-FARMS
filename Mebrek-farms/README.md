@@ -8,120 +8,276 @@
 
 A full-stack poultry farm management platform built for **Mebrek Farms, Eket, Akwa Ibom, Nigeria**.
 
-The system provides centralized management of production, egg and manure sales, inventory, workers, attendance, bird health, vaccinations, medications, mortality, expenses, notifications, reporting, customer orders, and administrative access control.
+The system centralizes daily farm operations including production tracking, egg and manure sales, invoicing, feed and warehouse inventory, bird health, vaccinations, medications, mortality, workers, attendance, expenses, notifications, reporting, global search, backup, and order management.
+
+It uses **role-based access control, server-side authorization, soft-delete/restore workflows, server-validated financial calculations, and Socket.IO real-time updates**.
 
 ## Table of Contents
 
-- [Project Overview](#project-overview)
-- [Production Status](#production-status)
-- [Developer](#developer)
-- [Tech Stack](#tech-stack)
+- [Overview](#overview)
+- [Key Features](#key-features)
+- [Technology Stack](#technology-stack)
+- [Getting Started](#getting-started)
+- [Environment Variables](#environment-variables)
+- [Project Structure](#project-structure)
 - [System Modules](#system-modules)
 - [Role-Based Access Control](#role-based-access-control)
-- [Egg Sales](#egg-sales)
-- [Manure Sales](#manure-sales)
-- [Reporting](#reporting)
-- [Real-Time Notifications](#real-time-notifications)
-- [Global Search](#global-search)
-- [Soft Delete and Restore](#soft-delete-and-restore)
-- [Architecture](#architecture)
-- [Project Structure](#project-structure)
-- [Getting Started](#getting-started)
-- [Environment Configuration](#environment-configuration)
 - [Security Architecture](#security-architecture)
 - [Architectural Conventions](#architectural-conventions)
-- [Testing Checklist](#testing-checklist)
+- [Egg Sales Pricing](#egg-sales-pricing)
+- [Real-Time Communication](#real-time-communication)
+- [Exports and Invoicing](#exports-and-invoicing)
+- [Testing and Production Readiness](#testing-and-production-readiness)
 - [Deployment](#deployment)
-- [Production Security Checklist](#production-security-checklist)
-- [Maintenance Guidelines](#maintenance-guidelines)
-- [Important Files](#important-files)
+- [Production Checklist](#production-checklist)
+- [Maintenance](#maintenance)
 - [License](#license)
+- [Developer](#developer)
 
-## Project Overview
+## Overview
 
-Mebrek Farms Farm Management System is a full-stack business application designed to centralize and simplify poultry farm operations. It replaces fragmented manual processes with structured digital recording, monitoring, searching, reporting, and administration.
+**Mebrek Farms Farm Management System** provides a centralized platform for managing poultry farm operations.
 
-## Production Status
+The application consists of:
 
-**Status: Production Ready**
+- React/Vite frontend.
+- Node.js/Express REST API.
+- MongoDB/Mongoose data layer.
+- JWT authentication.
+- Role-based authorization.
+- Socket.IO real-time communication.
+- Reporting and export capabilities.
 
-The system has completed functional testing and authorization/security checks across the major modules, including authentication, role-based access, protected APIs, dashboard, production, sales, inventory, health records, workers, expenses, notifications, reports, search, backup, orders, soft-delete/restore workflows, and Socket.IO communication.
+The system is intended for internal farm operations and is configured as a **private/proprietary application**.
 
-## Developer
+## Key Features
 
-**Ota Okpogo**  
-GitHub: **https://github.com/OtaOkpogo**
+### Farm Operations
 
-## Tech Stack
+- Daily poultry production tracking.
+- Pen-level production records.
+- Opening and closing bird stock.
+- Mortality tracking.
+- Feed consumption tracking.
+- Egg production calculations.
+- Production percentage calculations.
+- Bird health monitoring.
+- Vaccination records.
+- Medication records.
+- Follow-up and due-date tracking.
+
+### Sales and Finance
+
+- Multi-category egg sales.
+- Egg sales invoicing.
+- Manure sales.
+- Customer records.
+- Payment tracking.
+- Outstanding balance calculations.
+- Payment status tracking.
+- Discounts and transport charges.
+- Farm expense tracking.
+- Financial reporting.
+
+### Inventory
+
+- Feed inventory.
+- Feed purchase records.
+- Feed invoices.
+- Warehouse inventory.
+- Room inventory.
+- Low-stock monitoring.
+- Stock status tracking.
+- Equipment condition tracking.
+- Soft-delete and restore workflows.
+
+### Human Resources
+
+- Worker records.
+- Employee/staff numbers.
+- Personal information.
+- Employment details.
+- Salary information.
+- Bank details.
+- Next-of-kin information.
+- Worker attendance.
+- Staff account management.
+- Role assignment and account status management.
+
+### Administration
+
+- Dashboard.
+- Role-based reporting.
+- Internal notifications.
+- Real-time communication.
+- Global search.
+- Database backup.
+- Order management.
+- PDF and Excel exports.
+
+## Technology Stack
 
 ### Frontend
 
-- React + Vite
+- React
+- Vite
 - React Router
 - Tailwind CSS
 - Recharts
 - Socket.IO Client
 - Axios
-- jsPDF + jspdf-autotable
-- SheetJS / XLSX
-- React Toastify / React Hot Toast
+- jsPDF
+- jspdf-autotable
+- SheetJS / xlsx
+- react-toastify / react-hot-toast
 
 ### Backend
 
-- Node.js + Express.js
-- MongoDB + Mongoose
-- JWT authentication
+- Node.js
+- Express
+- MongoDB
+- Mongoose
+- JSON Web Tokens (JWT)
 - Socket.IO
 - dotenv
 - bcryptjs
 
-### Architecture
+## Getting Started
+
+### Prerequisites
+
+- Node.js **v18 or later**
+- npm
+- MongoDB local server or MongoDB Atlas
+- Git
+
+### Clone the Repository
+
+```bash
+git clone https://github.com/OtaOkpogo/Mebrek-farms.git
+cd Mebrek-farms
+```
+
+### Backend Setup
+
+```bash
+cd backend
+npm install
+```
+
+Create `backend/.env`:
+
+```env
+MONGO_URI=your_mongodb_connection_string
+JWT_SECRET=your_jwt_secret
+PORT=5000
+```
+
+Start the backend:
+
+```bash
+npm start
+```
+
+Default backend URL:
 
 ```text
-React + Vite Frontend
-        │
-        │ REST API / Socket.IO
-        ▼
-Node.js + Express Backend
-        │
-        │ Mongoose
-        ▼
-MongoDB Database
+http://localhost:5000
+```
+
+### Frontend Setup
+
+In another terminal:
+
+```bash
+cd frontend
+npm install
+npm run dev
+```
+
+Default frontend URL:
+
+```text
+http://localhost:5173
+```
+
+The frontend development URL must match the backend CORS configuration.
+
+## Environment Variables
+
+### Backend
+
+| Variable     | Description                               |
+| ------------ | ----------------------------------------- |
+| `MONGO_URI`  | MongoDB connection string                 |
+| `JWT_SECRET` | Secret used to sign and verify JWT tokens |
+| `PORT`       | Backend server port, normally `5000`      |
+
+Production secrets must never be committed to Git.
+
+## Project Structure
+
+```text
+Mebrek-farms/
+├── backend/
+│   ├── controllers/       # Business logic
+│   ├── models/            # Mongoose schemas
+│   ├── routes/            # Express routes
+│   ├── middleware/        # Authentication/authorization
+│   ├── services/          # Backend services where applicable
+│   └── server.js          # Express + Socket.IO entry point
+│
+├── frontend/
+│   └── src/
+│       ├── admin/         # Administrative pages
+│       ├── pages/         # Application pages
+│       ├── components/    # Shared UI components
+│       ├── services/      # API service wrappers
+│       ├── routes/        # Protected routing
+│       └── App.jsx        # Route tree
+│
+└── README.md
 ```
 
 ## System Modules
 
-| Module             | Description                                                      |
-| ------------------ | ---------------------------------------------------------------- |
-| **Dashboard**      | Role-filtered KPI cards, charts and operational summaries        |
-| **Production**     | Daily poultry and egg production tracking by pen                 |
-| **Egg Sales**      | Multi-category egg sales, pricing, invoices and payments         |
-| **Manure Sales**   | Dry/wet manure sales, pricing, invoices and payments             |
-| **Feed Inventory** | Feed stock, pricing, supplier and expiry tracking                |
-| **Feed Invoices**  | Feed purchase invoices with soft-delete and restore              |
-| **Warehouse**      | General farm warehouse inventory                                 |
-| **Room Inventory** | Room-based equipment and asset tracking                          |
-| **Bird Health**    | Health issues, treatments, veterinary consultation and follow-up |
-| **Vaccinations**   | Vaccine administration and follow-up tracking                    |
-| **Medications**    | Medication administration records                                |
-| **Mortality**      | Bird mortality and financial loss tracking                       |
-| **Attendance**     | Daily worker attendance                                          |
-| **Workers**        | Complete employee and HR records                                 |
-| **Staff Accounts** | Administrative account management                                |
-| **Expenses**       | Farm expense tracking and reporting                              |
-| **Notifications**  | Internal manager/superadmin communication                        |
-| **Reports**        | Cross-module reporting with Excel/PDF export                     |
-| **Global Search**  | Role-filtered search across farm records                         |
-| **Backup**         | Database export for superadmin                                   |
-| **Orders**         | Customer order intake and administrative order management        |
+| Module             | Description                                                                        |
+| ------------------ | ---------------------------------------------------------------------------------- |
+| **Dashboard**      | Role-filtered KPI cards and charts                                                 |
+| **Production**     | Daily egg production, stock, mortality, feed consumption and production percentage |
+| **Egg Sales**      | Multi-category egg sales, pricing, payments and invoices                           |
+| **Manure Sales**   | Dry/wet manure sales and invoicing                                                 |
+| **Feed Inventory** | Feed stock, pricing, supplier and expiry tracking                                  |
+| **Feed Invoices**  | Feed purchase invoices with soft-delete/restore                                    |
+| **Warehouse**      | General warehouse inventory                                                        |
+| **Room Inventory** | Room-level equipment and asset tracking                                            |
+| **Bird Health**    | Health issues, symptoms, treatment and follow-up                                   |
+| **Vaccinations**   | Vaccine administration and follow-up tracking                                      |
+| **Medications**    | Medication administration and health linkage                                       |
+| **Mortality**      | Bird mortality and financial loss tracking                                         |
+| **Attendance**     | Daily worker attendance                                                            |
+| **Workers**        | Complete worker/HR records                                                         |
+| **Staff Accounts** | Admin account and role management                                                  |
+| **Expenses**       | Farm expense records and reporting                                                 |
+| **Notifications**  | Internal manager/superadmin communication                                          |
+| **Reports**        | Cross-module reporting with PDF/Excel export                                       |
+| **Global Search**  | Role-filtered cross-module search                                                  |
+| **Backup**         | Database export for superadmin                                                     |
+| **Orders**         | Public order intake and admin order management                                     |
 
 ## Role-Based Access Control
 
-The system uses three roles: **staff**, **manager**, and **superadmin**. Authorization is enforced at both frontend and backend levels. Frontend restrictions improve UX; backend authorization is the actual security boundary.
+The system has three primary roles:
+
+- **staff**
+- **manager**
+- **superadmin**
+
+Authorization is enforced at both frontend and backend levels. The frontend controls visibility and navigation, while the backend is the actual security boundary.
 
 | Module         |    Staff    |    Manager    |   Superadmin   |
 | -------------- | :---------: | :-----------: | :------------: |
-| Dashboard      |   Limited   |    Limited    |      Full      |
+| Dashboard      | ✅ Limited  |  ✅ Limited   |    ✅ Full     |
 | Orders         |     ✅      |      ✅       |       ✅       |
 | Production     |     ✅      |      ✅       |       ✅       |
 | Attendance     | View/Create | Full + Delete | Full + Restore |
@@ -143,78 +299,41 @@ The system uses three roles: **staff**, **manager**, and **superadmin**. Authori
 | Backup         |     ❌      |      ❌       |       ✅       |
 | Global Search  |   Limited   |     Broad     |      Full      |
 
-### Important Access Rules
+### Important Access Rule
 
-- **Workers are superadmin-only.**
-- **Staff Accounts, Expenses and Backup are superadmin-only.**
-- **Reports are unavailable to staff.**
-- **Egg Sales and Manure Sales are unavailable to staff.**
-- **Deleted-record visibility and restore are restricted to superadmin where supported.**
+**Workers are restricted to superadmin.** A manager or staff user must receive a backend authorization failure when attempting to access the Workers API directly.
 
-## Egg Sales
+## Security Architecture
 
-Egg Sales supports multiple categories on one customer invoice.
+### Authentication
 
-| Egg Category | Crate Price |
-| ------------ | ----------: |
-| Big          |      ₦5,000 |
-| Jumbo        |      ₦5,800 |
-| Turkey       |      ₦6,000 |
-| Normal       |      ₦4,900 |
-| Small        |      ₦4,000 |
+JWT authentication protects private API endpoints. The authentication middleware validates the token and attaches the authenticated user to `req.user`.
 
-Example single transaction:
+The authenticated user ID is:
 
 ```text
-Big       → 2 crates
-Jumbo     → 1 crate
-Turkey    → 2 crates
-Normal    → 3 crates
-Small     → 1 crate
+req.user.id
 ```
 
-The system calculates the complete transaction as one invoice while preserving each category as an individual line item. Server-side price validation prevents tampered client prices from determining the final amount.
+### Role Authorization
 
-Supported features include customer details, invoice numbering, crates, loose eggs, discounts, transport charges, amount paid, balances, payment methods/status, remarks, PDF invoices, soft deletion, and authorized restoration.
+Restricted routes use `protect` together with `allowRoles(...)`.
 
-## Manure Sales
+Example:
 
-Manure Sales follows the same general financial pattern as Egg Sales, including line items, customer information, pricing, invoices, discounts, transport charges, payments, balances, status, PDF invoices, and soft-delete/restore where permitted. Price-sensitive values are validated server-side.
+```js
+router.get("/", protect, allowRoles("superadmin"), getWorkers);
+```
 
-## Reporting
+### Frontend Protection
 
-Reports cover cross-module operational information such as:
+The frontend uses protected routes and role-aware navigation. Restricted sidebar links are hidden from unauthorized roles.
 
-- Production
-- Egg Sales
-- Manure Sales
-- Feed Usage
-- Mortality
-- Warehouse
-- Staff
+Frontend hiding is only a UX layer; backend authorization remains mandatory.
 
-Reports can be exported to **PDF** and **Excel**, with access filtered by role.
+### Soft Delete
 
-## Real-Time Notifications
-
-Socket.IO provides real-time communication for:
-
-- Internal notifications
-- Manager/superadmin messaging
-- Live notification updates
-- Unread notification counts
-- Conversation updates
-- Socket-driven UI refreshes
-
-Server-side emissions use the Express application Socket.IO instance.
-
-## Global Search
-
-Global Search provides cross-module search while filtering results according to the authenticated user's role, preventing discovery of unauthorized records.
-
-## Soft Delete and Restore
-
-Modules using soft deletion retain records rather than immediately removing them. Typical fields are:
+Applicable modules use deletion metadata such as:
 
 ```text
 isDeleted
@@ -222,429 +341,221 @@ deletedAt
 deletedBy
 ```
 
-Depending on the module, deletion metadata may include the deleting user's ID, name, and role. Authorized superadmins can review and restore records where supported.
+Restore operations are restricted to authorized roles.
 
-## Architecture
+### Financial Security
 
-### Frontend Responsibilities
+Price-sensitive transactions are recalculated and validated on the server. The backend does not blindly trust totals or prices submitted by the browser.
 
-- User interface and navigation
-- Forms and client-side validation
-- Charts and dashboards
-- API service calls
-- Route protection and role-based menu visibility
-- Real-time UI updates
-- PDF/Excel exports
+## Architectural Conventions
 
-### Backend Responsibilities
+- Import authentication helpers from `middleware/authMiddleware.js` using `{ protect, allowRoles }`.
+- Use `req.user.id` for the authenticated user ID.
+- Use soft-delete metadata rather than destructive deletion where the module supports it.
+- Register `/deleted` routes before `/:id` routes where both exist.
+- Whitelist fields accepted by update endpoints instead of blindly passing `req.body` to database updates.
+- Use the shared `apiClient.js` for frontend API requests.
+- Use `req.app.get("io")` for Socket.IO access from controllers.
+- Keep shared constants synchronized between frontend and backend.
+- Re-validate price-sensitive line items server-side.
 
-- Authentication and authorization
-- Business logic
-- Data validation
-- Financial calculations
-- Database operations
-- Soft deletion and restore
-- Socket.IO events
-- API security
+## Egg Sales Pricing
 
-### Database
+Mebrek Farms uses five egg categories:
 
-MongoDB stores operational data through Mongoose models.
+| Egg Category | Price per Crate |
+| ------------ | --------------: |
+| **Big**      |          ₦5,000 |
+| **Jumbo**    |          ₦5,800 |
+| **Turkey**   |          ₦6,000 |
+| **Normal**   |          ₦4,900 |
+| **Small**    |          ₦4,000 |
 
-## Project Structure
+A customer can purchase any combination of these categories in **one transaction and one invoice**. Each category is represented as a line item and the server calculates the combined amount.
 
-```text
-Mebrek-Farms/
-│
-├── backend/
-│   ├── controllers/       # Business logic per module
-│   ├── middleware/
-│   │   └── authMiddleware.js
-│   ├── models/            # Mongoose schemas
-│   ├── routes/            # Express routes
-│   ├── services/          # Backend service logic
-│   ├── server.js          # Application entry point
-│   └── package.json
-│
-├── frontend/
-│   ├── src/
-│   │   ├── admin/         # Admin-panel modules
-│   │   ├── pages/         # Public and selected application pages
-│   │   ├── components/    # Shared UI components
-│   │   ├── services/      # API service wrappers
-│   │   ├── routes/
-│   │   │   └── ProtectedRoute.jsx
-│   │   ├── App.jsx
-│   │   └── main.jsx
-│   └── package.json
-│
-└── README.md
-```
+## Real-Time Communication
 
-## Getting Started
+Socket.IO provides real-time functionality for:
 
-### Prerequisites
+- Notifications.
+- Messaging.
+- Live notification counts.
+- Real-time updates between connected users.
 
-- Node.js 18+
-- npm
-- MongoDB local instance or MongoDB Atlas
-- Git
+## Exports and Invoicing
 
-### Backend Setup
+### PDF
 
-```bash
-cd backend
-npm install
-```
+Used for invoices and printable reports through:
 
-Create `backend/.env`:
+- `jsPDF`
+- `jspdf-autotable`
 
-```env
-MONGO_URI=your_mongodb_connection_string
-JWT_SECRET=your_secure_jwt_secret
-PORT=5000
-```
+### Excel
 
-Start the backend:
+Used for reporting and data export through:
 
-```bash
-npm start
-```
+- `SheetJS / xlsx`
 
-Default backend URL:
+## Testing and Production Readiness
 
-```text
-http://localhost:5000
-```
+Before active deployment, test the system separately as **staff**, **manager**, and **superadmin**.
 
-### Frontend Setup
+### Authentication Tests
 
-```bash
-cd frontend
-npm install
-npm run dev
-```
+- Valid login succeeds.
+- Invalid credentials are rejected.
+- Missing JWT is rejected.
+- Invalid/expired JWT is rejected.
+- Logout/session clearing works correctly.
 
-Default frontend URL:
+### Authorization Tests
 
-```text
-http://localhost:5173
-```
+For every restricted module:
 
-The frontend API configuration must point to the running backend.
+1. Test normal access with the permitted role.
+2. Test frontend route access with an unauthorized role.
+3. Manually call the backend endpoint as an unauthorized role.
+4. Confirm the backend returns `403 Forbidden`.
 
-## Environment Configuration
-
-### Backend
-
-```env
-MONGO_URI=
-JWT_SECRET=
-PORT=5000
-```
-
-### Frontend
-
-Configure the API base URL through the project's API client/environment configuration. For local development it normally points to:
-
-```text
-http://localhost:5000/api
-```
-
-For production:
-
-```text
-Frontend → Production Backend
-Backend  → Production MongoDB
-```
-
-Never commit production credentials or `.env` files to the repository.
-
-## Security Architecture
-
-Security is enforced in two layers.
-
-### Frontend Layer
-
-The frontend uses protected routes, role-based navigation, and role-based menu visibility to provide a clean user experience.
-
-### Backend Layer
-
-The backend uses:
-
-```js
-protect
-allowRoles(...)
-```
-
-to enforce authorization on protected endpoints.
-
-### Direct API Access Test
-
-Frontend hiding is not sufficient. A user may manually call an endpoint.
-
-For a superadmin-only Workers endpoint:
+Example:
 
 ```text
 GET /api/workers
 ```
 
-A manager or staff account should receive:
+A manager or staff account must not receive worker data.
 
-```text
-403 Forbidden
-```
+### CRUD Tests
 
-and must not receive worker records.
+Verify create, read, update, delete/soft-delete, restore where supported, validation errors, empty states, and refresh/reload behavior.
 
-## Architectural Conventions
+### Financial Tests
 
-### Authentication Middleware
+Verify:
 
-Use:
-
-```js
-const { protect, allowRoles } = require("../middleware/authMiddleware");
-```
-
-`middleware/authMiddleware.js` is the active authorization middleware. Do not use the legacy `middleware/auth.js` where role authorization is required.
-
-### JWT User ID
-
-Authenticated user IDs are accessed through:
-
-```js
-req.user.id;
-```
-
-not `req.user._id`.
-
-### Role Authorization
-
-Protected routes should explicitly specify permitted roles, for example:
-
-```js
-router.get("/workers", protect, allowRoles("superadmin"), getWorkers);
-```
-
-### Soft Delete
-
-Use `isDeleted`, `deletedAt`, and `deletedBy` for modules following the soft-delete pattern. Restore operations clear deletion metadata.
-
-### Route Ordering
-
-Register `/deleted` before `/:id` so Express does not interpret `deleted` as an ID parameter.
-
-### Update Endpoints
-
-Update endpoints should whitelist accepted fields rather than passing `req.body` blindly to `findByIdAndUpdate()` or `Object.assign()`. This prevents protected fields such as soft-delete properties from being tampered with through normal update routes.
-
-### API Client
-
-`apiClient.js` handles global API response processing. Service functions should return clean data rather than repeatedly requiring components to unwrap Axios responses.
-
-### Socket.IO
-
-Use:
-
-```js
-req.app.get("io");
-```
-
-for server-side Socket.IO emissions rather than `req.io`.
-
-### Shared Constants
-
-Shared values such as farm pen names should remain synchronized between backend CommonJS and frontend ES Module implementations.
-
-### Financial Validation
-
-Price-sensitive modules such as Egg Sales and Manure Sales must validate prices on the backend. Client-supplied financial values are never treated as authoritative.
-
-## Testing Checklist
-
-### Authentication
-
-- [ ] Valid login works.
-- [ ] Invalid credentials are rejected.
-- [ ] Logout works.
-- [ ] Expired/invalid JWTs are rejected.
-- [ ] Protected endpoints reject unauthenticated requests.
-
-### Authorization
-
-- [ ] Staff cannot access manager-only modules.
-- [ ] Manager cannot access Workers.
-- [ ] Manager cannot access Staff Accounts.
-- [ ] Manager cannot access Expenses.
-- [ ] Staff cannot access Reports.
-- [ ] Staff cannot access Egg Sales.
-- [ ] Staff cannot access Manure Sales.
-- [ ] Superadmin can access authorized modules.
-
-### Data Operations
-
-- [ ] Create records.
-- [ ] Edit records.
-- [ ] Delete records.
-- [ ] Restore records where supported.
-- [ ] Deleted records are hidden from unauthorized roles.
-- [ ] Superadmin can review deleted records where supported.
-
-### Financial Modules
-
-- [ ] Egg category prices calculate correctly.
-- [ ] Multiple egg categories can appear on one invoice.
-- [ ] Discounts calculate correctly.
-- [ ] Transport charges calculate correctly.
-- [ ] Amount paid and outstanding balances calculate correctly.
-- [ ] Payment status is correct.
-- [ ] Invoice generation works.
-- [ ] Backend price validation works.
-
-### Real-Time Features
-
-- [ ] Socket.IO connects successfully.
-- [ ] Notifications appear in real time.
-- [ ] Unread counts update.
-- [ ] Internal messaging updates correctly.
-- [ ] Socket reconnection behaves correctly.
+- Egg category prices.
+- Multiple categories in one sale.
+- Discounts.
+- Transport charges.
+- Amount paid.
+- Balance.
+- Payment status.
+- Invoice generation.
+- Daily sales.
+- Weekly sales.
+- Monthly sales.
 
 ## Deployment
 
+Recommended production architecture:
+
+```text
+Frontend
+   ↓
+Vercel / Netlify
+   ↓
+Production Backend
+   ↓
+Render / Railway / VPS
+   ↓
+MongoDB Atlas / Production MongoDB
+```
+
 ### Frontend
 
-Recommended platforms:
-
-- Vercel
-- Netlify
+Deploy the Vite frontend to Vercel or Netlify and configure its production API URL.
 
 ### Backend
 
-Recommended platforms:
-
-- Render
-- Railway
-- VPS
+Deploy the Node.js/Express backend to Render, Railway, or a secured VPS and configure production environment variables.
 
 ### Database
 
-Recommended:
+Use MongoDB Atlas or another secured production MongoDB server.
 
-- MongoDB Atlas
-- Production MongoDB server
+Never expose database credentials or JWT secrets in frontend code.
 
-### Deployment Flow
+## Production Checklist
 
-```text
-GitHub Repository
-       │
-       ├── Frontend → Vercel / Netlify
-       │
-       └── Backend → Render / Railway / VPS
-                         │
-                         ▼
-                   MongoDB Atlas
-```
+- [ ] Production MongoDB configured.
+- [ ] Production backend deployed.
+- [ ] Production frontend deployed.
+- [ ] Production environment variables configured.
+- [ ] Strong production JWT secret configured.
+- [ ] Database credentials secured.
+- [ ] Production CORS configured.
+- [ ] Superadmin account verified.
+- [ ] Manager accounts verified.
+- [ ] Staff accounts verified.
+- [ ] Role permissions tested.
+- [ ] Workers access restricted to superadmin.
+- [ ] Reports permissions tested.
+- [ ] Egg category prices verified.
+- [ ] Sales calculations verified.
+- [ ] Invoice generation tested.
+- [ ] PDF exports tested.
+- [ ] Excel exports tested.
+- [ ] Notifications tested.
+- [ ] Socket.IO tested.
+- [ ] Backup tested.
+- [ ] Restore workflows tested.
+- [ ] Browser refresh/re-login tested.
+- [ ] Mobile/tablet layout checked.
+- [ ] Error handling checked.
+- [ ] Database indexes verified.
+- [ ] Development secrets excluded from Git.
 
-Before deployment:
+## Maintenance
 
-1. Configure the production database.
-2. Generate a strong production JWT secret.
-3. Configure production CORS.
-4. Configure the frontend API URL.
-5. Configure backend environment variables.
-6. Enable HTTPS.
-7. Verify production Socket.IO connectivity.
-8. Test authentication and role restrictions.
-9. Test direct API access.
-10. Test database backup.
-11. Perform a final production smoke test.
+### Database
 
-## Production Security Checklist
+- Perform regular backups.
+- Monitor database size.
+- Review indexes.
+- Investigate failed operations.
 
-- [ ] Replace the development JWT secret.
-- [ ] Use a strong production JWT secret.
-- [ ] Configure production MongoDB credentials.
-- [ ] Restrict MongoDB network access.
-- [ ] Configure production CORS.
-- [ ] Enable HTTPS.
-- [ ] Verify every protected route.
-- [ ] Verify every role restriction.
-- [ ] Test direct API access.
-- [ ] Test invalid JWTs.
-- [ ] Test expired JWTs.
-- [ ] Verify soft-delete permissions.
-- [ ] Verify restore permissions.
-- [ ] Confirm backups work.
-- [ ] Confirm production environment variables.
-- [ ] Confirm `.env` is excluded from Git.
-- [ ] Confirm database credentials are not exposed.
-- [ ] Confirm frontend points to the production API.
-- [ ] Confirm backend points to the production database.
-- [ ] Perform a final end-to-end test.
+### Security
 
-## Maintenance Guidelines
+- Rotate secrets when required.
+- Remove inactive accounts.
+- Review roles periodically.
+- Keep dependencies updated.
+- Monitor unauthorized access attempts.
 
-### Do
+### Application
 
-- Back up the database regularly.
-- Monitor server logs.
-- Monitor MongoDB health.
-- Keep dependencies updated carefully.
-- Test authorization after security-related changes.
-- Test financial calculations after sales-related changes.
-- Keep environment secrets outside source control.
-- Document future changes.
+- Monitor backend logs.
+- Monitor frontend errors.
+- Check Socket.IO connections.
+- Verify operational workflows.
+- Periodically test backup recovery.
 
-### Avoid
+### Data Integrity
 
-- Editing production data directly without a backup.
-- Removing authorization middleware.
-- Trusting frontend financial calculations.
-- Disabling backend role checks.
-- Committing `.env` files.
-- Changing database schemas without considering existing records.
-- Deploying untested code directly to production.
+Pay particular attention to:
 
-## Important Files
-
-### Backend
-
-```text
-backend/server.js
-backend/middleware/authMiddleware.js
-backend/controllers/
-backend/models/
-backend/routes/
-backend/services/
-```
-
-### Frontend
-
-```text
-frontend/src/App.jsx
-frontend/src/routes/ProtectedRoute.jsx
-frontend/src/services/apiClient.js
-frontend/src/admin/
-frontend/src/pages/
-frontend/src/components/
-frontend/src/services/
-```
+- Sales totals.
+- Outstanding balances.
+- Production records.
+- Mortality records.
+- Feed stock.
+- Warehouse stock.
+- Worker information.
 
 ## License
 
 **Proprietary — Internal Use for Mebrek Farms**
 
-This software is developed for Mebrek Farms and is not licensed for unrestricted redistribution, resale, modification, or commercial reuse without authorization.
+This software is intended for Mebrek Farms and its authorized personnel. Unauthorized copying, redistribution, modification, or commercial use is not permitted without appropriate authorization.
 
-## Project Status
+## Developer
 
-**Mebrek Farms Farm Management System — Production Ready**
+**Ota Okpogo**
 
-A centralized, secure and reliable platform for managing the day-to-day operations of a modern poultry farm.
+_Developer & System Architect_
 
----
+**MEBREK FARMS Poultry Farm Management System**
 
-**Built for Mebrek Farms.**  
-**Developed by Ota Okpogo.**
+**GitHub:**  
+github.com/OtaOkpogo
