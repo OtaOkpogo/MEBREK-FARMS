@@ -40,6 +40,15 @@ exports.createWorker = async (req, res) => {
   try {
     const data = { ...req.body };
 
+    // Normalize optional enum fields
+    if (data.bloodGroup !== undefined) {
+      data.bloodGroup = String(data.bloodGroup).trim() || undefined;
+    }
+
+    if (data.idType !== undefined) {
+      data.idType = String(data.idType).trim() || undefined;
+    }
+
     // --------------------------------------------------------
     // Backward compatibility for old frontend requests
     // --------------------------------------------------------
@@ -153,6 +162,18 @@ exports.getWorkerById = async (req, res) => {
 exports.updateWorker = async (req, res) => {
   try {
     const data = { ...req.body };
+
+    // --------------------------------------------------------
+    // Normalize optional enum fields
+    // --------------------------------------------------------
+
+    if (data.bloodGroup !== undefined) {
+      data.bloodGroup = String(data.bloodGroup).trim() || undefined;
+    }
+
+    if (data.idType !== undefined) {
+      data.idType = String(data.idType).trim() || undefined;
+    }
 
     // --------------------------------------------------------
     // Backward compatibility

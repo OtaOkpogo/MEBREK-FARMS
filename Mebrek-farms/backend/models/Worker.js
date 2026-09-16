@@ -282,6 +282,8 @@ const workerSchema = new mongoose.Schema(
     bloodGroup: {
       type: String,
       enum: ["A+", "A-", "B+", "B-", "AB+", "AB-", "O+", "O-"],
+      default: undefined,
+      set: (value) => (value === "" ? undefined : value),
     },
 
     // ============================================================
