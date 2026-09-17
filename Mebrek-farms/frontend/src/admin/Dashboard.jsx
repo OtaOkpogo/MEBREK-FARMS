@@ -92,6 +92,7 @@ export default function Dashboard() {
     attendance: [],
     mortality: [],
     roomInventory: [],
+    roomInventorySummary: [],
     estimatedRevenue: 0,
   });
 
@@ -125,6 +126,7 @@ export default function Dashboard() {
         attendance: res?.attendance || [],
         mortality: res?.mortality || [],
         roomInventory: res?.roomInventory || [],
+        roomInventorySummary: res?.roomInventorySummary || [],
         // Backend only includes this field for roles permitted to see it.
         // Non-superadmins will get undefined here, hence the fallback.
         estimatedRevenue: res?.estimatedRevenue ?? 0,
@@ -219,6 +221,7 @@ export default function Dashboard() {
   const attendance = data.attendance;
   const mortality = data.mortality;
   const roomInventory = data.roomInventory || [];
+  const roomInventorySummary = data.roomInventorySummary || [];
 
   // ================= KPI =================
 
@@ -243,21 +246,27 @@ export default function Dashboard() {
     0,
   );
 
-  const totalRooms = new Set(roomInventory.map((item) => item.room)).size;
+  const totalRooms = roomInventorySummary.length;
 
-  const totalRoomItems = roomInventory.length;
+  const totalRoomItems = roomInventorySummary.reduce(
+    (sum, room) => sum + Number(room.totalQuantity || 0),
+    0,
+  );
 
-  const damagedItems = roomInventory.filter(
-    (item) => item.condition === "Damaged",
-  ).length;
+  const damagedItems = roomInventorySummary.reduce(
+    (sum, room) => sum + Number(room.damagedQuantity || 0),
+    0,
+  );
 
-  const missingItems = roomInventory.filter(
-    (item) => item.condition === "Missing",
-  ).length;
+  const missingItems = roomInventorySummary.reduce(
+    (sum, room) => sum + Number(room.missingQuantity || 0),
+    0,
+  );
 
-  const goodItems = roomInventory.filter(
-    (item) => item.condition === "Good",
-  ).length;
+  const goodItems = roomInventorySummary.reduce(
+    (sum, room) => sum + Number(room.goodQuantity || 0),
+    0,
+  );
 
   // ================= ATTENDANCE =================
 
@@ -682,7 +691,7 @@ export default function Dashboard() {
                 <tbody>
                   {roomInventory.slice(0, 10).map((item) => (
                     <tr key={item._id} className="border-b">
-                      <td className="py-2">{item.room}</td>
+                      <td className="py-2">{item.roomName}</td>
 
                       <td className="py-2">{item.itemName}</td>
 
