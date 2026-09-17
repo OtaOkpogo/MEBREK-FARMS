@@ -13,15 +13,7 @@ const Mortality = require("../models/Mortality");
 const Vaccination = require("../models/Vaccination");
 
 // ================= ROLE PERMISSIONS =================
-// Single source of truth for which dashboard fields each role receives.
-// Keep this in sync with ROLE_PERMISSIONS in Dashboard.jsx if you also
-// want the frontend map to match — but this backend copy is what
-// actually enforces access, since the frontend map is just UI polish.
-//
-// feedStock/roomInventory withheld from staff to match the module-level
-// restriction on Feed Inventory and Room Inventory — those pages and
-// their APIs are superadmin+manager only, so the dashboard summary
-// can't hand staff the same raw data through a side door.
+
 const ROLE_PERMISSIONS = {
   superadmin: {
     revenue: true,
@@ -35,6 +27,7 @@ const ROLE_PERMISSIONS = {
     workerPerformance: true,
     vaccinations: true,
   },
+
   manager: {
     revenue: false,
     orders: true,
@@ -47,6 +40,7 @@ const ROLE_PERMISSIONS = {
     workerPerformance: true,
     vaccinations: true,
   },
+
   staff: {
     revenue: false,
     orders: false,
@@ -68,8 +62,8 @@ router.get("/", auth, async (req, res) => {
     const role = req.user?.role || "staff";
     const perms = ROLE_PERMISSIONS[role] || ROLE_PERMISSIONS.staff;
 
-    // Only query models this role is actually allowed to see.
-    // Skipped queries resolve to [] rather than hitting the DB at all.
+    // ================= MAIN DATA =================
+
     const [
       orders,
       workers,
@@ -81,38 +75,153 @@ router.get("/", auth, async (req, res) => {
       vaccinations,
     ] = await Promise.all([
       perms.orders ? Order.find() : Promise.resolve([]),
+
       perms.workers || perms.workerPerformance
         ? Worker.find()
         : Promise.resolve([]),
+
       perms.production || perms.revenue
         ? Production.find()
         : Promise.resolve([]),
+
       perms.feedStock ? Feed.find() : Promise.resolve([]),
+
       perms.attendance ? Attendance.find() : Promise.resolve([]),
+
       perms.mortality ? Mortality.find() : Promise.resolve([]),
-      perms.roomInventory ? RoomInventory.find() : Promise.resolve([]),
+
+      perms.roomInventory
+        ? RoomInventory.find({
+            status: { $ne: "Removed" },
+          }).sort({ roomName: 1, itemName: 1 })
+        : Promise.resolve([]),
+
       perms.vaccinations ? Vaccination.find() : Promise.resolve([]),
     ]);
 
+    // ================= ROOM SUMMARY =================
+    //
+    // IMPORTANT:
+    // totalItems = number of inventory records
+    // totalQuantity = actual number of physical items
+    //
+    // Example:
+    // One record with quantity: 10
+    // totalItems = 1
+    // totalQuantity = 10
+
+    let roomInventorySummary = [];
+
+    if (perms.roomInventory) {
+      roomInventorySummary = await RoomInventory.aggregate([
+        {
+          $match: {
+            status: { $ne: "Removed" },
+          },
+        },
+
+        {
+          $group: {
+            _id: {
+              roomName: "$roomName",
+              roomType: "$roomType",
+            },
+
+            totalItems: {
+              $sum: 1,
+            },
+
+            totalQuantity: {
+              $sum: {
+                $ifNull: ["$quantity", 0],
+              },
+            },
+
+            goodQuantity: {
+              $sum: {
+                $cond: [
+                  { $eq: ["$condition", "Good"] },
+                  { $ifNull: ["$quantity", 0] },
+                  0,
+                ],
+              },
+            },
+
+            damagedQuantity: {
+              $sum: {
+                $cond: [
+                  {
+                    $in: ["$condition", ["Damaged", "Needs Repair"]],
+                  },
+                  { $ifNull: ["$quantity", 0] },
+                  0,
+                ],
+              },
+            },
+
+            missingQuantity: {
+              $sum: {
+                $cond: [
+                  { $eq: ["$status", "Missing"] },
+                  { $ifNull: ["$quantity", 0] },
+                  0,
+                ],
+              },
+            },
+          },
+        },
+
+        {
+          $project: {
+            _id: 0,
+            roomName: "$_id.roomName",
+            roomType: "$_id.roomType",
+            totalItems: 1,
+            totalQuantity: 1,
+            goodQuantity: 1,
+            damagedQuantity: 1,
+            missingQuantity: 1,
+          },
+        },
+
+        {
+          $sort: {
+            roomName: 1,
+          },
+        },
+      ]);
+    }
+
+    // ================= RESPONSE =================
+
     const payload = {
       orders: perms.orders ? orders : [],
+
       workers: perms.workers || perms.workerPerformance ? workers : [],
+
       production: perms.production ? production : [],
+
       feeds: perms.feedStock ? feeds : [],
+
       attendance: perms.attendance ? attendance : [],
+
       mortality: perms.mortality ? mortality : [],
+
       roomInventory: perms.roomInventory ? roomInventory : [],
+
+      roomInventorySummary: perms.roomInventory ? roomInventorySummary : [],
+
       vaccinations: perms.vaccinations ? vaccinations : [],
     };
 
-    // Revenue is computed here, server-side, and only attached for
-    // roles permitted to see it. Non-superadmins never receive the
-    // egg totals dressed up as revenue, or a revenue field at all.
+    // ================= REVENUE =================
+
     if (perms.revenue) {
       const totalEggs = production.reduce(
         (sum, item) => sum + Number(item.totalEggs || 0),
         0,
       );
+
       payload.estimatedRevenue = totalEggs * REVENUE_PER_EGG;
     }
 
