@@ -158,7 +158,11 @@ app.use((err, req, res, next) => {
 // ==============================
 mongoose
   .connect(process.env.MONGO_URI, {
-    serverSelectionTimeoutMS: 10000,
+    serverSelectionTimeoutMS: 15000,
+    connectTimeoutMS: 15000,
+    socketTimeoutMS: 45000,
+    maxPoolSize: 10,
+    minPoolSize: 2,
   })
   .then(() => {
     console.log("MongoDB connected");
@@ -166,12 +170,8 @@ mongoose
   })
   .catch((err) => {
     console.error("MongoDB connection failed:", err.message);
-
-    // In production, do not keep the API running
-    // when the database is unavailable.
     process.exit(1);
   });
-
 // ==============================
 // API ROUTES
 // ==============================
