@@ -61,16 +61,45 @@ const getProduction = async (req, res) => {
 // ==========================
 const createProduction = async (req, res) => {
   try {
-    console.log(req.body);
+    console.log("CREATE PRODUCTION:", req.body);
 
-    const { openingStock, mortality, cratesProduced, extraEggPieces } =
-      req.body;
+    const {
+      openingStock,
+      transferIn,
+      transferOut,
+      mortality,
+      cratesProduced,
+      extraEggPieces,
+    } = req.body;
 
-    const closingStock = Number(openingStock || 0) - Number(mortality || 0);
+    // ==========================
+    // STOCK CALCULATION
+    // ==========================
+    // Closing Stock =
+    // Opening Stock + Transfer In - Transfer Out - Mortality
+    const closingStock =
+      Number(openingStock || 0) +
+      Number(transferIn || 0) -
+      Number(transferOut || 0) -
+      Number(mortality || 0);
 
+    // Prevent negative closing stock
+    if (closingStock < 0) {
+      return res.status(400).json({
+        message:
+          "Closing stock cannot be negative. Check opening stock, transfers, and mortality.",
+      });
+    }
+
+    // ==========================
+    // EGG CALCULATION
+    // ==========================
     const totalEggs =
       Number(cratesProduced || 0) * 30 + Number(extraEggPieces || 0);
 
+    // ==========================
+    // PRODUCTION PERCENTAGE
+    // ==========================
     const productionPercentage =
       closingStock > 0
         ? Number(((totalEggs / closingStock) * 100).toFixed(2))
@@ -78,6 +107,8 @@ const createProduction = async (req, res) => {
 
     const production = await Production.create({
       ...req.body,
+
+      // Backend-controlled calculated values
       closingStock,
       totalEggs,
       productionPercentage,
@@ -85,6 +116,15 @@ const createProduction = async (req, res) => {
 
     res.status(201).json(production);
   } catch (err) {
+    console.log("CREATE PRODUCTION ERROR:", err);
+
+    // Duplicate date + pen
+    if (err.code === 11000) {
+      return res.status(409).json({
+        message: "A production entry already exists for that pen on that date.",
+      });
+    }
+
     res.status(500).json({
       message: err.message,
     });
@@ -104,22 +144,45 @@ const updateProduction = async (req, res) => {
       });
     }
 
-    // Merge incoming fields first so the recalculation below uses
-    // whichever values are newest — whatever the caller sent, falling
-    // back to the record's existing values for anything omitted.
+    // Merge incoming fields first.
+    // This allows partial updates while ensuring all calculations
+    // use the latest values.
     Object.assign(production, req.body);
 
+    // ==========================
+    // GET CURRENT STOCK VALUES
+    // ==========================
     const openingStock = Number(production.openingStock || 0);
+    const transferIn = Number(production.transferIn || 0);
+    const transferOut = Number(production.transferOut || 0);
     const mortality = Number(production.mortality || 0);
+
+    // ==========================
+    // CALCULATE CLOSING STOCK
+    // ==========================
+    const closingStock = openingStock + transferIn - transferOut - mortality;
+
+    // Prevent invalid stock
+    if (closingStock < 0) {
+      return res.status(400).json({
+        message:
+          "Closing stock cannot be negative. Check opening stock, transfers, and mortality.",
+      });
+    }
+
+    production.closingStock = closingStock;
+
+    // ==========================
+    // CALCULATE EGGS
+    // ==========================
     const cratesProduced = Number(production.cratesProduced || 0);
     const extraEggPieces = Number(production.extraEggPieces || 0);
 
-    // Same formulas as createProduction — kept identical so an edited
-    // entry is calculated the exact same way a newly created one is.
-    production.closingStock = openingStock - mortality;
-
     production.totalEggs = cratesProduced * 30 + extraEggPieces;
 
+    // ==========================
+    // CALCULATE PRODUCTION %
+    // ==========================
     production.productionPercentage =
       production.closingStock > 0
         ? Number(
@@ -131,13 +194,14 @@ const updateProduction = async (req, res) => {
 
     res.json(production);
   } catch (err) {
-    // (date, pen) has a unique index — editing an entry's date/pen to
-    // collide with another existing entry surfaces as E11000 here.
+    // (date, pen) has a unique index
     if (err.code === 11000) {
       return res.status(409).json({
         message: "A production entry already exists for that pen on that date.",
       });
     }
+
+    console.log("UPDATE PRODUCTION ERROR:", err);
 
     res.status(500).json({
       message: err.message,
@@ -184,6 +248,8 @@ const deleteProduction = async (req, res) => {
       message: "Production deleted successfully",
     });
   } catch (err) {
+    console.log("DELETE PRODUCTION ERROR:", err);
+
     res.status(500).json({
       message: err.message,
     });

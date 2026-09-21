@@ -17,6 +17,7 @@ const PENS = [
   "Deep Litter Pen 5",
   "Sick Bay",
   "Pen 150",
+  "Brooding House",
 ];
 
 module.exports = PENS;

@@ -26,6 +26,18 @@ const productionSchema = new mongoose.Schema(
       min: [0, "openingStock cannot be negative"],
     },
 
+    transferIn: {
+      type: Number,
+      default: 0,
+      min: [0, "transferIn cannot be negative"],
+    },
+
+    transferOut: {
+      type: Number,
+      default: 0,
+      min: [0, "transferOut cannot be negative"],
+    },
+
     mortality: {
       type: Number,
       default: 0,
@@ -139,35 +151,19 @@ const productionSchema = new mongoose.Schema(
 
 // ================= INDEXES =================
 
-// Sort by date only (e.g. default list view, newest first)
 productionSchema.index({ date: -1 });
 
-// Sort by most recently created (e.g. "recently added entries")
 productionSchema.index({ createdAt: -1 });
 
-// Filter by pen, sorted by date (e.g. pen history view)
 productionSchema.index({ pen: 1, date: -1 });
 
-// Filter active-only records, sorted by date (most common list query)
 productionSchema.index({ isDeleted: 1, date: -1 });
 
-// Filter active + specific pen, sorted by date
 productionSchema.index({ isDeleted: 1, pen: 1, date: -1 });
 
 // Prevent duplicate entries for the same pen on the same day
-// ⚠️ Before deploying: check your existing data for duplicate
-// (date, pen) pairs, or this index creation will fail with a
-// duplicate-key error. Run this first:
-//
-// db.productions.aggregate([
-//   { $group: { _id: { date: "$date", pen: "$pen" }, count: { $sum: 1 } } },
-//   { $match: { count: { $gt: 1 } } }
-// ])
 productionSchema.index({ date: 1, pen: 1 }, { unique: true });
 
-// Free-text search on remarks only (pen is an enum, not free text;
-// paymentStatus removed — it doesn't exist on this schema, it belongs
-// to the EggSale model)
 productionSchema.index({ remarks: "text" });
 
 module.exports = mongoose.model("Production", productionSchema);
