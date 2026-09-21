@@ -23,6 +23,8 @@ const emptyFormData = {
   date: "",
   days: "",
   openingStock: "",
+  transferIn: "",
+  transferOut: "",
   mortality: "",
   sickBirds: "",
   feedBagsConsumed: "",
@@ -35,14 +37,21 @@ const emptyFormData = {
   remarks: "",
 };
 
-// Converts a stored record into form-shaped values for editing —
-// numbers become strings for the inputs, date becomes yyyy-mm-dd for
-// the <input type="date">.
+// ==========================
+// BROODING HOUSE CHECK
+// ==========================
+const isBroodingHouse = (pen) => pen === "Brooding House";
+
+// ==========================
+// CONVERT RECORD TO FORM DATA
+// ==========================
 const toFormData = (record) => ({
   pen: record.pen || "",
   date: record.date ? new Date(record.date).toISOString().slice(0, 10) : "",
   days: record.days ?? "",
   openingStock: record.openingStock ?? "",
+  transferIn: record.transferIn ?? "",
+  transferOut: record.transferOut ?? "",
   mortality: record.mortality ?? "",
   sickBirds: record.sickBirds ?? "",
   feedBagsConsumed: record.feedBagsConsumed ?? "",
@@ -69,9 +78,11 @@ const Production = () => {
 
   const [formData, setFormData] = useState(emptyFormData);
 
-  // Non-null while editing an existing record; null means "creating new".
+  // Non-null while editing an existing record.
   const [editingId, setEditingId] = useState(null);
   const [saving, setSaving] = useState(false);
+
+  const broodingHouse = isBroodingHouse(formData.pen);
 
   // ==========================
   // LOAD PRODUCTIONS
@@ -83,8 +94,11 @@ const Production = () => {
       } else {
         setRefreshing(true);
       }
+
       const data = await fetchProductions();
-      setProductions(data);
+
+      setProductions(Array.isArray(data) ? data : []);
+
       if (!showLoader) {
         toast.success("Production records refreshed.");
       }
@@ -103,13 +117,11 @@ const Production = () => {
 
   // ==========================
   // SOCKET.IO LIVE UPDATES
-  // NOTE: assumes the backend emits "newProduction" and "productionDeleted"
-  // from productionController.js, mirroring the newOrder/orderDeleted
-  // pattern in orderController.js. Update event names here if yours differ.
   // ==========================
   useEffect(() => {
     const handleNewProduction = (record) => {
       setProductions((prev) => [record, ...prev]);
+
       toast.success(`New production record added for ${record.pen}`);
     };
 
@@ -127,6 +139,7 @@ const Production = () => {
             : item,
         ),
       );
+
       toast.info("A production record was deleted");
     };
 
@@ -139,10 +152,38 @@ const Production = () => {
     };
   }, []);
 
+  // ==========================
+  // FORM CHANGE
+  // ==========================
   const handleChange = (e) => {
+    const { name, value } = e.target;
+
     setFormData((prev) => ({
       ...prev,
-      [e.target.name]: e.target.value,
+      [name]: value,
+    }));
+  };
+
+  // ==========================
+  // PEN CHANGE
+  // ==========================
+  const handlePenChange = (e) => {
+    const selected = e.target.value;
+
+    setFormData((prev) => ({
+      ...prev,
+      pen: selected,
+
+      // Brooding House does not produce eggs.
+      // Clear egg-production fields when selected.
+      ...(selected === "Brooding House"
+        ? {
+            cratesProduced: "",
+            extraEggPieces: "",
+            miscarriageProduction: "",
+            crackedEggs: "",
+          }
+        : {}),
     }));
   };
 
@@ -152,10 +193,11 @@ const Production = () => {
   const startEdit = (record) => {
     setEditingId(record._id);
     setFormData(toFormData(record));
-    // Scroll the form into view so the user actually sees it switch
-    // into edit mode, especially useful when editing from a row far
-    // down the table.
-    window.scrollTo({ top: 0, behavior: "smooth" });
+
+    window.scrollTo({
+      top: 0,
+      behavior: "smooth",
+    });
   };
 
   const cancelEdit = () => {
@@ -163,23 +205,56 @@ const Production = () => {
     setFormData(emptyFormData);
   };
 
+  // ==========================
+  // SUBMIT
+  // ==========================
   const handleSubmit = async (e) => {
     e.preventDefault();
+
+    const isBrooding = isBroodingHouse(formData.pen);
 
     const payload = {
       ...formData,
 
-      days: Number(formData.days),
-      openingStock: Number(formData.openingStock),
-      mortality: Number(formData.mortality),
-      sickBirds: Number(formData.sickBirds),
-      feedBagsConsumed: Number(formData.feedBagsConsumed),
-      waterConsumed: Number(formData.waterConsumed),
-      cratesProduced: Number(formData.cratesProduced),
-      extraEggPieces: Number(formData.extraEggPieces),
-      miscarriageProduction: Number(formData.miscarriageProduction),
-      crackedEggs: Number(formData.crackedEggs),
+      days: Number(formData.days || 0),
+      openingStock: Number(formData.openingStock || 0),
+
+      // New transfer fields
+      transferIn: Number(formData.transferIn || 0),
+      transferOut: Number(formData.transferOut || 0),
+
+      mortality: Number(formData.mortality || 0),
+      sickBirds: Number(formData.sickBirds || 0),
+      feedBagsConsumed: Number(formData.feedBagsConsumed || 0),
+      waterConsumed: Number(formData.waterConsumed || 0),
+
+      // Brooding House has no egg production.
+      cratesProduced: isBrooding ? 0 : Number(formData.cratesProduced || 0),
+
+      extraEggPieces: isBrooding ? 0 : Number(formData.extraEggPieces || 0),
+
+      miscarriageProduction: isBrooding
+        ? 0
+        : Number(formData.miscarriageProduction || 0),
+
+      crackedEggs: isBrooding ? 0 : Number(formData.crackedEggs || 0),
     };
+
+    // ==========================
+    // FRONTEND STOCK VALIDATION
+    // ==========================
+    const calculatedClosingStock =
+      payload.openingStock +
+      payload.transferIn -
+      payload.transferOut -
+      payload.mortality;
+
+    if (calculatedClosingStock < 0) {
+      toast.error(
+        "Closing stock cannot be negative. Check opening stock, transfers, and mortality.",
+      );
+      return;
+    }
 
     setSaving(true);
 
@@ -216,7 +291,7 @@ const Production = () => {
   };
 
   // ==========================
-  // DELETE (confirmation modal)
+  // DELETE
   // ==========================
   const openDeleteModal = (record) => {
     setSelectedRecord(record);
@@ -225,6 +300,7 @@ const Production = () => {
 
   const closeDeleteModal = () => {
     if (deleting) return;
+
     setSelectedRecord(null);
     setShowDeleteModal(false);
   };
@@ -236,8 +312,11 @@ const Production = () => {
 
     try {
       await deleteProduction(selectedRecord._id);
+
       toast.success("Production record deleted");
+
       loadProductions(false);
+
       setShowDeleteModal(false);
 
       if (editingId === selectedRecord._id) {
@@ -247,24 +326,39 @@ const Production = () => {
       setSelectedRecord(null);
     } catch (error) {
       console.error(error);
+
       toast.error("Failed to delete production record");
     } finally {
       setDeleting(false);
     }
   };
 
+  // ==========================
+  // LIVE FORM CALCULATIONS
+  // ==========================
+
+  // Closing Stock =
+  // Opening Stock + Transfer In - Transfer Out - Mortality
   const closingStock =
-    Number(formData.openingStock || 0) - Number(formData.mortality || 0);
+    Number(formData.openingStock || 0) +
+    Number(formData.transferIn || 0) -
+    Number(formData.transferOut || 0) -
+    Number(formData.mortality || 0);
 
-  const totalEggs =
-    Number(formData.cratesProduced || 0) * 30 +
-    Number(formData.extraEggPieces || 0);
+  // Brooding House does not produce eggs.
+  const totalEggs = broodingHouse
+    ? 0
+    : Number(formData.cratesProduced || 0) * 30 +
+      Number(formData.extraEggPieces || 0);
 
-  const productionPercentage =
-    closingStock > 0 ? ((totalEggs / closingStock) * 100).toFixed(2) : 0;
+  const productionPercentage = broodingHouse
+    ? 0
+    : closingStock > 0
+      ? ((totalEggs / closingStock) * 100).toFixed(2)
+      : 0;
 
   // ==========================
-  // FILTERING (pen + search)
+  // FILTERING
   // ==========================
   const penFiltered =
     selectedPen === "All"
@@ -273,10 +367,12 @@ const Production = () => {
 
   const filteredProductions = useMemo(() => {
     const keyword = search.toLowerCase().trim();
+
     if (!keyword) return penFiltered;
 
     return penFiltered.filter((item) => {
       const dateStr = item.date ? new Date(item.date).toLocaleDateString() : "";
+
       return (
         item.pen?.toLowerCase().includes(keyword) ||
         dateStr.toLowerCase().includes(keyword) ||
@@ -295,6 +391,7 @@ const Production = () => {
   // ==========================
   const stats = useMemo(() => {
     const active = productions.filter((p) => !p.isDeleted);
+
     const deletedCount = productions.filter((p) => p.isDeleted).length;
 
     const todayCount = active.filter(
@@ -308,6 +405,7 @@ const Production = () => {
     );
 
     const percentages = active
+      .filter((p) => p.pen !== "Brooding House")
       .map((p) => Number(p.productionPercentage))
       .filter((n) => !Number.isNaN(n) && n > 0);
 
@@ -334,6 +432,7 @@ const Production = () => {
     1,
     Math.ceil(filteredProductions.length / PAGE_SIZE),
   );
+
   const paginatedProductions = filteredProductions.slice(
     (page - 1) * PAGE_SIZE,
     page * PAGE_SIZE,
@@ -346,6 +445,8 @@ const Production = () => {
     "Pen",
     "Date",
     "Opening",
+    "Transfer In",
+    "Transfer Out",
     "Mortality",
     "Closing",
     "Crates",
@@ -359,12 +460,16 @@ const Production = () => {
       item.pen,
       item.date ? new Date(item.date).toLocaleDateString() : "",
       item.openingStock,
+      item.transferIn || 0,
+      item.transferOut || 0,
       item.mortality,
       item.closingStock,
-      item.cratesProduced,
-      item.extraEggPieces,
-      item.totalEggs,
-      `${item.productionPercentage}%`,
+      item.cratesProduced || 0,
+      item.extraEggPieces || 0,
+      item.totalEggs || 0,
+      item.pen === "Brooding House"
+        ? "N/A"
+        : `${item.productionPercentage || 0}%`,
     ]);
 
   const handleExportExcel = () => {
@@ -374,8 +479,11 @@ const Production = () => {
     }
 
     const worksheet = XLSX.utils.aoa_to_sheet([exportColumns, ...exportRows()]);
+
     const workbook = XLSX.utils.book_new();
+
     XLSX.utils.book_append_sheet(workbook, worksheet, "Production");
+
     XLSX.writeFile(
       workbook,
       `production-records-${new Date().toISOString().slice(0, 10)}.xlsx`,
@@ -389,17 +497,27 @@ const Production = () => {
     }
 
     const doc = new jsPDF();
-    doc.text("Daily Egg Production", 14, 15);
+
+    doc.text("Daily Production & Brooding Records", 14, 15);
+
     autoTable(doc, {
       head: [exportColumns],
       body: exportRows(),
       startY: 20,
-      styles: { fontSize: 8 },
-      headStyles: { fillColor: [22, 163, 74] },
+      styles: {
+        fontSize: 7,
+      },
+      headStyles: {
+        fillColor: [22, 163, 74],
+      },
     });
+
     doc.save(`production-records-${new Date().toISOString().slice(0, 10)}.pdf`);
   };
 
+  // ==========================
+  // LOADING
+  // ==========================
   if (loading) {
     return (
       <div className="flex justify-center items-center h-64">
@@ -410,9 +528,13 @@ const Production = () => {
 
   return (
     <div className="p-6">
+      {/* ========================== */}
       {/* HEADER */}
+      {/* ========================== */}
+
       <div className="flex flex-col md:flex-row md:items-center md:justify-between gap-4 mb-6">
-        <h1 className="text-3xl font-bold">Daily Egg Production</h1>
+        <h1 className="text-3xl font-bold">Daily Production</h1>
+
         <button
           onClick={() => loadProductions(false)}
           disabled={refreshing}
@@ -422,7 +544,10 @@ const Production = () => {
         </button>
       </div>
 
+      {/* ========================== */}
       {/* STATISTICS */}
+      {/* ========================== */}
+
       <div
         className={`grid grid-cols-2 md:grid-cols-4 ${
           role === "superadmin" ? "lg:grid-cols-5" : ""
@@ -430,31 +555,40 @@ const Production = () => {
       >
         <div className="bg-white rounded-xl shadow p-4">
           <p className="text-gray-500 text-sm">Total Records</p>
+
           <h2 className="text-2xl font-bold text-green-700">
             {stats.totalRecords}
           </h2>
         </div>
+
         <div className="bg-white rounded-xl shadow p-4">
-          <p className="text-gray-500 text-sm">Today's Production</p>
+          <p className="text-gray-500 text-sm">Today's Records</p>
+
           <h2 className="text-2xl font-bold text-blue-600">
             {stats.todayCount}
           </h2>
         </div>
+
         <div className="bg-white rounded-xl shadow p-4">
           <p className="text-gray-500 text-sm">Total Eggs Produced</p>
+
           <h2 className="text-2xl font-bold text-yellow-600">
             {stats.totalEggsProduced}
           </h2>
         </div>
+
         <div className="bg-white rounded-xl shadow p-4">
           <p className="text-gray-500 text-sm">Avg. Production %</p>
+
           <h2 className="text-2xl font-bold text-purple-600">
             {stats.avgPercentage}%
           </h2>
         </div>
+
         {role === "superadmin" && (
           <div className="bg-white rounded-xl shadow p-4">
             <p className="text-gray-500 text-sm">Deleted Records</p>
+
             <h2 className="text-2xl font-bold text-red-600">
               {stats.deletedCount}
             </h2>
@@ -462,12 +596,16 @@ const Production = () => {
         )}
       </div>
 
-      {/* EDIT MODE BANNER */}
+      {/* ========================== */}
+      {/* EDIT MODE */}
+      {/* ========================== */}
+
       {editingId && (
         <div className="flex items-center justify-between bg-blue-50 border border-blue-200 text-blue-700 rounded-lg px-4 py-3 mb-4">
           <span className="font-semibold">
             Editing production record — update the fields below and save.
           </span>
+
           <button
             type="button"
             onClick={cancelEdit}
@@ -478,18 +616,24 @@ const Production = () => {
         </div>
       )}
 
+      {/* ========================== */}
+      {/* FORM */}
+      {/* ========================== */}
+
       <form
         onSubmit={handleSubmit}
         className="grid grid-cols-1 md:grid-cols-3 gap-4"
       >
+        {/* PEN */}
+
         <select
           name="pen"
           value={formData.pen}
-          onChange={handleChange}
+          onChange={handlePenChange}
           className="border p-2 rounded"
           required
         >
-          <option value="">Select Pen</option>
+          <option value="">Select Pen / House</option>
 
           {PENS.map((pen) => (
             <option key={pen} value={pen}>
@@ -497,6 +641,8 @@ const Production = () => {
             </option>
           ))}
         </select>
+
+        {/* DATE */}
 
         <input
           type="date"
@@ -507,60 +653,106 @@ const Production = () => {
           required
         />
 
+        {/* DAYS */}
+
         <input
           type="number"
           name="days"
           placeholder="Age (Days)"
+          min="0"
           value={formData.days}
           onChange={handleChange}
           className="border p-2 rounded"
         />
 
+        {/* OPENING STOCK */}
+
         <input
           type="number"
           name="openingStock"
           placeholder="Opening Stock"
+          min="0"
           value={formData.openingStock}
           onChange={handleChange}
           className="border p-2 rounded"
           required
         />
 
+        {/* TRANSFER IN */}
+
+        <input
+          type="number"
+          name="transferIn"
+          placeholder="Transfer In"
+          min="0"
+          value={formData.transferIn}
+          onChange={handleChange}
+          className="border p-2 rounded"
+        />
+
+        {/* TRANSFER OUT */}
+
+        <input
+          type="number"
+          name="transferOut"
+          placeholder="Transfer Out"
+          min="0"
+          value={formData.transferOut}
+          onChange={handleChange}
+          className="border p-2 rounded"
+        />
+
+        {/* MORTALITY */}
+
         <input
           type="number"
           name="mortality"
           placeholder="Mortality"
+          min="0"
           value={formData.mortality}
           onChange={handleChange}
           className="border p-2 rounded"
         />
 
+        {/* SICK BIRDS */}
+
         <input
           type="number"
           name="sickBirds"
           placeholder="Sick Birds"
+          min="0"
           value={formData.sickBirds}
           onChange={handleChange}
           className="border p-2 rounded"
         />
 
+        {/* FEED */}
+
         <input
           type="number"
           name="feedBagsConsumed"
           placeholder="Feed Bags Consumed"
+          min="0"
+          step="any"
           value={formData.feedBagsConsumed}
           onChange={handleChange}
           className="border p-2 rounded"
         />
 
+        {/* WATER */}
+
         <input
           type="number"
           name="waterConsumed"
           placeholder="Water Consumed"
+          min="0"
+          step="any"
           value={formData.waterConsumed}
           onChange={handleChange}
           className="border p-2 rounded"
         />
+
+        {/* DRUGS */}
 
         <input
           type="text"
@@ -571,41 +763,57 @@ const Production = () => {
           className="border p-2 rounded"
         />
 
-        <input
-          type="number"
-          name="cratesProduced"
-          placeholder="Egg Crates"
-          value={formData.cratesProduced}
-          onChange={handleChange}
-          className="border p-2 rounded"
-        />
+        {/* ========================== */}
+        {/* EGG PRODUCTION FIELDS */}
+        {/* ========================== */}
 
-        <input
-          type="number"
-          name="extraEggPieces"
-          placeholder="Extra Egg Pieces"
-          value={formData.extraEggPieces}
-          onChange={handleChange}
-          className="border p-2 rounded"
-        />
+        {!broodingHouse && (
+          <>
+            <input
+              type="number"
+              name="cratesProduced"
+              placeholder="Egg Crates"
+              min="0"
+              value={formData.cratesProduced}
+              onChange={handleChange}
+              className="border p-2 rounded"
+            />
 
-        <input
-          type="number"
-          name="miscarriageProduction"
-          placeholder="Miscarriage Eggs"
-          value={formData.miscarriageProduction}
-          onChange={handleChange}
-          className="border p-2 rounded"
-        />
+            <input
+              type="number"
+              name="extraEggPieces"
+              placeholder="Extra Egg Pieces"
+              min="0"
+              value={formData.extraEggPieces}
+              onChange={handleChange}
+              className="border p-2 rounded"
+            />
 
-        <input
-          type="number"
-          name="crackedEggs"
-          placeholder="Cracked Eggs"
-          value={formData.crackedEggs}
-          onChange={handleChange}
-          className="border p-2 rounded"
-        />
+            <input
+              type="number"
+              name="miscarriageProduction"
+              placeholder="Miscarriage Eggs"
+              min="0"
+              value={formData.miscarriageProduction}
+              onChange={handleChange}
+              className="border p-2 rounded"
+            />
+
+            <input
+              type="number"
+              name="crackedEggs"
+              placeholder="Cracked Eggs"
+              min="0"
+              value={formData.crackedEggs}
+              onChange={handleChange}
+              className="border p-2 rounded"
+            />
+          </>
+        )}
+
+        {/* ========================== */}
+        {/* REMARKS */}
+        {/* ========================== */}
 
         <textarea
           name="remarks"
@@ -616,24 +824,114 @@ const Production = () => {
           className="border p-2 rounded md:col-span-3"
         />
 
-        <div className="bg-gray-100 p-4 rounded md:col-span-3">
-          <p>
-            <strong>Closing Stock:</strong> {closingStock}
-          </p>
+        {/* ========================== */}
+        {/* CALCULATED SUMMARY */}
+        {/* ========================== */}
 
-          <p>
-            <strong>Total Eggs:</strong> {totalEggs}
-          </p>
+        <div
+          className={`p-4 rounded md:col-span-3 ${
+            closingStock < 0
+              ? "bg-red-50 border border-red-300"
+              : broodingHouse
+                ? "bg-blue-50 border border-blue-200"
+                : "bg-gray-100"
+          }`}
+        >
+          <div className="grid grid-cols-1 md:grid-cols-3 gap-4">
+            <div>
+              <p className="text-sm text-gray-500">Opening Stock</p>
 
-          <p>
-            <strong>Production %:</strong> {productionPercentage}%
-          </p>
+              <p className="text-xl font-bold">
+                {Number(formData.openingStock || 0)}
+              </p>
+            </div>
+
+            <div>
+              <p className="text-sm text-gray-500">Transfer In</p>
+
+              <p className="text-xl font-bold text-blue-600">
+                + {Number(formData.transferIn || 0)}
+              </p>
+            </div>
+
+            <div>
+              <p className="text-sm text-gray-500">Transfer Out</p>
+
+              <p className="text-xl font-bold text-orange-600">
+                - {Number(formData.transferOut || 0)}
+              </p>
+            </div>
+
+            <div>
+              <p className="text-sm text-gray-500">Mortality</p>
+
+              <p className="text-xl font-bold text-red-600">
+                - {Number(formData.mortality || 0)}
+              </p>
+            </div>
+
+            <div>
+              <p className="text-sm text-gray-500">Closing Stock</p>
+
+              <p
+                className={`text-2xl font-bold ${
+                  closingStock < 0 ? "text-red-600" : "text-green-700"
+                }`}
+              >
+                {closingStock}
+              </p>
+            </div>
+
+            {!broodingHouse && (
+              <>
+                <div>
+                  <p className="text-sm text-gray-500">Total Eggs</p>
+
+                  <p className="text-xl font-bold text-yellow-600">
+                    {totalEggs}
+                  </p>
+                </div>
+
+                <div>
+                  <p className="text-sm text-gray-500">Production %</p>
+
+                  <p className="text-xl font-bold text-purple-600">
+                    {productionPercentage}%
+                  </p>
+                </div>
+              </>
+            )}
+          </div>
+
+          {broodingHouse && (
+            <div className="mt-4 pt-4 border-t border-blue-200">
+              <p className="text-sm font-medium text-blue-700">
+                🐣 Brooding House
+              </p>
+
+              <p className="text-sm text-blue-600 mt-1">
+                Egg-production fields are not applicable. Stock is calculated
+                from opening stock, transfers, and mortality.
+              </p>
+            </div>
+          )}
+
+          {closingStock < 0 && (
+            <p className="text-red-600 font-semibold mt-4">
+              ⚠️ Closing stock cannot be negative. Please check the stock,
+              transfer, and mortality values.
+            </p>
+          )}
         </div>
+
+        {/* ========================== */}
+        {/* SAVE BUTTON */}
+        {/* ========================== */}
 
         <div className="md:col-span-3 flex gap-3">
           <button
             type="submit"
-            disabled={saving}
+            disabled={saving || closingStock < 0}
             className="flex-1 bg-green-600 hover:bg-green-700 text-white p-3 rounded disabled:opacity-60"
           >
             {saving
@@ -658,15 +956,20 @@ const Production = () => {
         </div>
       </form>
 
+      {/* ========================== */}
+      {/* RECORDS */}
+      {/* ========================== */}
+
       <div className="mt-8">
         {/* FILTER BAR */}
+
         <div className="flex flex-col md:flex-row gap-3 mb-4">
           <select
             value={selectedPen}
             onChange={(e) => setSelectedPen(e.target.value)}
             className="border p-2 rounded"
           >
-            <option value="All">All Pens</option>
+            <option value="All">All Pens / Houses</option>
 
             {PENS.map((pen) => (
               <option key={pen} value={pen}>
@@ -691,6 +994,7 @@ const Production = () => {
             >
               Export Excel
             </button>
+
             <button
               onClick={handleExportPDF}
               type="button"
@@ -704,27 +1008,45 @@ const Production = () => {
         {filteredProductions.length === 0 ? (
           <div className="bg-white rounded-xl shadow p-16 text-center">
             <div className="text-6xl mb-4">🐔</div>
+
             <h2 className="text-2xl font-bold">No production records yet</h2>
+
             <p className="text-gray-500 mt-2">
               Start by adding today's production above.
             </p>
           </div>
         ) : (
           <>
+            {/* ========================== */}
             {/* DESKTOP TABLE */}
+            {/* ========================== */}
+
             <div className="overflow-x-auto hidden md:block">
               <table className="w-full border border-gray-300">
                 <thead className="bg-gray-100">
                   <tr>
-                    <th className="border p-2">Pen</th>
+                    <th className="border p-2">Pen / House</th>
+
                     <th className="border p-2">Date</th>
+
                     <th className="border p-2">Opening</th>
+
+                    <th className="border p-2">Transfer In</th>
+
+                    <th className="border p-2">Transfer Out</th>
+
                     <th className="border p-2">Mortality</th>
+
                     <th className="border p-2">Closing</th>
+
                     <th className="border p-2">Crates</th>
+
                     <th className="border p-2">Extra Eggs</th>
+
                     <th className="border p-2">Total Eggs</th>
+
                     <th className="border p-2">%</th>
+
                     <th className="border p-2">Action</th>
                   </tr>
                 </thead>
@@ -749,18 +1071,42 @@ const Production = () => {
 
                       <td className="border p-2">{item.openingStock}</td>
 
+                      <td className="border p-2 text-blue-600">
+                        {item.transferIn || 0}
+                      </td>
+
+                      <td className="border p-2 text-orange-600">
+                        {item.transferOut || 0}
+                      </td>
+
                       <td className="border p-2">{item.mortality}</td>
 
-                      <td className="border p-2">{item.closingStock}</td>
-
-                      <td className="border p-2">{item.cratesProduced}</td>
-
-                      <td className="border p-2">{item.extraEggPieces}</td>
-
-                      <td className="border p-2">{item.totalEggs}</td>
+                      <td className="border p-2 font-semibold">
+                        {item.closingStock}
+                      </td>
 
                       <td className="border p-2">
-                        {item.productionPercentage}%
+                        {item.pen === "Brooding House"
+                          ? "—"
+                          : item.cratesProduced || 0}
+                      </td>
+
+                      <td className="border p-2">
+                        {item.pen === "Brooding House"
+                          ? "—"
+                          : item.extraEggPieces || 0}
+                      </td>
+
+                      <td className="border p-2">
+                        {item.pen === "Brooding House"
+                          ? "—"
+                          : item.totalEggs || 0}
+                      </td>
+
+                      <td className="border p-2">
+                        {item.pen === "Brooding House"
+                          ? "N/A"
+                          : `${item.productionPercentage || 0}%`}
                       </td>
 
                       <td className="border p-2">
@@ -820,7 +1166,10 @@ const Production = () => {
               </table>
             </div>
 
+            {/* ========================== */}
             {/* MOBILE CARDS */}
+            {/* ========================== */}
+
             <div className="md:hidden space-y-3">
               {paginatedProductions.map((item) => (
                 <div
@@ -836,32 +1185,73 @@ const Production = () => {
                   <div className="flex justify-between items-start">
                     <div>
                       <p className="font-bold">{item.pen}</p>
+
                       <p className="text-sm text-gray-500">
                         {new Date(item.date).toLocaleDateString()}
                       </p>
                     </div>
+
                     <p className="font-bold text-green-700">
-                      {item.productionPercentage}%
+                      {item.pen === "Brooding House"
+                        ? "N/A"
+                        : `${item.productionPercentage || 0}%`}
                     </p>
                   </div>
 
                   <div className="grid grid-cols-2 gap-2 mt-3 text-sm">
                     <p>
-                      <span className="text-gray-500">Closing:</span>{" "}
-                      {item.closingStock}
+                      <span className="text-gray-500">Opening:</span>{" "}
+                      {item.openingStock}
                     </p>
+
                     <p>
-                      <span className="text-gray-500">Total Eggs:</span>{" "}
-                      {item.totalEggs}
+                      <span className="text-gray-500">Transfer In:</span>{" "}
+                      {item.transferIn || 0}
                     </p>
+
                     <p>
-                      <span className="text-gray-500">Crates:</span>{" "}
-                      {item.cratesProduced}
+                      <span className="text-gray-500">Transfer Out:</span>{" "}
+                      {item.transferOut || 0}
                     </p>
+
                     <p>
                       <span className="text-gray-500">Mortality:</span>{" "}
                       {item.mortality}
                     </p>
+
+                    <p>
+                      <span className="text-gray-500">Closing:</span>{" "}
+                      {item.closingStock}
+                    </p>
+
+                    <p>
+                      <span className="text-gray-500">Sick Birds:</span>{" "}
+                      {item.sickBirds || 0}
+                    </p>
+
+                    <p>
+                      <span className="text-gray-500">Feed:</span>{" "}
+                      {item.feedBagsConsumed || 0}
+                    </p>
+
+                    <p>
+                      <span className="text-gray-500">Water:</span>{" "}
+                      {item.waterConsumed || 0}
+                    </p>
+
+                    {item.pen !== "Brooding House" && (
+                      <>
+                        <p>
+                          <span className="text-gray-500">Crates:</span>{" "}
+                          {item.cratesProduced || 0}
+                        </p>
+
+                        <p>
+                          <span className="text-gray-500">Total Eggs:</span>{" "}
+                          {item.totalEggs || 0}
+                        </p>
+                      </>
+                    )}
                   </div>
 
                   <div className="mt-3">
@@ -895,7 +1285,10 @@ const Production = () => {
               ))}
             </div>
 
+            {/* ========================== */}
             {/* PAGINATION */}
+            {/* ========================== */}
+
             <div className="flex flex-col md:flex-row justify-between items-center gap-4 mt-4 bg-white rounded-xl shadow p-4">
               <div className="text-gray-600 text-sm">
                 Showing{" "}
@@ -937,7 +1330,10 @@ const Production = () => {
         )}
       </div>
 
+      {/* ========================== */}
       {/* DELETE CONFIRMATION MODAL */}
+      {/* ========================== */}
+
       {showDeleteModal && (
         <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/50 backdrop-blur-sm">
           <div className="bg-white rounded-2xl shadow-2xl w-full max-w-md p-6">
