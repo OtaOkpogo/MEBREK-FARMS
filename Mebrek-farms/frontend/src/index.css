@@ -2,83 +2,144 @@
 @tailwind components;
 @tailwind utilities;
 
-/* =========================
-   GLOBAL RESET / BASE STYLES
-========================= */
+/* =========================================================
+   MEBREK FARMS — GLOBAL FOUNDATION
+========================================================= */
 
-body {
-  @apply bg-yellow-50 text-gray-800 font-sans;
-  margin: 0;
-  padding: 0;
+html {
+  scroll-behavior: smooth;
 }
 
-/* Smooth fonts */
+body {
+  @apply bg-stone-50 text-gray-800 font-sans;
+  margin: 0;
+  padding: 0;
+  min-width: 320px;
+}
+
+/* Better text rendering */
 * {
   -webkit-font-smoothing: antialiased;
   -moz-osx-font-smoothing: grayscale;
 }
 
-/* =========================
-   REUSABLE COMPONENTS
-========================= */
-
-/* Buttons */
-.btn {
-  @apply px-4 py-2 rounded-lg font-semibold shadow transition duration-300 ease-in-out;
+/* Prevent accidental horizontal scrolling */
+html,
+body {
+  width: 100%;
+  overflow-x: hidden;
 }
 
-.btn-primary {
-  @apply bg-farmGreen text-white hover:bg-green-800 hover:scale-105;
+/* Images */
+img {
+  max-width: 100%;
+  display: block;
 }
 
-.btn-secondary {
-  @apply bg-eggYellow text-gray-900 hover:bg-yellow-400 hover:scale-105;
+/* Form controls */
+button,
+input,
+textarea,
+select {
+  font: inherit;
 }
 
-/* Cards */
-.card {
-  @apply bg-white p-5 rounded-2xl shadow-md hover:shadow-xl transition duration-300 ease-in-out;
+/* Keyboard accessibility */
+:focus-visible {
+  outline: 3px solid rgba(34, 197, 94, 0.45);
+  outline-offset: 3px;
 }
 
-/* Inputs */
-.input {
-  @apply w-full p-3 border rounded-lg focus:outline-none focus:ring-2 focus:ring-farmGreen transition;
+/* Text selection */
+::selection {
+  background: #166534;
+  color: #ffffff;
 }
 
-/* =========================
-   LAYOUT HELPERS
-========================= */
+/* =========================================================
+   REUSABLE LAYOUT COMPONENTS
+========================================================= */
 
-/* Navbar */
+@layer components {
+  .site-container {
+    @apply mx-auto w-full max-w-7xl px-5 sm:px-6 lg:px-8;
+  }
+
+  .section {
+    @apply py-16 sm:py-20 lg:py-24;
+  }
+
+  .section-title {
+    @apply text-3xl font-bold tracking-tight text-gray-900 sm:text-4xl lg:text-5xl;
+  }
+
+  .section-subtitle {
+    @apply mx-auto mt-4 max-w-2xl text-base leading-7 text-gray-600 sm:text-lg;
+  }
+
+  /* =======================================================
+     BUTTONS
+  ======================================================= */
+
+  .btn {
+    @apply inline-flex items-center justify-center gap-2 rounded-xl px-5 py-3 font-semibold shadow-sm transition-all duration-300 ease-out;
+  }
+
+  .btn-primary {
+    @apply bg-green-800 text-white hover:-translate-y-0.5 hover:bg-green-900 hover:shadow-lg;
+  }
+
+  .btn-secondary {
+    @apply bg-yellow-300 text-green-950 hover:-translate-y-0.5 hover:bg-yellow-400 hover:shadow-lg;
+  }
+
+  .btn-outline {
+    @apply border-2 border-green-800 bg-white text-green-800 hover:bg-green-800 hover:text-white;
+  }
+
+  /* =======================================================
+     CARDS
+  ======================================================= */
+
+  .card {
+    @apply rounded-2xl bg-white p-5 shadow-sm ring-1 ring-black/5 transition-all duration-300 hover:-translate-y-1 hover:shadow-xl;
+  }
+
+  /* =======================================================
+     FORM INPUTS
+  ======================================================= */
+
+  .input {
+    @apply w-full rounded-xl border border-gray-200 bg-white p-3.5 text-gray-800 outline-none transition duration-200 placeholder:text-gray-400 focus:border-green-700 focus:ring-2 focus:ring-green-100;
+  }
+
+  /* =======================================================
+     EYEBROW LABEL
+  ======================================================= */
+
+  .eyebrow {
+    @apply inline-flex items-center gap-2 rounded-full bg-green-100 px-4 py-2 text-sm font-bold uppercase tracking-wider text-green-800;
+  }
+}
+
+/* =========================================================
+   PUBLIC NAVBAR
+========================================================= */
+
 .navbar {
-  @apply flex justify-between items-center px-8 py-5 bg-white shadow;
+  @apply sticky top-0 z-50 border-b border-gray-100 bg-white/95 shadow-sm backdrop-blur;
 }
 
-/* Sidebar */
-.sidebar {
-  @apply w-64 bg-farmGreen text-white min-h-screen p-5;
-}
-
-/* Container */
-.container {
-  @apply p-6;
-}
-
-/* Section spacing */
-.section {
-  @apply px-8 py-16;
-}
-
-/* =========================
+/* =========================================================
    ANIMATIONS
-========================= */
+========================================================= */
 
-/* Fade In */
 @keyframes fadeIn {
   from {
     opacity: 0;
-    transform: translateY(30px);
+    transform: translateY(25px);
   }
+
   to {
     opacity: 1;
     transform: translateY(0);
@@ -86,28 +147,15 @@ body {
 }
 
 .animate-fadeIn {
-  animation: fadeIn 1s ease-in-out;
+  animation: fadeIn 0.8s ease-out both;
 }
 
-/* Slow Zoom (for images) */
-@keyframes zoomIn {
-  from {
-    transform: scale(1);
-  }
-  to {
-    transform: scale(1.05);
-  }
-}
-
-.hover-zoom:hover {
-  animation: zoomIn 0.4s forwards;
-}
-/* FADE UP ANIMATION */
 @keyframes fadeUp {
   from {
     opacity: 0;
     transform: translateY(40px);
   }
+
   to {
     opacity: 1;
     transform: translateY(0);
@@ -115,19 +163,74 @@ body {
 }
 
 .animate-fadeUp {
-  animation: fadeUp 1s ease-out forwards;
+  animation: fadeUp 0.8s ease-out both;
 }
 
-/* SLOW ZOOM BACKGROUND */
 @keyframes zoomSlow {
   from {
     transform: scale(1);
   }
+
   to {
-    transform: scale(1.1);
+    transform: scale(1.08);
   }
 }
 
 .animate-zoomSlow {
   animation: zoomSlow 20s ease-in-out infinite alternate;
+}
+
+@keyframes float {
+  0%,
+  100% {
+    transform: translateY(0);
+  }
+
+  50% {
+    transform: translateY(-8px);
+  }
+}
+
+.animate-float {
+  animation: float 4s ease-in-out infinite;
+}
+
+/* =========================================================
+   SCROLLBAR
+========================================================= */
+
+::-webkit-scrollbar {
+  width: 9px;
+}
+
+::-webkit-scrollbar-track {
+  background: #f5f5f4;
+}
+
+::-webkit-scrollbar-thumb {
+  background: #166534;
+  border-radius: 999px;
+}
+
+::-webkit-scrollbar-thumb:hover {
+  background: #14532d;
+}
+
+/* =========================================================
+   REDUCED MOTION
+========================================================= */
+
+@media (prefers-reduced-motion: reduce) {
+  html {
+    scroll-behavior: auto;
+  }
+
+  *,
+  *::before,
+  *::after {
+    animation-duration: 0.01ms !important;
+    animation-iteration-count: 1 !important;
+    transition-duration: 0.01ms !important;
+    scroll-behavior: auto !important;
+  }
 }
