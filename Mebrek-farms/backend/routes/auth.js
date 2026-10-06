@@ -7,6 +7,7 @@ const {
   loginAdmin,
   getMe,
   getAdmins,
+  updateAdmin,
   updateAdminRole,
   toggleAdminStatus,
   resetAdminPassword,
@@ -15,13 +16,11 @@ const {
 
 const router = express.Router();
 
-// ================= AUTH =================
+// ============================================================
+// AUTH
+// ============================================================
 
-// REGISTER ADMIN — SUPERADMIN ONLY. This was previously public with
-// no auth middleware at all, meaning anyone on the internet could
-// create their own account — including a superadmin account, if the
-// role field wasn't otherwise restricted server-side. Confirmed no
-// public signup flow depends on this endpoint before locking it down.
+// REGISTER ADMIN — SUPERADMIN ONLY
 router.post("/register", protect, allowRoles("superadmin"), registerAdmin);
 
 // LOGIN
@@ -30,17 +29,21 @@ router.post("/login", loginAdmin);
 // CURRENT LOGGED-IN USER
 router.get("/me", protect, getMe);
 
-// ================= STAFF MANAGEMENT =================
-// SUPERADMIN ONLY — matches StaffAccounts.jsx's access level. These
-// five routes previously only checked authentication, meaning any
-// logged-in role (including staff) could list all admin accounts,
-// change anyone's role (including self-promoting to superadmin),
-// disable/enable accounts, reset passwords, or delete accounts.
+// ============================================================
+// STAFF / ADMIN ACCOUNT MANAGEMENT
+// ============================================================
 
 // GET ALL ADMINS / STAFF
+// SUPERADMIN ONLY
 router.get("/admins", protect, allowRoles("superadmin"), getAdmins);
 
-// UPDATE ROLE
+// UPDATE ADMIN DETAILS
+// Updates name and email
+// SUPERADMIN ONLY
+router.put("/admins/:id", protect, allowRoles("superadmin"), updateAdmin);
+
+// UPDATE ADMIN ROLE
+// SUPERADMIN ONLY
 router.put(
   "/admins/:id/role",
   protect,
@@ -49,6 +52,7 @@ router.put(
 );
 
 // ACTIVATE / DISABLE ACCOUNT
+// SUPERADMIN ONLY
 router.put(
   "/admins/:id/status",
   protect,
@@ -57,6 +61,7 @@ router.put(
 );
 
 // RESET PASSWORD
+// SUPERADMIN ONLY
 router.put(
   "/admins/:id/password",
   protect,
@@ -65,6 +70,11 @@ router.put(
 );
 
 // DELETE ACCOUNT
+// SUPERADMIN ONLY
 router.delete("/admins/:id", protect, allowRoles("superadmin"), deleteAdmin);
+
+// ============================================================
+// EXPORT ROUTER
+// ============================================================
 
 module.exports = router;

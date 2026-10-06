@@ -14,6 +14,39 @@ const productionSchema = new mongoose.Schema(
       enum: PENS,
     },
 
+    // ============================================================
+    // FLOCK ASSOCIATION
+    // ============================================================
+    // These fields are automatically populated by the production
+    // controller. The frontend should NOT be trusted to provide them.
+    //
+    // flock       = actual Flock document reference
+    // flockId     = permanent snapshot of the flock's human-readable ID
+    // flockAgeWeeks = flock age at the time this production was recorded
+    //
+    // Keeping flockId and flockAgeWeeks on the production record
+    // preserves historical production information even after the
+    // flock is sold or replaced.
+    // ============================================================
+
+    flock: {
+      type: mongoose.Schema.Types.ObjectId,
+      ref: "Flock",
+      default: null,
+    },
+
+    flockId: {
+      type: String,
+      default: null,
+      trim: true,
+    },
+
+    flockAgeWeeks: {
+      type: Number,
+      default: null,
+      min: [0, "flockAgeWeeks cannot be negative"],
+    },
+
     days: {
       type: Number,
       required: true,
@@ -91,10 +124,6 @@ const productionSchema = new mongoose.Schema(
       min: [0, "totalEggs cannot be negative"],
     },
 
-    // NOTE: derived from totalEggs / openingStock (roughly).
-    // Recompute in the controller/service whenever totalEggs or
-    // openingStock changes — this field is a cached value, not
-    // auto-calculated by Mongoose.
     productionPercentage: {
       type: Number,
       default: 0,
@@ -117,7 +146,9 @@ const productionSchema = new mongoose.Schema(
       default: "",
     },
 
-    // ================= SOFT DELETE =================
+    // ============================================================
+    // SOFT DELETE
+    // ============================================================
 
     isDeleted: {
       type: Boolean,
@@ -149,7 +180,9 @@ const productionSchema = new mongoose.Schema(
   { timestamps: true },
 );
 
-// ================= INDEXES =================
+// ============================================================
+// INDEXES
+// ============================================================
 
 productionSchema.index({ date: -1 });
 
@@ -161,7 +194,15 @@ productionSchema.index({ isDeleted: 1, date: -1 });
 
 productionSchema.index({ isDeleted: 1, pen: 1, date: -1 });
 
-// Prevent duplicate entries for the same pen on the same day
+// Flock-related indexes
+productionSchema.index({ flock: 1, date: -1 });
+
+productionSchema.index({ flockId: 1, date: -1 });
+
+productionSchema.index({ flockAgeWeeks: 1 });
+
+// Existing protection against duplicate production
+// entries for the same pen on the same date.
 productionSchema.index({ date: 1, pen: 1 }, { unique: true });
 
 productionSchema.index({ remarks: "text" });

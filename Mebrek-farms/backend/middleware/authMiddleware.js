@@ -30,7 +30,25 @@ const protect = (req, res, next) => {
 
     const decoded = jwt.verify(token, process.env.JWT_SECRET);
 
+    // --------------------------------------------------------
+    // Keep the existing req.user behavior
+    // --------------------------------------------------------
     req.user = decoded;
+
+    // --------------------------------------------------------
+    // Compatibility for controllers that use req.admin
+    // --------------------------------------------------------
+    req.admin = {
+      ...decoded,
+
+      // Support both possible ID names
+      _id: decoded._id || decoded.id,
+      id: decoded.id || decoded._id,
+
+      // Explicitly preserve these values
+      name: decoded.name || "",
+      role: decoded.role || "",
+    };
 
     next();
   } catch (err) {

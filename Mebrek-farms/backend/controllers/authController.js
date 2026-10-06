@@ -155,6 +155,63 @@ exports.getAdmins = async (req, res) => {
   }
 };
 
+// ================= UPDATE ADMIN DETAILS =================
+
+exports.updateAdmin = async (req, res) => {
+  try {
+    const { name, email } = req.body;
+
+    // Validate required fields
+    if (!name || !email) {
+      return res.status(400).json({
+        message: "Name and email are required",
+      });
+    }
+
+    // Check whether another account already uses this email
+    const existingAdmin = await Admin.findOne({
+      email: email.trim().toLowerCase(),
+      _id: { $ne: req.params.id },
+    });
+
+    if (existingAdmin) {
+      return res.status(400).json({
+        message: "Email is already in use",
+      });
+    }
+
+    // Update account details
+    const admin = await Admin.findByIdAndUpdate(
+      req.params.id,
+      {
+        name: name.trim(),
+        email: email.trim().toLowerCase(),
+      },
+      {
+        new: true,
+        runValidators: true,
+      },
+    ).select("-password");
+
+    if (!admin) {
+      return res.status(404).json({
+        message: "Account not found",
+      });
+    }
+
+    res.json({
+      message: "Account updated successfully",
+      admin,
+    });
+  } catch (error) {
+    console.error("UPDATE ADMIN ERROR:", error);
+
+    res.status(500).json({
+      error: error.message,
+    });
+  }
+};
+
 // ================= UPDATE ROLE =================
 
 exports.updateAdminRole = async (req, res) => {

@@ -4,6 +4,37 @@ const { Server } = require("socket.io");
 const mongoose = require("mongoose");
 const cors = require("cors");
 const dotenv = require("dotenv");
+const path = require("path");
+
+// ==============================
+// ENVIRONMENT
+// ==============================
+dotenv.config();
+
+// ==============================
+// APP / SERVER
+// ==============================
+const app = express();
+const server = http.createServer(app);
+
+// Disable ETag
+app.disable("etag");
+
+// ==============================
+// SERVE UPLOADED FILES
+// ==============================
+//
+// Notification images and voice notes are stored in:
+//
+// backend/uploads/notifications/
+//
+// They will be accessible through:
+//
+// /uploads/notifications/<filename>
+//
+// ==============================
+
+app.use("/uploads", express.static(path.join(__dirname, "uploads")));
 
 // ==============================
 // ROUTES
@@ -21,28 +52,20 @@ const searchRoutes = require("./routes/search");
 const reportRoutes = require("./routes/reportRoutes");
 
 // ==============================
-// ENVIRONMENT
-// ==============================
-dotenv.config();
-
-const app = express();
-const server = http.createServer(app);
-
-// Disable ETag
-app.disable("etag");
-
-// ==============================
 // ENVIRONMENT VARIABLES
 // ==============================
+
 const PORT = process.env.PORT || 5000;
 const NODE_ENV = process.env.NODE_ENV || "development";
 
 // Frontend URL(s)
-// During development:
+//
+// Development:
 // http://localhost:5173
 //
-// During production:
+// Production:
 // https://your-frontend-domain.com
+
 const allowedOrigins = ["http://localhost:5173", process.env.CLIENT_URL].filter(
   Boolean,
 );
@@ -50,6 +73,7 @@ const allowedOrigins = ["http://localhost:5173", process.env.CLIENT_URL].filter(
 // ==============================
 // CORS
 // ==============================
+
 const corsOptions = {
   origin: function (origin, callback) {
     // Allow requests without an origin
@@ -78,6 +102,7 @@ app.use(cors(corsOptions));
 // ==============================
 // SOCKET.IO
 // ==============================
+
 const io = new Server(server, {
   cors: {
     origin: function (origin, callback) {
@@ -101,7 +126,10 @@ const io = new Server(server, {
 
 app.set("io", io);
 
-// Socket connection
+// ==============================
+// SOCKET CONNECTION
+// ==============================
+
 io.on("connection", (socket) => {
   console.log("Socket Connected:", socket.id);
 
@@ -113,13 +141,30 @@ io.on("connection", (socket) => {
 // ==============================
 // BODY PARSER
 // ==============================
-app.use(express.json({ limit: "10mb" }));
+//
+// Keep these limits because the existing application uses
+// JSON payloads. Notification file uploads are handled by
+// Multer separately and are NOT processed by express.json().
+//
+// ==============================
 
-app.use(express.urlencoded({ extended: true, limit: "10mb" }));
+app.use(
+  express.json({
+    limit: "10mb",
+  }),
+);
+
+app.use(
+  express.urlencoded({
+    extended: true,
+    limit: "10mb",
+  }),
+);
 
 // ==============================
 // HEALTH CHECK
 // ==============================
+
 app.get("/health", (req, res) => {
   const mongoState = mongoose.connection.readyState;
 
@@ -137,6 +182,7 @@ app.get("/health", (req, res) => {
 // ==============================
 // MALFORMED JSON HANDLER
 // ==============================
+
 app.use((err, req, res, next) => {
   if (
     err &&
@@ -156,6 +202,7 @@ app.use((err, req, res, next) => {
 // ==============================
 // MONGODB CONNECTION
 // ==============================
+
 mongoose
   .connect(process.env.MONGO_URI, {
     serverSelectionTimeoutMS: 15000,
@@ -170,8 +217,10 @@ mongoose
   })
   .catch((err) => {
     console.error("MongoDB connection failed:", err.message);
+
     process.exit(1);
   });
+
 // ==============================
 // API ROUTES
 // ==============================
@@ -183,6 +232,8 @@ app.use("/api/expenses", require("./routes/expenseRoutes"));
 app.use("/api/attendance", attendanceRoutes);
 
 app.use("/api/production", require("./routes/productionRoutes"));
+
+app.use("/api/flocks", require("./routes/flockRoutes"));
 
 app.use("/api/auth", require("./routes/auth"));
 
@@ -223,6 +274,7 @@ app.use("/api/backup", require("./routes/backup"));
 // ==============================
 // API 404 HANDLER
 // ==============================
+
 app.use((req, res) => {
   res.status(404).json({
     success: false,
@@ -233,6 +285,7 @@ app.use((req, res) => {
 // ==============================
 // GLOBAL ERROR HANDLER
 // ==============================
+
 app.use((err, req, res, next) => {
   console.error("SERVER ERROR:", err);
 
@@ -250,6 +303,7 @@ app.use((err, req, res, next) => {
 // ==============================
 // START SERVER
 // ==============================
+
 server.listen(PORT, "0.0.0.0", () => {
   console.log(`Server running on port ${PORT} in ${NODE_ENV} mode`);
 });
@@ -257,6 +311,7 @@ server.listen(PORT, "0.0.0.0", () => {
 // ==============================
 // GRACEFUL SHUTDOWN
 // ==============================
+
 const shutdown = async (signal) => {
   console.log(`${signal} received. Shutting down server...`);
 
@@ -269,9 +324,11 @@ const shutdown = async (signal) => {
     });
   } catch (error) {
     console.error("Shutdown error:", error);
+
     process.exit(1);
   }
 };
 
 process.on("SIGTERM", () => shutdown("SIGTERM"));
+
 process.on("SIGINT", () => shutdown("SIGINT"));

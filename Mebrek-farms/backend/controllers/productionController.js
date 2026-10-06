@@ -1,26 +1,192 @@
 const Production = require("../models/Production");
+const Flock = require("../models/Flock");
+// ============================================================
+// CONSTANTS
+// ============================================================
 
-// ==========================
+const BROODING_HOUSE = "Brooding House";
+const MAX_LAYING_AGE_WEEKS = 104;
+
+// ============================================================
+// HELPERS
+// ============================================================
+
+/**
+ * Calculate a flock's age in completed weeks on a specific date.
+ *
+ * Age =
+ * startingAgeWeeks + completed weeks since placementDate
+ */
+const calculateFlockAgeWeeks = (flock, productionDate) => {
+  if (!flock) {
+    return null;
+  }
+
+  const placementDate = new Date(flock.placementDate);
+  const recordDate = new Date(productionDate);
+
+  if (
+    Number.isNaN(placementDate.getTime()) ||
+    Number.isNaN(recordDate.getTime())
+  ) {
+    return null;
+  }
+
+  const millisecondsPerWeek = 7 * 24 * 60 * 60 * 1000;
+
+  const elapsedMilliseconds = recordDate.getTime() - placementDate.getTime();
+
+  // A production record before flock placement is invalid
+  // for that flock.
+  if (elapsedMilliseconds < 0) {
+    return null;
+  }
+
+  const elapsedWeeks = Math.floor(elapsedMilliseconds / millisecondsPerWeek);
+
+  return Math.max(0, Number(flock.startingAgeWeeks || 0) + elapsedWeeks);
+};
+
+/**
+ * Find the flock that should be associated with a production
+ * record for the specified pen and production date.
+ *
+ * Historical rule:
+ *
+ * A flock is considered to have occupied the pen if:
+ *
+ * placementDate <= productionDate
+ *
+ * and:
+ *
+ * - it is still ACTIVE, OR
+ * - it was SOLD after the production date.
+ *
+ * This prevents a later flock from being incorrectly attached
+ * to an older production record.
+ *
+ * Brooding House intentionally does not require a flock.
+ */
+const getProductionFlockData = async (pen, productionDate) => {
+  if (!pen || pen === BROODING_HOUSE) {
+    return {
+      flock: null,
+      flockId: null,
+      flockAgeWeeks: null,
+    };
+  }
+
+  const recordDate = new Date(productionDate);
+
+  if (Number.isNaN(recordDate.getTime())) {
+    return {
+      flock: null,
+      flockId: null,
+      flockAgeWeeks: null,
+    };
+  }
+
+  // ----------------------------------------------------------
+  // First try an ACTIVE flock.
+  //
+  // This is the normal path for new production records.
+  // ----------------------------------------------------------
+
+  const activeFlock = await Flock.findOne({
+    pen,
+    status: "ACTIVE",
+    isDeleted: false,
+    placementDate: {
+      $lte: recordDate,
+    },
+  }).sort({
+    placementDate: -1,
+  });
+
+  if (activeFlock) {
+    const flockAgeWeeks = calculateFlockAgeWeeks(activeFlock, recordDate);
+
+    return {
+      flock: activeFlock._id,
+      flockId: activeFlock.flockId,
+      flockAgeWeeks,
+    };
+  }
+
+  // ----------------------------------------------------------
+  // If there is no active flock, look for a SOLD flock that
+  // occupied the pen on the production date.
+  // ----------------------------------------------------------
+
+  const historicalFlock = await Flock.findOne({
+    pen,
+    isDeleted: false,
+    status: "SOLD",
+    placementDate: {
+      $lte: recordDate,
+    },
+    saleDate: {
+      $gte: recordDate,
+    },
+  }).sort({
+    placementDate: -1,
+  });
+
+  if (!historicalFlock) {
+    return {
+      flock: null,
+      flockId: null,
+      flockAgeWeeks: null,
+    };
+  }
+
+  const flockAgeWeeks = calculateFlockAgeWeeks(historicalFlock, recordDate);
+
+  return {
+    flock: historicalFlock._id,
+    flockId: historicalFlock.flockId,
+    flockAgeWeeks,
+  };
+};
+
+// ============================================================
 // GET ALL PRODUCTION RECORDS
-// ==========================
+// ============================================================
+
 const getProductions = async (req, res) => {
   try {
     console.log("GET PRODUCTIONS HIT");
 
     let productions;
 
-    // Super Admin sees everything
+    // ----------------------------------------------------------
+    // SUPERADMIN SEES EVERYTHING
+    // ----------------------------------------------------------
+
     if (req.user.role === "superadmin") {
-      productions = await Production.find().sort({
-        date: -1,
-      });
+      productions = await Production.find()
+        .populate(
+          "flock",
+          "flockId pen placementDate startingAgeWeeks status saleDate",
+        )
+        .sort({
+          date: -1,
+        });
     } else {
-      // Staff & Manager don't see deleted records
+      // --------------------------------------------------------
+      // STAFF + MANAGER DO NOT SEE DELETED RECORDS
+      // --------------------------------------------------------
+
       productions = await Production.find({
         isDeleted: false,
-      }).sort({
-        date: -1,
-      });
+      })
+        .populate(
+          "flock",
+          "flockId pen placementDate startingAgeWeeks status saleDate",
+        )
+        .sort({
+          date: -1,
+        });
     }
 
     console.log("FOUND:", productions.length);
@@ -35,12 +201,16 @@ const getProductions = async (req, res) => {
   }
 };
 
-// ==========================
+// ============================================================
 // GET SINGLE PRODUCTION RECORD
-// ==========================
+// ============================================================
+
 const getProduction = async (req, res) => {
   try {
-    const production = await Production.findById(req.params.id);
+    const production = await Production.findById(req.params.id).populate(
+      "flock",
+      "flockId pen placementDate startingAgeWeeks status saleDate",
+    );
 
     if (!production) {
       return res.status(404).json({
@@ -56,9 +226,10 @@ const getProduction = async (req, res) => {
   }
 };
 
-// ==========================
+// ============================================================
 // CREATE PRODUCTION RECORD
-// ==========================
+// ============================================================
+
 const createProduction = async (req, res) => {
   try {
     console.log("CREATE PRODUCTION:", req.body);
@@ -70,20 +241,37 @@ const createProduction = async (req, res) => {
       mortality,
       cratesProduced,
       extraEggPieces,
+      pen,
+      date,
     } = req.body;
 
-    // ==========================
+    // ----------------------------------------------------------
+    // FLOCK ASSOCIATION
+    // ----------------------------------------------------------
+    //
+    // The backend determines the flock from the pen and date.
+    //
+    // The frontend is NOT trusted to provide:
+    //
+    // flock
+    // flockId
+    // flockAgeWeeks
+    //
+    // Brooding House intentionally has no flock association.
+    // ----------------------------------------------------------
+
+    const flockData = await getProductionFlockData(pen, date);
+
+    // ----------------------------------------------------------
     // STOCK CALCULATION
-    // ==========================
-    // Closing Stock =
-    // Opening Stock + Transfer In - Transfer Out - Mortality
+    // ----------------------------------------------------------
+
     const closingStock =
       Number(openingStock || 0) +
       Number(transferIn || 0) -
       Number(transferOut || 0) -
       Number(mortality || 0);
 
-    // Prevent negative closing stock
     if (closingStock < 0) {
       return res.status(400).json({
         message:
@@ -91,34 +279,50 @@ const createProduction = async (req, res) => {
       });
     }
 
-    // ==========================
+    // ----------------------------------------------------------
     // EGG CALCULATION
-    // ==========================
+    // ----------------------------------------------------------
+
     const totalEggs =
       Number(cratesProduced || 0) * 30 + Number(extraEggPieces || 0);
 
-    // ==========================
-    // PRODUCTION PERCENTAGE
-    // ==========================
     const productionPercentage =
       closingStock > 0
         ? Number(((totalEggs / closingStock) * 100).toFixed(2))
         : 0;
 
+    // ----------------------------------------------------------
+    // CREATE
+    // ----------------------------------------------------------
+
     const production = await Production.create({
       ...req.body,
 
-      // Backend-controlled calculated values
+      // NEVER TRUST FRONTEND FLOCK DATA
+      flock: flockData.flock,
+      flockId: flockData.flockId,
+      flockAgeWeeks: flockData.flockAgeWeeks,
+
       closingStock,
       totalEggs,
       productionPercentage,
     });
 
-    res.status(201).json(production);
+    // ----------------------------------------------------------
+    // RETURN POPULATED RECORD
+    // ----------------------------------------------------------
+
+    const populatedProduction = await Production.findById(
+      production._id,
+    ).populate(
+      "flock",
+      "flockId pen placementDate startingAgeWeeks status saleDate",
+    );
+
+    res.status(201).json(populatedProduction);
   } catch (err) {
     console.log("CREATE PRODUCTION ERROR:", err);
 
-    // Duplicate date + pen
     if (err.code === 11000) {
       return res.status(409).json({
         message: "A production entry already exists for that pen on that date.",
@@ -131,9 +335,10 @@ const createProduction = async (req, res) => {
   }
 };
 
-// ==========================
+// ============================================================
 // UPDATE PRODUCTION RECORD
-// ==========================
+// ============================================================
+
 const updateProduction = async (req, res) => {
   try {
     const production = await Production.findById(req.params.id);
@@ -144,25 +349,44 @@ const updateProduction = async (req, res) => {
       });
     }
 
-    // Merge incoming fields first.
-    // This allows partial updates while ensuring all calculations
-    // use the latest values.
+    // ----------------------------------------------------------
+    // UPDATE USER-SUPPLIED PRODUCTION FIELDS
+    // ----------------------------------------------------------
+
     Object.assign(production, req.body);
 
-    // ==========================
-    // GET CURRENT STOCK VALUES
-    // ==========================
+    // ----------------------------------------------------------
+    // FLOCK ASSOCIATION
+    // ----------------------------------------------------------
+    //
+    // Recalculate from the final pen/date values.
+    //
+    // The frontend still cannot override flock information.
+    // ----------------------------------------------------------
+
+    const flockData = await getProductionFlockData(
+      production.pen,
+      production.date,
+    );
+
+    production.flock = flockData.flock;
+    production.flockId = flockData.flockId;
+    production.flockAgeWeeks = flockData.flockAgeWeeks;
+
+    // ----------------------------------------------------------
+    // STOCK CALCULATION
+    // ----------------------------------------------------------
+
     const openingStock = Number(production.openingStock || 0);
+
     const transferIn = Number(production.transferIn || 0);
+
     const transferOut = Number(production.transferOut || 0);
+
     const mortality = Number(production.mortality || 0);
 
-    // ==========================
-    // CALCULATE CLOSING STOCK
-    // ==========================
     const closingStock = openingStock + transferIn - transferOut - mortality;
 
-    // Prevent invalid stock
     if (closingStock < 0) {
       return res.status(400).json({
         message:
@@ -172,17 +396,16 @@ const updateProduction = async (req, res) => {
 
     production.closingStock = closingStock;
 
-    // ==========================
-    // CALCULATE EGGS
-    // ==========================
+    // ----------------------------------------------------------
+    // EGG CALCULATION
+    // ----------------------------------------------------------
+
     const cratesProduced = Number(production.cratesProduced || 0);
+
     const extraEggPieces = Number(production.extraEggPieces || 0);
 
     production.totalEggs = cratesProduced * 30 + extraEggPieces;
 
-    // ==========================
-    // CALCULATE PRODUCTION %
-    // ==========================
     production.productionPercentage =
       production.closingStock > 0
         ? Number(
@@ -190,11 +413,25 @@ const updateProduction = async (req, res) => {
           )
         : 0;
 
+    // ----------------------------------------------------------
+    // SAVE
+    // ----------------------------------------------------------
+
     await production.save();
 
-    res.json(production);
+    // ----------------------------------------------------------
+    // RETURN POPULATED RECORD
+    // ----------------------------------------------------------
+
+    const populatedProduction = await Production.findById(
+      production._id,
+    ).populate(
+      "flock",
+      "flockId pen placementDate startingAgeWeeks status saleDate",
+    );
+
+    res.json(populatedProduction);
   } catch (err) {
-    // (date, pen) has a unique index
     if (err.code === 11000) {
       return res.status(409).json({
         message: "A production entry already exists for that pen on that date.",
@@ -209,9 +446,10 @@ const updateProduction = async (req, res) => {
   }
 };
 
-// ==========================
+// ============================================================
 // SOFT DELETE RECORD
-// ==========================
+// ============================================================
+
 const deleteProduction = async (req, res) => {
   try {
     const production = await Production.findById(req.params.id);
@@ -222,7 +460,10 @@ const deleteProduction = async (req, res) => {
       });
     }
 
-    // Super admin permanently deletes
+    // ----------------------------------------------------------
+    // SUPERADMIN = PERMANENT DELETE
+    // ----------------------------------------------------------
+
     if (req.user.role === "superadmin") {
       await Production.findByIdAndDelete(req.params.id);
 
@@ -231,7 +472,10 @@ const deleteProduction = async (req, res) => {
       });
     }
 
-    // Staff/Manager -> Soft delete
+    // ----------------------------------------------------------
+    // MANAGER / STAFF = SOFT DELETE
+    // ----------------------------------------------------------
+
     production.isDeleted = true;
 
     production.deletedBy = {
@@ -255,6 +499,10 @@ const deleteProduction = async (req, res) => {
     });
   }
 };
+
+// ============================================================
+// EXPORTS
+// ============================================================
 
 module.exports = {
   getProductions,

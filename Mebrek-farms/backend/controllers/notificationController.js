@@ -1,289 +1,611 @@
-const Admin = require("../models/Admin");
+const mongoose = require("mongoose");
+const fs = require("fs");
+
 const Notification = require("../models/Notification");
+const Admin = require("../models/Admin");
 
-const withReadState = (notification, adminId) => {
-  const doc = notification.toObject ? notification.toObject() : notification;
-  const isReadByMe = (doc.readBy || []).some(
-    (entry) => entry.adminId?.toString() === adminId?.toString(),
-  );
-  return { ...doc, isReadByMe };
+// ============================================================
+// HELPERS
+// ============================================================
+
+const getId = (value) => {
+  if (!value) return null;
+
+  if (typeof value === "string") {
+    return value;
+  }
+
+  if (value._id) {
+    return value._id.toString();
+  }
+
+  if (value.id) {
+    return value.id.toString();
+  }
+
+  return value.toString();
 };
 
-// A manager may only touch (reply to / mark read) a notification thread
-// they're actually a party to — same ownership rule getNotifications
-// already enforces when listing. Superadmin, as the central inbox
-// across every manager thread, is unrestricted.
-const canAccessThread = (notification, user) => {
-  if (user.role !== "manager") return true;
+// ============================================================
+// CLEAN UP UPLOADED FILES
+// ============================================================
 
-  const senderId = notification.senderId?.toString?.();
-  const recipientId = notification.recipientId?.toString?.();
-  const userId = user.id?.toString?.();
+const cleanupFiles = (files = []) => {
+  files.forEach((file) => {
+    if (!file?.path) return;
 
-  return senderId === userId || recipientId === userId;
+    fs.unlink(file.path, (err) => {
+      if (err && err.code !== "ENOENT") {
+        console.error("Failed to remove uploaded file:", err.message);
+      }
+    });
+  });
 };
 
-// ======================
-// List managers (for the super admin "new conversation" picker)
-// ======================
-exports.getManagers = async (req, res) => {
+// ============================================================
+// BUILD ATTACHMENT DATA
+// ============================================================
+//
+// IMPORTANT:
+// These names MUST match Notification.js:
+//
+// name
+// type
+// size
+// fileName
+// url
+//
+// ============================================================
+
+const makeAttachmentData = (files = []) => {
+  return files.map((file) => ({
+    name: file.originalname,
+    type: file.mimetype,
+    size: file.size,
+    fileName: file.filename,
+    url: `/uploads/notifications/${file.filename}`,
+  }));
+};
+
+// ============================================================
+// READ STATE
+// ============================================================
+
+const addReadState = (notification, adminId) => {
+  const data = notification.toObject ? notification.toObject() : notification;
+
+  const currentAdminId = getId(adminId);
+
+  const readBy = Array.isArray(data.readBy) ? data.readBy : [];
+
+  return {
+    ...data,
+
+    isReadByMe: readBy.some((item) => getId(item.adminId) === currentAdminId),
+  };
+};
+
+// ============================================================
+// GET MESSAGE RECIPIENTS
+// ============================================================
+//
+// SUPERADMIN:
+//   managers + other superadmins
+//
+// MANAGER:
+//   active superadmins
+//
+// ============================================================
+
+exports.getMessageRecipients = async (req, res) => {
   try {
-    const managers = await Admin.find({ role: "manager" }).select("_id name");
-    res.json(managers);
-  } catch (err) {
-    console.error(err);
-    res.status(500).json({ message: err.message });
+    const currentRole = String(req.admin?.role || "")
+      .trim()
+      .toLowerCase();
+
+    const currentAdminId = getId(req.admin?._id);
+
+    let allowedRoles = [];
+
+    if (currentRole === "superadmin") {
+      allowedRoles = ["manager", "superadmin"];
+    } else if (currentRole === "manager") {
+      allowedRoles = ["superadmin"];
+    } else {
+      return res.status(403).json({
+        message: "You are not authorized to message administrators.",
+      });
+    }
+
+    const recipients = await Admin.find({
+      status: "active",
+      role: {
+        $in: allowedRoles,
+      },
+      _id: {
+        $ne: currentAdminId,
+      },
+    })
+      .select("_id name email role")
+      .sort({ name: 1 });
+
+    return res.json(recipients);
+  } catch (error) {
+    console.error("GET MESSAGE RECIPIENTS ERROR:", error);
+
+    return res.status(500).json({
+      message: "Failed to load message recipients.",
+    });
   }
 };
 
-// ======================
-// Send Notification
-// (find-or-create: continues the existing thread with that manager
-// instead of spawning a new one, from either side)
-// ======================
-exports.sendNotification = async (req, res) => {
+// ============================================================
+// GET MANAGERS
+// ============================================================
+
+exports.getManagers = async (req, res) => {
   try {
-    const admin = await Admin.findById(req.user.id);
-    if (!admin) return res.status(404).json({ message: "User not found" });
+    const managers = await Admin.find({
+      status: "active",
+      role: "manager",
+    })
+      .select("_id name email role")
+      .sort({ name: 1 });
 
-    if (!req.body.message || !req.body.message.trim()) {
-      return res.status(400).json({ message: "Message is required" });
-    }
+    return res.json(managers);
+  } catch (error) {
+    console.error("GET MANAGERS ERROR:", error);
 
-    let managerId;
-    let recipient = null;
+    return res.status(500).json({
+      message: "Failed to load managers.",
+    });
+  }
+};
 
-    if (admin.role === "manager") {
-      managerId = admin._id;
+// ============================================================
+// GET NOTIFICATIONS
+// ============================================================
+
+exports.getNotifications = async (req, res) => {
+  try {
+    const currentAdminId = getId(req.admin?._id);
+
+    const currentRole = String(req.admin?.role || "")
+      .trim()
+      .toLowerCase();
+
+    let filter = {};
+
+    // Superadmins can see all notification
+    // conversations.
+    if (currentRole === "superadmin") {
+      filter = {};
     } else {
-      // Super admin must target a specific manager
-      if (!req.body.recipientId) {
-        return res
-          .status(400)
-          .json({ message: "recipientId is required to start a conversation" });
-      }
-
-      recipient = await Admin.findById(req.body.recipientId);
-      if (!recipient || recipient.role !== "manager") {
-        return res
-          .status(400)
-          .json({ message: "recipientId must be an existing manager" });
-      }
-      managerId = recipient._id;
+      // Managers see only conversations
+      // involving themselves.
+      filter = {
+        $or: [
+          {
+            senderId: currentAdminId,
+          },
+          {
+            recipientId: currentAdminId,
+          },
+        ],
+      };
     }
 
-    const io = req.app.get("io");
+    const notifications = await Notification.find(filter)
+      .sort({
+        updatedAt: -1,
+        createdAt: -1,
+      })
+      .lean();
 
-    // Does a thread with this manager already exist? If so, append as a reply.
+    const result = notifications.map((notification) =>
+      addReadState(notification, currentAdminId),
+    );
+
+    return res.json(result);
+  } catch (error) {
+    console.error("GET NOTIFICATIONS ERROR:", error);
+
+    return res.status(500).json({
+      message: "Failed to load notifications.",
+    });
+  }
+};
+
+// ============================================================
+// GET UNREAD COUNT
+// ============================================================
+
+exports.getUnreadCount = async (req, res) => {
+  try {
+    const currentAdminId = getId(req.admin?._id);
+
+    const filter = {
+      $or: [
+        {
+          senderId: currentAdminId,
+        },
+        {
+          recipientId: currentAdminId,
+        },
+      ],
+
+      readBy: {
+        $not: {
+          $elemMatch: {
+            adminId: currentAdminId,
+          },
+        },
+      },
+    };
+
+    const count = await Notification.countDocuments(filter);
+
+    return res.json({
+      count,
+    });
+  } catch (error) {
+    console.error("GET UNREAD COUNT ERROR:", error);
+
+    return res.status(500).json({
+      message: "Failed to get unread notification count.",
+    });
+  }
+};
+
+// ============================================================
+// SEND NEW NOTIFICATION
+// ============================================================
+
+exports.sendNotification = async (req, res) => {
+  const uploadedFiles = req.files || [];
+
+  try {
+    const senderId = getId(req.admin?._id);
+
+    const senderName = req.admin?.name || "";
+
+    const senderRole = String(req.admin?.role || "")
+      .trim()
+      .toLowerCase();
+
+    const { recipientId, subject, message } = req.body || {};
+
+    const trimmedMessage = String(message || "").trim();
+
+    // ========================================================
+    // VALIDATION
+    // ========================================================
+
+    if (!recipientId || !mongoose.Types.ObjectId.isValid(recipientId)) {
+      cleanupFiles(uploadedFiles);
+
+      return res.status(400).json({
+        message: "A valid recipient is required.",
+      });
+    }
+
+    if (senderRole !== "superadmin" && senderRole !== "manager") {
+      cleanupFiles(uploadedFiles);
+
+      return res.status(403).json({
+        message: "You are not authorized to send notifications.",
+      });
+    }
+
+    if (senderId === recipientId) {
+      cleanupFiles(uploadedFiles);
+
+      return res.status(400).json({
+        message: "You cannot send a message to yourself.",
+      });
+    }
+
+    const attachments = makeAttachmentData(uploadedFiles);
+
+    if (!trimmedMessage && attachments.length === 0) {
+      cleanupFiles(uploadedFiles);
+
+      return res.status(400).json({
+        message: "Enter a message or attach a file.",
+      });
+    }
+
+    // ========================================================
+    // VALID RECIPIENT ROLES
+    // ========================================================
+
+    const allowedRecipientRoles =
+      senderRole === "manager" ? ["superadmin"] : ["manager", "superadmin"];
+
+    const recipient = await Admin.findOne({
+      _id: recipientId,
+      status: "active",
+      role: {
+        $in: allowedRecipientRoles,
+      },
+    });
+
+    if (!recipient) {
+      cleanupFiles(uploadedFiles);
+
+      return res.status(404).json({
+        message: "The selected recipient is not available.",
+      });
+    }
+
+    // ========================================================
+    // CHECK EXISTING CONVERSATION
+    // ========================================================
+
     const existing = await Notification.findOne({
       $or: [
-        { senderRole: "manager", senderId: managerId },
-        { recipientId: managerId },
+        {
+          senderId,
+          recipientId,
+        },
+        {
+          senderId: recipientId,
+          recipientId: senderId,
+        },
       ],
-    }).sort({ createdAt: -1 });
+    }).sort({
+      updatedAt: -1,
+    });
+
+    // ========================================================
+    // EXISTING THREAD
+    // ========================================================
 
     if (existing) {
       existing.replies.push({
-        senderId: admin._id,
-        senderName: admin.name,
-        senderRole: admin.role,
-        message: req.body.message.trim(),
+        senderId,
+        senderName,
+        senderRole,
+        message: trimmedMessage,
+        attachments,
+        createdAt: new Date(),
       });
-      existing.readBy = [{ adminId: admin._id, readAt: new Date() }];
+
+      // Sender has read their own message.
+      // Recipient becomes unread.
+      existing.readBy = [
+        {
+          adminId: senderId,
+          readAt: new Date(),
+        },
+      ];
+
       await existing.save();
 
-      io.emit("notificationUpdated", withReadState(existing, req.user.id));
-      return res.status(201).json(withReadState(existing, req.user.id));
-    }
+      const responseNotification = addReadState(existing, senderId);
 
-    const notification = await Notification.create({
-      senderId: admin._id,
-      senderName: admin.name,
-      senderRole: admin.role,
-      subject: req.body.subject || "General Message",
-      message: req.body.message.trim(),
-      recipientId: admin.role === "superadmin" ? managerId : null,
-      recipientName: admin.role === "superadmin" ? recipient.name : undefined,
-      // Hardcoded, not taken from req.body — this thread type is only
-      // ever manager<->superadmin, and accepting a client-supplied
-      // recipientRoles previously let a manager set it to anything
-      // (e.g. include "staff"), which would silently expand who this
-      // thread is visible to on any code path that trusts this field.
-      recipientRoles: ["manager", "superadmin"],
-    });
+      const io = req.app.get("io");
 
-    io.emit("notificationCreated", withReadState(notification, req.user.id));
-    res.status(201).json(withReadState(notification, req.user.id));
-  } catch (err) {
-    console.error(err);
-    res.status(500).json({ message: err.message });
-  }
-};
+      if (io) {
+        io.emit("notificationUpdated", responseNotification);
+      }
 
-// ======================
-// Get Notifications
-// (manager sees only threads they're a party to; super admin sees all)
-// ======================
-exports.getNotifications = async (req, res) => {
-  try {
-    const role = req.user.role;
-    const page = Math.max(parseInt(req.query.page) || 1, 1);
-    const limit = Math.min(parseInt(req.query.limit) || 25, 100);
-
-    const roleVisible = {
-      $or: [
-        { recipientRoles: role },
-        { recipientRoles: { $exists: false } },
-        { recipientRoles: { $size: 0 } },
-      ],
-    };
-
-    const filter =
-      role === "manager"
-        ? {
-            $and: [
-              roleVisible,
-              {
-                $or: [{ senderId: req.user.id }, { recipientId: req.user.id }],
-              },
-            ],
-          }
-        : roleVisible;
-
-    const [notifications, total] = await Promise.all([
-      Notification.find(filter)
-        .sort({ createdAt: -1 })
-        .skip((page - 1) * limit)
-        .limit(limit),
-      Notification.countDocuments(filter),
-    ]);
-
-    res.json({
-      data: notifications.map((n) => withReadState(n, req.user.id)),
-      page,
-      totalPages: Math.ceil(total / limit),
-      total,
-    });
-  } catch (err) {
-    console.error(err);
-    res.status(500).json({ message: err.message });
-  }
-};
-
-// ======================
-// Get Unread Count
-// ======================
-exports.getUnreadCount = async (req, res) => {
-  try {
-    const role = req.user.role;
-
-    const roleVisible = {
-      $or: [
-        { recipientRoles: role },
-        { recipientRoles: { $exists: false } },
-        { recipientRoles: { $size: 0 } },
-      ],
-    };
-
-    const ownership =
-      role === "manager"
-        ? { $or: [{ senderId: req.user.id }, { recipientId: req.user.id }] }
-        : {};
-
-    const count = await Notification.countDocuments({
-      $and: [
-        roleVisible,
-        ownership,
-        { "readBy.adminId": { $ne: req.user.id } },
-      ],
-    });
-
-    res.json({ count });
-  } catch (err) {
-    console.error(err);
-    res.status(500).json({ message: err.message });
-  }
-};
-
-// ======================
-// Mark as Read
-// SUPERADMIN: any thread. MANAGER: only threads they're a party to —
-// previously any manager could mark any notification as read
-// regardless of whether it was their conversation.
-// ======================
-exports.markAsRead = async (req, res) => {
-  try {
-    const notification = await Notification.findById(req.params.id);
-    if (!notification)
-      return res.status(404).json({ message: "Notification not found" });
-
-    if (!canAccessThread(notification, req.user)) {
-      return res.status(403).json({
-        message: "You do not have access to this conversation.",
+      return res.status(200).json({
+        message: "Message sent successfully.",
+        notification: responseNotification,
       });
     }
 
-    const alreadyRead = notification.readBy.some(
-      (entry) => entry.adminId?.toString() === req.user.id,
-    );
+    // ========================================================
+    // NEW THREAD
+    // ========================================================
 
-    if (!alreadyRead) {
-      notification.readBy.push({ adminId: req.user.id, readAt: new Date() });
-      await notification.save();
-    }
+    const notification = await Notification.create({
+      senderId,
+      senderName,
+      senderRole,
+
+      recipientId: recipient._id,
+
+      recipientName: recipient.name,
+
+      subject: String(subject || "").trim(),
+
+      message: trimmedMessage,
+
+      recipientRoles: [recipient.role],
+
+      attachments,
+
+      readBy: [
+        {
+          adminId: senderId,
+          readAt: new Date(),
+        },
+      ],
+
+      replies: [],
+    });
+
+    const responseNotification = addReadState(notification, senderId);
 
     const io = req.app.get("io");
-    io.emit("notificationUpdated", withReadState(notification, req.user.id));
 
-    res.json(withReadState(notification, req.user.id));
-  } catch (err) {
-    console.error(err);
-    res.status(500).json({ message: err.message });
+    if (io) {
+      io.emit("notificationCreated", responseNotification);
+    }
+
+    return res.status(201).json({
+      message: "Message sent successfully.",
+      notification: responseNotification,
+    });
+  } catch (error) {
+    cleanupFiles(uploadedFiles);
+
+    console.error("SEND NOTIFICATION ERROR:", error);
+
+    return res.status(500).json({
+      message: error.message || "Failed to send notification.",
+    });
   }
 };
 
-// ======================
-// Reply to Notification
-// SUPERADMIN: any thread. MANAGER: only threads they're a party to —
-// previously any manager could reply into any other manager's private
-// thread with the superadmin, since the notification ID alone was
-// enough with no check the caller actually belonged to that thread.
-// ======================
-exports.replyNotification = async (req, res) => {
-  try {
-    const admin = await Admin.findById(req.user.id);
-    if (!admin) return res.status(404).json({ message: "User not found" });
+// ============================================================
+// MARK AS READ
+// ============================================================
 
-    if (!req.body.message || !req.body.message.trim()) {
-      return res.status(400).json({ message: "Reply message is required" });
+exports.markAsRead = async (req, res) => {
+  try {
+    const { id } = req.params;
+
+    const currentAdminId = getId(req.admin?._id);
+
+    if (!mongoose.Types.ObjectId.isValid(id)) {
+      return res.status(400).json({
+        message: "Invalid notification ID.",
+      });
     }
 
-    const notification = await Notification.findById(req.params.id);
-    if (!notification)
-      return res.status(404).json({ message: "Notification not found" });
+    const notification = await Notification.findById(id);
 
-    if (!canAccessThread(notification, req.user)) {
+    if (!notification) {
+      return res.status(404).json({
+        message: "Notification not found.",
+      });
+    }
+
+    const existingIndex = notification.readBy.findIndex(
+      (item) => getId(item.adminId) === currentAdminId,
+    );
+
+    if (existingIndex >= 0) {
+      notification.readBy[existingIndex].readAt = new Date();
+    } else {
+      notification.readBy.push({
+        adminId: currentAdminId,
+        readAt: new Date(),
+      });
+    }
+
+    await notification.save();
+
+    return res.json({
+      message: "Notification marked as read.",
+    });
+  } catch (error) {
+    console.error("MARK NOTIFICATION READ ERROR:", error);
+
+    return res.status(500).json({
+      message: "Failed to mark notification as read.",
+    });
+  }
+};
+
+// ============================================================
+// REPLY TO NOTIFICATION
+// ============================================================
+
+exports.replyNotification = async (req, res) => {
+  const uploadedFiles = req.files || [];
+
+  try {
+    const { id } = req.params;
+
+    const currentAdminId = getId(req.admin?._id);
+
+    const senderName = req.admin?.name || "";
+
+    const senderRole = String(req.admin?.role || "")
+      .trim()
+      .toLowerCase();
+
+    const { message } = req.body || {};
+
+    const trimmedMessage = String(message || "").trim();
+
+    if (!mongoose.Types.ObjectId.isValid(id)) {
+      cleanupFiles(uploadedFiles);
+
+      return res.status(400).json({
+        message: "Invalid notification ID.",
+      });
+    }
+
+    const notification = await Notification.findById(id);
+
+    if (!notification) {
+      cleanupFiles(uploadedFiles);
+
+      return res.status(404).json({
+        message: "Notification not found.",
+      });
+    }
+
+    const isParticipant =
+      getId(notification.senderId) === currentAdminId ||
+      getId(notification.recipientId) === currentAdminId;
+
+    // Superadmin may access existing
+    // notification threads.
+    const isSuperadmin = senderRole === "superadmin";
+
+    if (!isParticipant && !isSuperadmin) {
+      cleanupFiles(uploadedFiles);
+
       return res.status(403).json({
-        message: "You do not have access to this conversation.",
+        message: "You are not authorized to reply to this notification.",
+      });
+    }
+
+    const attachments = makeAttachmentData(uploadedFiles);
+
+    if (!trimmedMessage && attachments.length === 0) {
+      cleanupFiles(uploadedFiles);
+
+      return res.status(400).json({
+        message: "Enter a reply or attach a file.",
       });
     }
 
     notification.replies.push({
-      senderId: admin._id,
-      senderName: admin.name,
-      senderRole: admin.role,
-      message: req.body.message.trim(),
+      senderId: currentAdminId,
+      senderName,
+      senderRole,
+      message: trimmedMessage,
+      attachments,
+      createdAt: new Date(),
     });
 
-    notification.readBy = [{ adminId: admin._id, readAt: new Date() }];
+    // The sender has read the conversation.
+    // Everyone else becomes unread.
+    notification.readBy = [
+      {
+        adminId: currentAdminId,
+        readAt: new Date(),
+      },
+    ];
+
     await notification.save();
 
-    const io = req.app.get("io");
-    io.emit("notificationUpdated", withReadState(notification, req.user.id));
+    const responseNotification = addReadState(notification, currentAdminId);
 
-    res.json(withReadState(notification, req.user.id));
-  } catch (err) {
-    console.error(err);
-    res.status(500).json({ message: err.message });
+    const io = req.app.get("io");
+
+    if (io) {
+      io.emit("notificationUpdated", responseNotification);
+    }
+
+    return res.status(200).json({
+      message: "Reply sent successfully.",
+      notification: responseNotification,
+    });
+  } catch (error) {
+    cleanupFiles(uploadedFiles);
+
+    console.error("REPLY NOTIFICATION ERROR:", error);
+
+    return res.status(500).json({
+      message: error.message || "Failed to send reply.",
+    });
   }
 };

@@ -1,25 +1,95 @@
 const mongoose = require("mongoose");
 
+// ============================================================
+// ATTACHMENT SCHEMA
+// ============================================================
+
+const attachmentSchema = new mongoose.Schema(
+  {
+    name: {
+      type: String,
+      required: true,
+      trim: true,
+    },
+
+    type: {
+      type: String,
+      required: true,
+      trim: true,
+    },
+
+    size: {
+      type: Number,
+      required: true,
+    },
+
+    fileName: {
+      type: String,
+      required: true,
+      trim: true,
+    },
+
+    url: {
+      type: String,
+      required: true,
+      trim: true,
+    },
+  },
+  {
+    _id: true,
+  },
+);
+
+// ============================================================
+// REPLY SCHEMA
+// ============================================================
+
 const replySchema = new mongoose.Schema(
   {
+    // Optional because older notification records may
+    // contain replies created before senderId was stored.
     senderId: {
       type: mongoose.Schema.Types.ObjectId,
       ref: "Admin",
+      default: null,
     },
 
-    senderName: String,
+    senderName: {
+      type: String,
+      trim: true,
+      default: "",
+    },
 
-    senderRole: String,
+    senderRole: {
+      type: String,
+      trim: true,
+      default: "",
+    },
 
-    message: String,
+    message: {
+      type: String,
+      trim: true,
+      default: "",
+    },
+
+    attachments: {
+      type: [attachmentSchema],
+      default: [],
+    },
 
     createdAt: {
       type: Date,
       default: Date.now,
     },
   },
-  { _id: true },
+  {
+    _id: true,
+  },
 );
+
+// ============================================================
+// NOTIFICATION SCHEMA
+// ============================================================
 
 const notificationSchema = new mongoose.Schema(
   {
@@ -29,11 +99,18 @@ const notificationSchema = new mongoose.Schema(
       required: true,
     },
 
-    senderName: String,
+    senderName: {
+      type: String,
+      trim: true,
+      default: "",
+    },
 
-    senderRole: String,
+    senderRole: {
+      type: String,
+      trim: true,
+      default: "",
+    },
 
-    // The manager this conversation belongs to.
     recipientId: {
       type: mongoose.Schema.Types.ObjectId,
       ref: "Admin",
@@ -43,14 +120,19 @@ const notificationSchema = new mongoose.Schema(
     recipientName: {
       type: String,
       default: null,
+      trim: true,
     },
 
-    subject: String,
+    subject: {
+      type: String,
+      trim: true,
+      default: "",
+    },
 
     message: {
       type: String,
-      required: true,
       trim: true,
+      default: "",
     },
 
     recipientRoles: {
@@ -58,12 +140,22 @@ const notificationSchema = new mongoose.Schema(
       default: ["manager", "superadmin"],
     },
 
+    attachments: {
+      type: [attachmentSchema],
+      default: [],
+    },
+
+    // ========================================================
+    // PER-ADMIN READ STATE
+    // ========================================================
+
     readBy: [
       {
         adminId: {
           type: mongoose.Schema.Types.ObjectId,
           ref: "Admin",
         },
+
         readAt: {
           type: Date,
           default: Date.now,
@@ -71,27 +163,18 @@ const notificationSchema = new mongoose.Schema(
       },
     ],
 
-    replies: [replySchema],
+    // ========================================================
+    // REPLIES
+    // ========================================================
+
+    replies: {
+      type: [replySchema],
+      default: [],
+    },
   },
   {
     timestamps: true,
   },
 );
-
-notificationSchema.index({
-  subject: "text",
-  message: "text",
-  senderName: "text",
-});
-
-notificationSchema.index({
-  recipientRoles: 1,
-  createdAt: -1,
-});
-
-notificationSchema.index({
-  recipientId: 1,
-  createdAt: -1,
-});
 
 module.exports = mongoose.model("Notification", notificationSchema);

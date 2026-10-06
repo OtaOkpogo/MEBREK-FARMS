@@ -1,4 +1,5 @@
 const express = require("express");
+
 const router = express.Router();
 
 const {
@@ -8,21 +9,36 @@ const {
   getUnreadCount,
   markAsRead,
   replyNotification,
+  getMessageRecipients,
 } = require("../controllers/notificationController");
 
 const { protect, allowRoles } = require("../middleware/authMiddleware");
 
-// SUPERADMIN + MANAGER ONLY — Notifications.jsx explicitly shows staff
-// "You don't have access to notifications" with no data at all. This
-// is a manager<->superadmin inbox; staff was never meant to reach any
-// of it, including via a direct API call. Previously these routes only
-// checked authentication, so a staff account could pull full
-// conversation content despite what the UI shows them.
+const {
+  uploadNotificationAttachments,
+} = require("../middleware/notificationUpload");
 
-// GET /api/notifications/managers
+// ============================================================
+// MESSAGE RECIPIENTS
+// ============================================================
+
+router.get(
+  "/message-recipients",
+  protect,
+  allowRoles("superadmin", "manager"),
+  getMessageRecipients,
+);
+
+// ============================================================
+// MANAGERS
+// ============================================================
+
 router.get("/managers", protect, allowRoles("superadmin"), getManagers);
 
-// GET /api/notifications/unread-count
+// ============================================================
+// UNREAD COUNT
+// ============================================================
+
 router.get(
   "/unread-count",
   protect,
@@ -30,18 +46,28 @@ router.get(
   getUnreadCount,
 );
 
-// GET /api/notifications
+// ============================================================
+// GET NOTIFICATIONS
+// ============================================================
+
 router.get("/", protect, allowRoles("superadmin", "manager"), getNotifications);
 
-// POST /api/notifications
+// ============================================================
+// SEND NEW MESSAGE
+// ============================================================
+
 router.post(
   "/",
   protect,
   allowRoles("superadmin", "manager"),
+  uploadNotificationAttachments,
   sendNotification,
 );
 
-// PUT /api/notifications/:id/read
+// ============================================================
+// MARK AS READ
+// ============================================================
+
 router.put(
   "/:id/read",
   protect,
@@ -49,11 +75,15 @@ router.put(
   markAsRead,
 );
 
-// POST /api/notifications/:id/reply
+// ============================================================
+// REPLY
+// ============================================================
+
 router.post(
   "/:id/reply",
   protect,
   allowRoles("superadmin", "manager"),
+  uploadNotificationAttachments,
   replyNotification,
 );
 
