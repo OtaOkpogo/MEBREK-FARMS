@@ -1,80 +1,78 @@
 import apiClient from "./apiClient";
 
-/*
-|--------------------------------------------------------------------------
-| ROOM INVENTORY SERVICE
-|--------------------------------------------------------------------------
-| This service matches your current backend routes:
-|
-| GET    /api/room-inventory
-| GET    /api/room-inventory/:id
-| POST   /api/room-inventory
-| PUT    /api/room-inventory/:id
-| DELETE /api/room-inventory/:id
-| PATCH  /api/room-inventory/:id/assign
-| PATCH  /api/room-inventory/:id/status
-| GET    /api/room-inventory/summary
-| GET    /api/room-inventory/missing
-|
-|--------------------------------------------------------------------------
-*/
-
-// ==============================
+// ============================================================
 // INVENTORY ITEMS
-// ==============================
+// ============================================================
 
 // Get every inventory item
 export const getRooms = async () => {
-  return await apiClient.get("/room-inventory");
+  const response = await apiClient.get("/room-inventory");
+  return response.data;
 };
 
 // Get one inventory item
 export const getRoom = async (id) => {
-  return await apiClient.get(`/room-inventory/${id}`);
+  const response = await apiClient.get(`/room-inventory/${id}`);
+  return response.data;
 };
 
 // Create inventory item
 export const addItem = async (data) => {
-  return await apiClient.post("/room-inventory", data);
+  const response = await apiClient.post("/room-inventory", data);
+  return response.data;
 };
 
 // Update inventory item
 export const updateItem = async (id, data) => {
-  return await apiClient.put(`/room-inventory/${id}`, data);
+  const response = await apiClient.put(`/room-inventory/${id}`, data);
+  return response.data;
 };
 
 // Delete inventory item
 export const deleteItem = async (id) => {
-  return await apiClient.delete(`/room-inventory/${id}`);
+  const response = await apiClient.delete(`/room-inventory/${id}`);
+  return response.data;
 };
 
-// ==============================
+// ============================================================
 // ROOM SUMMARY
-// ==============================
+// ============================================================
 
 export const getInventorySummary = async () => {
-  return await apiClient.get("/room-inventory/summary");
+  const response = await apiClient.get("/room-inventory/summary");
+  return response.data;
 };
 
-// Missing items
+// ============================================================
+// MISSING ITEMS
+// ============================================================
 
 export const getMissingItems = async () => {
-  return await apiClient.get("/room-inventory/missing");
+  const response = await apiClient.get("/room-inventory/missing");
+  return response.data;
 };
 
-// Assign item to staff
+// ============================================================
+// ASSIGN ITEM
+// ============================================================
 
 export const assignItem = async (id, staffId) => {
-  return await apiClient.patch(`/room-inventory/${id}/assign`, {
+  const response = await apiClient.patch(`/room-inventory/${id}/assign`, {
     staffId,
   });
+
+  return response.data;
 };
 
-// Change status
+// ============================================================
+// CHANGE STATUS
+// ============================================================
 
 export const updateItemStatus = async (id, status, note = "") => {
-  return await apiClient.patch(`/room-inventory/${id}/status`, {
+  const response = await apiClient.patch(`/room-inventory/${id}/status`, {
     status,
     note,
   });
+
+  return response.data;
 };

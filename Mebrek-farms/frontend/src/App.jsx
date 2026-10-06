@@ -31,6 +31,7 @@ import Profile from "./admin/Profile";
 import Backup from "./admin/Backup";
 
 import Expenses from "./pages/Expenses";
+import Flocks from "./pages/Flocks";
 
 function App() {
   return (
@@ -105,6 +106,15 @@ function App() {
             element={
               <ProtectedRoute allowedRoles={["superadmin", "manager"]}>
                 <EggSales />
+              </ProtectedRoute>
+            }
+          />
+
+          <Route
+            path="flocks"
+            element={
+              <ProtectedRoute allowedRoles={["superadmin", "manager"]}>
+                <Flocks />
               </ProtectedRoute>
             }
           />

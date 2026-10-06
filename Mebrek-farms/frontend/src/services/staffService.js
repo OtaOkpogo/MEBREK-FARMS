@@ -1,47 +1,78 @@
 import apiClient from "./apiClient";
 
-// ================= GET ALL STAFF =================
+// ============================================================
+// GET ALL STAFF
+// ============================================================
 
 export const fetchStaff = async () => {
-  return await apiClient.get("/auth/admins");
+  const response = await apiClient.get("/auth/admins");
+
+  console.log("STAFF API RESPONSE:", response.data);
+  console.log("STAFF IS ARRAY:", Array.isArray(response.data));
+
+  return Array.isArray(response.data) ? response.data : [];
 };
 
-// ================= CREATE STAFF =================
+// ============================================================
+// CREATE
+// ============================================================
 
 export const createStaff = async (data) => {
-  return await apiClient.post("/auth/register", data);
+  const response = await apiClient.post("/auth/register", data);
+
+  return response.data;
 };
 
-// ================= UPDATE STAFF =================
+// ============================================================
+// UPDATE NAME / EMAIL
+// ============================================================
 
 export const updateStaff = async (id, data) => {
-  return await apiClient.put(`/staff/${id}`, data);
+  const response = await apiClient.put(`/auth/admins/${id}`, data);
+
+  return response.data;
 };
 
-// ================= DELETE STAFF =================
+// ============================================================
+// DELETE
+// ============================================================
 
 export const deleteStaff = async (id) => {
-  return await apiClient.delete(`/auth/admins/${id}`);
+  const response = await apiClient.delete(`/auth/admins/${id}`);
+
+  return response.data;
 };
 
-// ================= UPDATE ROLE =================
+// ============================================================
+// UPDATE ROLE
+// ============================================================
 
 export const updateRole = async (id, role) => {
-  return await apiClient.put(`/auth/admins/${id}/role`, {
+  const response = await apiClient.put(`/auth/admins/${id}/role`, {
     role,
   });
+
+  return response.data;
 };
 
-// ================= TOGGLE STATUS =================
+// ============================================================
+// TOGGLE STATUS
+// ============================================================
 
 export const toggleStatus = async (id) => {
-  return await apiClient.put(`/auth/admins/${id}/status`);
+  const response = await apiClient.put(`/auth/admins/${id}/status`);
+
+  return response.data;
 };
 
-// ================= RESET PASSWORD =================
+// ============================================================
+// RESET PASSWORD
+// ============================================================
 
 export const resetPassword = async (id, password) => {
-  return await apiClient.put(`/auth/admins/${id}/password`, {
+  const response = await apiClient.put(`/auth/admins/${id}/password`, {
     password,
   });
+
+  return response.data;
 };

@@ -436,10 +436,12 @@ export default function Dashboard() {
 
             <p
               className={`font-bold text-lg ${
-                user?.status === "active" ? "text-green-600" : "text-red-600"
+                String(user?.status ?? "active").toLowerCase() === "active"
+                  ? "text-green-600"
+                  : "text-red-600"
               }`}
             >
-              {user?.status?.toUpperCase() || "ACTIVE"}
+              {String(user?.status ?? "active").toUpperCase()}
             </p>
           </div>
 

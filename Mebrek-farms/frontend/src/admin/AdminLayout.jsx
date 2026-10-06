@@ -1,11 +1,6 @@
 import { useEffect, useRef, useState } from "react";
-import {
-  Outlet,
-  Link,
-  NavLink,
-  useNavigate,
-  useLocation,
-} from "react-router-dom";
+import { Outlet, Link, useNavigate, useLocation } from "react-router-dom";
+
 import { ToastContainer, toast } from "react-toastify";
 import "react-toastify/dist/ReactToastify.css";
 
@@ -13,6 +8,8 @@ import logo from "../assets/logo.png";
 import GlobalSearch from "../components/GlobalSearch";
 import NotificationPopup from "../components/NotificationPopup";
 import socket from "../services/socket";
+
+import notificationSound from "../assets/notification.mp3";
 import orderSound from "../assets/order-notification.mp3";
 
 import {
@@ -21,19 +18,41 @@ import {
   getUnreadCount,
 } from "../services/notificationService";
 
-import { FileBarChart2 } from "lucide-react";
+// ============================================================
+// HELPERS
+// ============================================================
+
+const getId = (value) => {
+  if (!value) return null;
+
+  if (typeof value === "object") {
+    if (value._id) return value._id.toString();
+    if (value.id) return value.id.toString();
+  }
+
+  return value.toString();
+};
 
 const isOwnSender = (senderId, userId) => {
-  if (!senderId || !userId) return false;
+  const sender = getId(senderId);
+  const user = getId(userId);
 
-  const id = senderId?._id?.toString?.() || senderId?.toString?.();
+  if (!sender || !user) return false;
 
-  return id === userId?.toString();
+  return sender === user;
 };
+
+// ============================================================
+// ADMIN LAYOUT
+// ============================================================
 
 export default function AdminLayout() {
   const navigate = useNavigate();
   const location = useLocation();
+
+  // ==========================================================
+  // USER
+  // ==========================================================
 
   const user = JSON.parse(localStorage.getItem("user") || "{}");
 
@@ -41,49 +60,174 @@ export default function AdminLayout() {
 
   const name = user?.name || localStorage.getItem("adminName");
 
+  const currentUserId = getId(user?._id || user?.id);
+
+  // ==========================================================
+  // STATE
+  // ==========================================================
+
   const [unreadOrders, setUnreadOrders] = useState(0);
+
   const [unreadMessages, setUnreadMessages] = useState(0);
+
   const [messageNotifications, setMessageNotifications] = useState([]);
 
-  const audioRef = useRef(null);
+  // ==========================================================
+  // REFS
+  // ==========================================================
+
+  const orderAudioRef = useRef(null);
+
+  const notificationAudioRef = useRef(null);
+
   const roleRef = useRef(role);
-  const userIdRef = useRef(user?.id);
+
+  const userIdRef = useRef(currentUserId);
+
+  // ==========================================================
+  // KEEP REFS CURRENT
+  // ==========================================================
 
   useEffect(() => {
     roleRef.current = role;
-    userIdRef.current = user?.id;
-  }, [role, user?.id]);
+    userIdRef.current = currentUserId;
+  }, [role, currentUserId]);
+
+  // ==========================================================
+  // INITIALIZE ORDER SOUND
+  // ==========================================================
 
   useEffect(() => {
-    audioRef.current = new Audio(orderSound);
-    audioRef.current.preload = "auto";
-    audioRef.current.volume = 1;
+    orderAudioRef.current = new Audio(orderSound);
+
+    orderAudioRef.current.preload = "auto";
+
+    orderAudioRef.current.volume = 1;
 
     return () => {
-      if (audioRef.current) {
-        audioRef.current.pause();
-        audioRef.current = null;
+      if (orderAudioRef.current) {
+        orderAudioRef.current.pause();
+        orderAudioRef.current = null;
       }
     };
   }, []);
 
-  const refreshUnreadCount = () => {
+  // ==========================================================
+  // INITIALIZE NOTIFICATION SOUND
+  // ==========================================================
+
+  useEffect(() => {
+    notificationAudioRef.current = new Audio(notificationSound);
+
+    notificationAudioRef.current.preload = "auto";
+
+    notificationAudioRef.current.volume = 1;
+
+    return () => {
+      if (notificationAudioRef.current) {
+        notificationAudioRef.current.pause();
+        notificationAudioRef.current = null;
+      }
+    };
+  }, []);
+
+  // ==========================================================
+  // PLAY NOTIFICATION SOUND
+  // ==========================================================
+
+  const playNotificationSound = () => {
+    try {
+      if (!notificationAudioRef.current) {
+        return;
+      }
+
+      notificationAudioRef.current.currentTime = 0;
+
+      const playPromise = notificationAudioRef.current.play();
+
+      if (playPromise?.catch) {
+        playPromise.catch((err) => {
+          console.warn("Notification sound was blocked by browser:", err);
+        });
+      }
+    } catch (err) {
+      console.warn("Notification sound error:", err);
+    }
+  };
+
+  // ==========================================================
+  // PLAY ORDER SOUND
+  // ==========================================================
+
+  const playOrderSound = () => {
+    try {
+      if (!orderAudioRef.current) {
+        return;
+      }
+
+      orderAudioRef.current.currentTime = 0;
+
+      const playPromise = orderAudioRef.current.play();
+
+      if (playPromise?.catch) {
+        playPromise.catch(() => {});
+      }
+    } catch (err) {
+      console.warn("Order sound error:", err);
+    }
+  };
+
+  // ==========================================================
+  // REFRESH UNREAD NOTIFICATION COUNT
+  // ==========================================================
+
+  const refreshUnreadCount = async () => {
     if (roleRef.current === "staff") {
+      setUnreadMessages(0);
       return;
     }
 
-    getUnreadCount()
-      .then((res) => {
-        setUnreadMessages(res?.count ?? 0);
-      })
-      .catch((err) => {
-        console.error("Failed to refresh unread notification count:", err);
-      });
+    try {
+      const res = await getUnreadCount();
+
+      console.log("UNREAD COUNT RESPONSE:", res);
+
+      /*
+       * apiClient returns the complete Axios
+       * response.
+       *
+       * Backend returns:
+       *
+       * {
+       *   count: 3
+       * }
+       *
+       * Therefore:
+       *
+       * res.data.count
+       */
+
+      const count = res?.data?.count ?? res?.count ?? 0;
+
+      setUnreadMessages(Number(count) || 0);
+    } catch (err) {
+      console.error("Failed to refresh unread notification count:", err);
+    }
   };
+
+  // ==========================================================
+  // INITIAL UNREAD COUNT
+  // ==========================================================
 
   useEffect(() => {
     refreshUnreadCount();
+
+    // eslint-disable-next-line react-hooks/exhaustive-deps
   }, []);
+
+  // ==========================================================
+  // ORDER PAGE
+  // ==========================================================
 
   useEffect(() => {
     if (location.pathname === "/admin/orders") {
@@ -91,11 +235,18 @@ export default function AdminLayout() {
     }
   }, [location.pathname]);
 
-  useEffect(() => {
-    if (location.pathname === "/admin/notifications") {
-      setUnreadMessages(0);
-    }
-  }, [location.pathname]);
+  // ==========================================================
+  // IMPORTANT:
+  //
+  // DO NOT CLEAR unreadMessages just because
+  // the Notifications page was opened.
+  //
+  // The backend controls read/unread state.
+  // ==========================================================
+
+  // ==========================================================
+  // NEW ORDER SOCKET
+  // ==========================================================
 
   useEffect(() => {
     const handleNewOrder = (order) => {
@@ -103,13 +254,9 @@ export default function AdminLayout() {
 
       setUnreadOrders((prev) => prev + 1);
 
-      if (audioRef.current) {
-        audioRef.current.currentTime = 0;
+      playOrderSound();
 
-        audioRef.current.play().catch(() => {});
-      }
-
-      toast.success(`🛒 New order received from ${order.name}`, {
+      toast.success(`🛒 New order received from ${order?.name || "customer"}`, {
         position: "top-right",
         autoClose: 5000,
         pauseOnHover: true,
@@ -119,7 +266,7 @@ export default function AdminLayout() {
       if ("Notification" in window) {
         if (Notification.permission === "granted") {
           new Notification("Mebrek Farms", {
-            body: `New order received from ${order.name}`,
+            body: `New order received from ${order?.name || "customer"}`,
             icon: "/favicon.ico",
           });
         } else if (Notification.permission !== "denied") {
@@ -141,89 +288,155 @@ export default function AdminLayout() {
     };
   }, []);
 
+  // ==========================================================
+  // NOTIFICATION SOCKET EVENTS
+  // ==========================================================
+
   useEffect(() => {
     if (roleRef.current === "staff") {
       return;
     }
 
-    const handleCreated = (notification) => {
-      refreshUnreadCount();
+    // ========================================================
+    // NEW NOTIFICATION
+    // ========================================================
+
+    const handleCreated = async (notification) => {
+      console.log("🔔 notificationCreated:", notification);
+
+      if (!notification) {
+        return;
+      }
 
       const isOwnMessage = isOwnSender(
         notification.senderId,
         userIdRef.current,
       );
 
-      if (isOwnMessage || roleRef.current !== "superadmin") {
+      /*
+       * Always refresh the backend count.
+       *
+       * This is important because unread state is
+       * stored in readBy on the server.
+       */
+      await refreshUnreadCount();
+
+      /*
+       * Do not notify the sender about their
+       * own message.
+       */
+      if (isOwnMessage) {
         return;
       }
 
+      /*
+       * Play sound for incoming messages.
+       *
+       * This happens even if the user is already
+       * on the Notifications page.
+       */
+      playNotificationSound();
+
+      /*
+       * If user is currently on Notifications,
+       * don't show the floating popup.
+       *
+       * The unread count still comes from backend.
+       */
       if (location.pathname === "/admin/notifications") {
         return;
       }
 
-      if (audioRef.current) {
-        audioRef.current.currentTime = 0;
-
-        audioRef.current.play().catch(() => {});
-      }
-
-      toast.info(`🔔 New message from ${notification.senderName}`, {
+      toast.info(`🔔 New message from ${notification.senderName || "User"}`, {
         position: "top-right",
         autoClose: 4000,
         theme: "colored",
       });
 
       setMessageNotifications((prev) => {
-        const idx = prev.findIndex((n) => n._id === notification._id);
+        const notificationId = getId(notification);
 
-        if (idx === -1) {
+        const index = prev.findIndex((item) => getId(item) === notificationId);
+
+        if (index === -1) {
           return [...prev, notification];
         }
 
         const next = [...prev];
 
-        next[idx] = notification;
+        next[index] = notification;
 
         return next;
       });
     };
 
-    const handleUpdated = (notification) => {
-      refreshUnreadCount();
+    // ========================================================
+    // UPDATED NOTIFICATION
+    // ========================================================
 
-      const isOwnThread = isOwnSender(notification.senderId, userIdRef.current);
+    const handleUpdated = async (notification) => {
+      console.log("🔔 notificationUpdated:", notification);
 
-      if (!isOwnThread || roleRef.current === "superadmin") {
+      if (!notification) {
         return;
       }
+
+      const isOwnMessage = isOwnSender(
+        notification.senderId,
+        userIdRef.current,
+      );
+
+      await refreshUnreadCount();
+
+      /*
+       * For a superadmin, an update may be caused
+       * by the superadmin's own reply.
+       *
+       * Do not play a sound for your own action.
+       */
+      if (isOwnMessage) {
+        return;
+      }
+
+      /*
+       * Incoming update = new message from
+       * the other participant.
+       */
+      playNotificationSound();
 
       if (location.pathname === "/admin/notifications") {
         return;
       }
 
-      if (audioRef.current) {
-        audioRef.current.currentTime = 0;
-
-        audioRef.current.play().catch(() => {});
+      if (roleRef.current === "superadmin") {
+        toast.info(
+          `🔔 New message from ${notification.senderName || "Manager"}`,
+          {
+            position: "top-right",
+            autoClose: 4000,
+            theme: "colored",
+          },
+        );
+      } else {
+        toast.success("Super Admin replied to your message", {
+          position: "top-right",
+          autoClose: 4000,
+          theme: "colored",
+        });
       }
 
-      toast.success("Super Admin replied to your message", {
-        position: "top-right",
-        autoClose: 4000,
-        theme: "colored",
-      });
-
       setMessageNotifications((prev) => {
-        const idx = prev.findIndex((n) => n._id === notification._id);
+        const notificationId = getId(notification);
 
-        if (idx === -1) {
+        const index = prev.findIndex((item) => getId(item) === notificationId);
+
+        if (index === -1) {
           return [...prev, notification];
         }
 
         const next = [...prev];
 
-        next[idx] = notification;
+        next[index] = notification;
 
         return next;
       });
@@ -239,24 +452,40 @@ export default function AdminLayout() {
       socket.off("notificationUpdated", handleUpdated);
     };
 
+    // location.pathname is intentionally included
+    // so popup behavior follows the current page.
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [location.pathname]);
+
+  // ==========================================================
+  // CLOSE POPUP
+  // ==========================================================
 
   const handlePopupClose = () => {
     setMessageNotifications([]);
   };
 
+  // ==========================================================
+  // MARK POPUP MESSAGE READ
+  // ==========================================================
+
   const handlePopupMarkRead = async (id) => {
     try {
       await markNotificationRead(id);
 
-      refreshUnreadCount();
+      await refreshUnreadCount();
     } catch (err) {
       console.error("Failed to mark notification as read:", err);
     } finally {
-      setMessageNotifications((prev) => prev.filter((n) => n._id !== id));
+      setMessageNotifications((prev) =>
+        prev.filter((notification) => getId(notification) !== getId(id)),
+      );
     }
   };
+
+  // ==========================================================
+  // REPLY FROM POPUP
+  // ==========================================================
 
   const handlePopupReply = async (id, message) => {
     try {
@@ -264,34 +493,43 @@ export default function AdminLayout() {
         message,
       });
 
-      refreshUnreadCount();
+      await refreshUnreadCount();
 
-      setMessageNotifications((prev) => prev.filter((n) => n._id !== id));
+      setMessageNotifications((prev) =>
+        prev.filter((notification) => getId(notification) !== getId(id)),
+      );
     } catch (err) {
       console.error("Failed to reply to notification:", err);
     }
   };
 
+  // ==========================================================
+  // LOGOUT
+  // ==========================================================
+
   const handleLogout = () => {
     socket.off("newOrder");
-
     socket.off("notificationCreated");
-
     socket.off("notificationUpdated");
 
     localStorage.removeItem("token");
-
     localStorage.removeItem("role");
-
     localStorage.removeItem("adminName");
-
     localStorage.removeItem("user");
 
     navigate("/login");
   };
 
+  // ==========================================================
+  // UI
+  // ==========================================================
+
   return (
     <div className="flex min-h-screen bg-gray-100">
+      {/* ================================================== */}
+      {/* SIDEBAR */}
+      {/* ================================================== */}
+
       <aside className="w-72 bg-green-800 text-white p-6 shadow-lg">
         <div className="mb-8">
           <div className="flex items-center gap-3">
@@ -422,10 +660,10 @@ export default function AdminLayout() {
           </Link>
 
           <Link
-            to="/admin/attendance"
+            to="/admin/flocks"
             className="block hover:bg-green-700 p-3 rounded-lg transition"
           >
-            Attendance 📅
+            Flocks 🐔
           </Link>
 
           {["superadmin", "manager", "staff"].includes(role) && (
@@ -438,8 +676,18 @@ export default function AdminLayout() {
           )}
 
           <Link
+            to="/admin/attendance"
+            className="block hover:bg-green-700 p-3 rounded-lg transition"
+          >
+            Attendance 📅
+          </Link>
+
+          {/* ================================================= */}
+          {/* NOTIFICATIONS */}
+          {/* ================================================= */}
+
+          <Link
             to="/admin/notifications"
-            onClick={() => setUnreadMessages(0)}
             className="
               flex
               items-center
@@ -606,6 +854,10 @@ export default function AdminLayout() {
         </nav>
       </aside>
 
+      {/* ================================================== */}
+      {/* MAIN */}
+      {/* ================================================== */}
+
       <main className="flex-1 min-w-0 bg-gray-100 overflow-y-auto">
         <div className="bg-white shadow-sm px-8 py-4 flex items-center justify-between">
           <div className="w-full max-w-xl">
@@ -643,6 +895,10 @@ export default function AdminLayout() {
           <Outlet />
         </div>
       </main>
+
+      {/* ================================================== */}
+      {/* NOTIFICATION POPUP */}
+      {/* ================================================== */}
 
       <NotificationPopup
         notifications={messageNotifications}

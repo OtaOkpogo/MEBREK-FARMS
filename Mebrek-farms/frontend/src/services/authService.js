@@ -1,5 +1,8 @@
 import apiClient from "./apiClient";
 
 export const getCurrentUser = async () => {
-  return await apiClient.get("/auth/me");
+  const response = await apiClient.get("/auth/me");
+
+  // Return the actual admin/user object
+  return response.data?.admin || response.data?.user || response.data;
 };

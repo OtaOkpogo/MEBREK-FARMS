@@ -1,31 +1,83 @@
 import apiClient from "./apiClient";
 
-// Get notifications
+// ============================================================
+// GET NOTIFICATIONS
+// ============================================================
+
 export const getNotifications = async () => {
   return await apiClient.get("/notifications");
 };
 
-// Send notification
-export const sendNotification = async (data) => {
-  return await apiClient.post("/notifications", data);
+// ============================================================
+// SEND NEW NOTIFICATION
+// ============================================================
+
+export const sendNotification = async ({
+  recipientId,
+  subject = "",
+  message = "",
+  attachments = [],
+}) => {
+  const formData = new FormData();
+
+  formData.append("recipientId", recipientId);
+  formData.append("subject", subject || "");
+  formData.append("message", message || "");
+
+  attachments.forEach((file) => {
+    formData.append("attachments", file);
+  });
+
+  return await apiClient.post("/notifications", formData);
 };
 
-// Mark one notification as read
+// ============================================================
+// MARK NOTIFICATION AS READ
+// ============================================================
+
 export const markNotificationRead = async (id) => {
   return await apiClient.put(`/notifications/${id}/read`);
 };
 
-// Reply notification
-export const replyNotification = async (id, data) => {
-  return await apiClient.post(`/notifications/${id}/reply`, data);
+// ============================================================
+// REPLY TO NOTIFICATION
+// ============================================================
+
+export const replyNotification = async (
+  id,
+  { message = "", attachments = [] },
+) => {
+  const formData = new FormData();
+
+  formData.append("message", message || "");
+
+  attachments.forEach((file) => {
+    formData.append("attachments", file);
+  });
+
+  return await apiClient.post(`/notifications/${id}/reply`, formData);
 };
 
-// Get managers
+// ============================================================
+// GET MANAGERS
+// ============================================================
+
 export const getManagers = async () => {
   return await apiClient.get("/notifications/managers");
 };
 
-// Get unread count
+// ============================================================
+// GET UNREAD COUNT
+// ============================================================
+
 export const getUnreadCount = async () => {
   return await apiClient.get("/notifications/unread-count");
+};
+
+// ============================================================
+// GET MESSAGE RECIPIENTS
+// ============================================================
+
+export const getMessageRecipients = async () => {
+  return await apiClient.get("/notifications/message-recipients");
 };

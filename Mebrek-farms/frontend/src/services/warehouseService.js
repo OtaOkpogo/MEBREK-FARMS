@@ -1,21 +1,36 @@
 import apiClient from "./apiClient";
 
-// ================= GET =================
+// ================= GET WAREHOUSE ITEMS =================
 
-export const fetchWarehouse = () => apiClient.get("/warehouse");
+export const fetchWarehouse = async () => {
+  const response = await apiClient.get("/warehouse");
+  return response.data;
+};
 
-// ================= CREATE =================
+// ================= CREATE WAREHOUSE ITEM =================
 
-export const createWarehouseItem = (data) => apiClient.post("/warehouse", data);
+export const createWarehouseItem = async (data) => {
+  const response = await apiClient.post("/warehouse", data);
+  return response.data;
+};
 
-// ================= UPDATE =================
+// ================= UPDATE WAREHOUSE ITEM =================
 
-export const updateWarehouseItem = (id, data) =>
-  apiClient.put(`/warehouse/${id}`, data);
+export const updateWarehouseItem = async (id, data) => {
+  const response = await apiClient.put(`/warehouse/${id}`, data);
+  return response.data;
+};
 
-// ================= DELETE =================
+// ================= DELETE WAREHOUSE ITEM =================
 
-export const deleteWarehouseItem = (id) => apiClient.delete(`/warehouse/${id}`);
+export const deleteWarehouseItem = async (id) => {
+  const response = await apiClient.delete(`/warehouse/${id}`);
+  return response.data;
+};
 
-export const restoreWarehouseItem = (id) =>
-  apiClient.put(`/warehouse/${id}/restore`);
+// ================= RESTORE WAREHOUSE ITEM =================
+
+export const restoreWarehouseItem = async (id) => {
+  const response = await apiClient.put(`/warehouse/${id}/restore`);
+  return response.data;
+};
