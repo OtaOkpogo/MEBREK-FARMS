@@ -328,57 +328,6 @@ export default function Home() {
       </section>
 
       {/* =====================================================
-          WHAT WE OFFER
-      ===================================================== */}
-
-      <section className="section bg-stone-50">
-        <div className="site-container">
-          <div className="mx-auto mb-12 max-w-3xl text-center">
-            <span className="eyebrow">What We Offer</span>
-
-            <h2 className="section-title mt-5">
-              Farm products you can depend on
-            </h2>
-
-            <p className="section-subtitle">
-              We focus on quality poultry products and agricultural by-products
-              that serve households, businesses and other agricultural needs.
-            </p>
-          </div>
-
-          <div className="grid gap-7 md:grid-cols-3">
-            <ProductCard
-              image="https://cdn.britannica.com/94/151894-050-F72A5317/Brown-eggs.jpg"
-              icon="🥚"
-              title="Fresh Eggs"
-              description="Freshly produced eggs from professionally managed poultry operations."
-            />
-
-            <ProductCard
-              image="https://www.shutterstock.com/image-photo/laying-hen-farm-iron-battery-600nw-2541880001.jpg"
-              icon="🐔"
-              title="Poultry"
-              description="Healthy, well-managed birds produced with attention to feeding and farm health."
-            />
-
-            <ProductCard
-              image="https://media.istockphoto.com/id/469085306/photo/soil-with-a-garden-trowel.jpg?s=612x612&w=0&k=20&c=yOFsnxK_9g5puQIeaYLCFo6Hu1NypryTMDzWfyLEnGA="
-              icon="🌱"
-              title="Organic Manure"
-              description="Useful farm manure for agricultural and soil improvement purposes."
-            />
-          </div>
-
-          <div className="mt-10 text-center">
-            <RouterLink to="/products" className="btn btn-outline">
-              View All Products
-              <span>→</span>
-            </RouterLink>
-          </div>
-        </div>
-      </section>
-
-      {/* =====================================================
           WHY CHOOSE US
       ===================================================== */}
 

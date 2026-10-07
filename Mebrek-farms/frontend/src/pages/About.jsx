@@ -4,6 +4,19 @@ export default function About() {
   return (
     <main className="min-h-screen bg-stone-50 text-gray-800">
       {/* =====================================================
+          BACK TO HOME
+      ===================================================== */}
+      <div className="site-container pt-6">
+        <RouterLink
+          to="/"
+          className="inline-flex items-center gap-2 rounded-xl border border-stone-200 bg-white px-4 py-2.5 text-sm font-semibold text-stone-700 shadow-sm transition hover:border-green-700 hover:bg-green-50 hover:text-green-800"
+        >
+          <span aria-hidden="true">←</span>
+          Back to Home
+        </RouterLink>
+      </div>
+
+      {/* =====================================================
           HERO
       ===================================================== */}
       <section className="relative overflow-hidden bg-green-950">
@@ -135,7 +148,6 @@ export default function About() {
           </div>
 
           <div className="mt-14 grid gap-6 md:grid-cols-2 lg:grid-cols-4">
-            {/* Card 1 */}
             <div className="card">
               <div className="flex h-14 w-14 items-center justify-center rounded-2xl bg-green-100 text-3xl">
                 🐔
@@ -151,7 +163,6 @@ export default function About() {
               </p>
             </div>
 
-            {/* Card 2 */}
             <div className="card">
               <div className="flex h-14 w-14 items-center justify-center rounded-2xl bg-yellow-100 text-3xl">
                 🥚
@@ -167,7 +178,6 @@ export default function About() {
               </p>
             </div>
 
-            {/* Card 3 */}
             <div className="card">
               <div className="flex h-14 w-14 items-center justify-center rounded-2xl bg-green-100 text-3xl">
                 ❤️
@@ -183,7 +193,6 @@ export default function About() {
               </p>
             </div>
 
-            {/* Card 4 */}
             <div className="card">
               <div className="flex h-14 w-14 items-center justify-center rounded-2xl bg-yellow-100 text-3xl">
                 🌱
@@ -234,6 +243,7 @@ export default function About() {
                       <h3 className="font-bold text-white">
                         Monitor the flock
                       </h3>
+
                       <p className="mt-1 text-sm leading-6 text-green-100">
                         Production, health and flock activities are monitored
                         carefully.
@@ -248,6 +258,7 @@ export default function About() {
 
                     <div>
                       <h3 className="font-bold text-white">Manage resources</h3>
+
                       <p className="mt-1 text-sm leading-6 text-green-100">
                         Feed, medication and other farm resources are managed as
                         part of daily operations.
@@ -262,6 +273,7 @@ export default function About() {
 
                     <div>
                       <h3 className="font-bold text-white">Deliver quality</h3>
+
                       <p className="mt-1 text-sm leading-6 text-green-100">
                         The goal is to provide customers with reliable, quality
                         farm products.
@@ -296,6 +308,7 @@ export default function About() {
                   <p className="text-2xl font-extrabold text-green-800">
                     Quality
                   </p>
+
                   <p className="mt-1 text-sm text-gray-600">
                     In products and processes
                   </p>
@@ -303,6 +316,7 @@ export default function About() {
 
                 <div className="rounded-2xl border border-yellow-100 bg-yellow-50 p-5">
                   <p className="text-2xl font-extrabold text-green-800">Care</p>
+
                   <p className="mt-1 text-sm text-gray-600">
                     For our flock and customers
                   </p>

@@ -49,6 +49,19 @@ export default function Contact() {
   return (
     <main className="min-h-screen bg-stone-50 text-gray-800">
       {/* =====================================================
+          BACK TO HOME
+      ===================================================== */}
+      <div className="site-container pt-6">
+        <RouterLink
+          to="/"
+          className="inline-flex items-center gap-2 rounded-xl border border-stone-200 bg-white px-4 py-2.5 text-sm font-semibold text-stone-700 shadow-sm transition hover:border-green-700 hover:bg-green-50 hover:text-green-800"
+        >
+          <span aria-hidden="true">←</span>
+          Back to Home
+        </RouterLink>
+      </div>
+
+      {/* =====================================================
           HERO
       ===================================================== */}
       <section className="relative overflow-hidden bg-green-950">
