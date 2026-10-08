@@ -7,7 +7,11 @@ import {
   updateSale,
   deleteSale,
   restoreSale,
+  fetchCustomerSales,
 } from "../services/eggSalesService";
+
+import { fetchCustomers, createCustomer } from "../services/customerService";
+
 import { getCurrentUser } from "../services/authService";
 
 import {
@@ -24,9 +28,13 @@ import {
   CartesianGrid,
 } from "recharts";
 
-// Must stay in sync with EGG_CATEGORY_PRICES in the backend EggSale model.
-// Keeping it here (rather than trusting form input) means the price shown
-// to staff always matches what the server will actually charge.
+// =====================================================
+// EGG CATEGORY PRICES
+// =====================================================
+// IMPORTANT:
+// These values MUST match EGG_CATEGORY_PRICES in
+// backend/models/EggSale.js.
+
 const EGG_CATEGORY_PRICES = {
   big: 5100,
   jumbo: 5800,
@@ -49,10 +57,19 @@ const emptyLineItem = () => ({
   looseEggs: "",
 });
 
+const emptyCustomer = {
+  name: "",
+  phone: "",
+  email: "",
+  address: "",
+  customerType: "Individual",
+  notes: "",
+};
+
 export default function EggSales() {
-  // ==========================================
+  // =====================================================
   // STATE
-  // ==========================================
+  // =====================================================
 
   const [sales, setSales] = useState([]);
 
@@ -68,7 +85,12 @@ export default function EggSales() {
 
   const [user, setUser] = useState(null);
 
+  // =====================================================
+  // SALE FORM
+  // =====================================================
+
   const [formData, setFormData] = useState({
+    customerId: "",
     customer: "",
     phone: "",
     date: "",
@@ -79,20 +101,50 @@ export default function EggSales() {
     remarks: "",
   });
 
-  // One row per egg category the customer is buying in this sale.
+  // One row per egg category.
   const [lineItems, setLineItems] = useState([emptyLineItem()]);
 
-  // Non-null while editing an existing sale; null means "creating new".
+  // Non-null while editing.
   const [editingId, setEditingId] = useState(null);
+
   const [saving, setSaving] = useState(false);
 
-  // ==========================================
-  // LOAD SALES
-  // ==========================================
+  // =====================================================
+  // CUSTOMER STATE
+  // =====================================================
+
+  const [customers, setCustomers] = useState([]);
+
+  const [customerSearch, setCustomerSearch] = useState("");
+
+  const [selectedCustomer, setSelectedCustomer] = useState(null);
+
+  const [showCustomerDropdown, setShowCustomerDropdown] = useState(false);
+
+  const [customerLoading, setCustomerLoading] = useState(false);
+
+  const [showQuickAddCustomer, setShowQuickAddCustomer] = useState(false);
+
+  const [newCustomer, setNewCustomer] = useState(emptyCustomer);
+
+  const [savingCustomer, setSavingCustomer] = useState(false);
+
+  // =====================================================
+  // CUSTOMER HISTORY
+  // =====================================================
+
+  const [customerHistory, setCustomerHistory] = useState(null);
+
+  const [historyLoading, setHistoryLoading] = useState(false);
+
+  // =====================================================
+  // LOAD DATA
+  // =====================================================
 
   useEffect(() => {
     loadUser();
     loadSales();
+    loadCustomers();
   }, []);
 
   const loadUser = async () => {
@@ -100,7 +152,7 @@ export default function EggSales() {
       const data = await getCurrentUser();
       setUser(data);
     } catch (err) {
-      console.error(err);
+      console.error("LOAD CURRENT USER ERROR:", err);
     }
   };
 
@@ -108,19 +160,62 @@ export default function EggSales() {
     try {
       setLoading(true);
 
-      const data = await fetchSales();
+      const response = await fetchSales();
 
-      setSales(data || []);
+      let list = [];
+
+      if (Array.isArray(response)) {
+        list = response;
+      } else if (Array.isArray(response?.sales)) {
+        list = response.sales;
+      } else if (Array.isArray(response?.data)) {
+        list = response.data;
+      } else if (Array.isArray(response?.data?.sales)) {
+        list = response.data.sales;
+      }
+
+      setSales(list);
     } catch (err) {
-      console.error(err);
+      console.error("LOAD SALES ERROR:", err);
     } finally {
       setLoading(false);
     }
   };
 
-  // ==========================================
-  // FORM CHANGE (sale-level fields)
-  // ==========================================
+  const loadCustomers = async () => {
+    try {
+      setCustomerLoading(true);
+
+      const response = await fetchCustomers();
+
+      let list = [];
+
+      if (Array.isArray(response)) {
+        list = response;
+      } else if (Array.isArray(response?.customers)) {
+        list = response.customers;
+      } else if (Array.isArray(response?.data)) {
+        list = response.data;
+      } else if (Array.isArray(response?.data?.customers)) {
+        list = response.data.customers;
+      }
+
+      setCustomers(
+        list.filter(
+          (customer) =>
+            customer.isActive !== false && customer.isDeleted !== true,
+        ),
+      );
+    } catch (err) {
+      console.error("LOAD CUSTOMERS ERROR:", err);
+    } finally {
+      setCustomerLoading(false);
+    }
+  };
+
+  // =====================================================
+  // SALE FORM CHANGE
+  // =====================================================
 
   const handleChange = (e) => {
     setFormData((prev) => ({
@@ -129,13 +224,204 @@ export default function EggSales() {
     }));
   };
 
-  // ==========================================
-  // LINE ITEM ROW HANDLING
-  // ==========================================
+  // =====================================================
+  // CUSTOMER SEARCH
+  // =====================================================
+
+  const filteredCustomerOptions = useMemo(() => {
+    const query = customerSearch.trim().toLowerCase();
+
+    if (!query) {
+      return customers.slice(0, 10);
+    }
+
+    return customers
+      .filter((customer) => {
+        return (
+          customer.name?.toLowerCase().includes(query) ||
+          customer.phone?.toLowerCase().includes(query) ||
+          customer.email?.toLowerCase().includes(query)
+        );
+      })
+      .slice(0, 10);
+  }, [customers, customerSearch]);
+
+  // =====================================================
+  // SELECT CUSTOMER
+  // =====================================================
+
+  const selectCustomer = async (customer) => {
+    setSelectedCustomer(customer);
+
+    setCustomerSearch(customer.name || "");
+
+    setShowCustomerDropdown(false);
+
+    setFormData((previous) => ({
+      ...previous,
+      customerId: customer._id || "",
+      customer: customer.name || "",
+      phone: customer.phone || "",
+    }));
+
+    if (customer._id) {
+      await loadCustomerHistory(customer._id);
+    }
+  };
+
+  const clearSelectedCustomer = () => {
+    setSelectedCustomer(null);
+
+    setCustomerSearch("");
+
+    setCustomerHistory(null);
+
+    setFormData((previous) => ({
+      ...previous,
+      customerId: "",
+      customer: "",
+      phone: "",
+    }));
+  };
+
+  // =====================================================
+  // CUSTOMER HISTORY
+  // =====================================================
+
+  const loadCustomerHistory = async (customerId) => {
+    if (!customerId) {
+      setCustomerHistory(null);
+      return;
+    }
+
+    try {
+      setHistoryLoading(true);
+
+      const response = await fetchCustomerSales(customerId);
+
+      setCustomerHistory(response || null);
+    } catch (err) {
+      console.error("LOAD CUSTOMER HISTORY ERROR:", err);
+
+      setCustomerHistory(null);
+    } finally {
+      setHistoryLoading(false);
+    }
+  };
+
+  // =====================================================
+  // CUSTOMER INPUT
+  // =====================================================
+
+  const handleCustomerSearchChange = (e) => {
+    const value = e.target.value;
+
+    setCustomerSearch(value);
+
+    setShowCustomerDropdown(true);
+
+    // If the user changes the selected
+    // customer text, remove the old link.
+    if (selectedCustomer && value !== selectedCustomer.name) {
+      setSelectedCustomer(null);
+
+      setCustomerHistory(null);
+
+      setFormData((previous) => ({
+        ...previous,
+        customerId: "",
+        customer: value,
+      }));
+    } else {
+      setFormData((previous) => ({
+        ...previous,
+        customer: value,
+      }));
+    }
+  };
+
+  // =====================================================
+  // QUICK ADD CUSTOMER
+  // =====================================================
+
+  const handleNewCustomerChange = (e) => {
+    setNewCustomer((previous) => ({
+      ...previous,
+      [e.target.name]: e.target.value,
+    }));
+  };
+
+  const handleQuickAddCustomer = async (e) => {
+    e.preventDefault();
+
+    if (!newCustomer.name.trim()) {
+      alert("Customer name is required.");
+      return;
+    }
+
+    try {
+      setSavingCustomer(true);
+
+      const response = await createCustomer(newCustomer);
+
+      const created =
+        response?.customer ||
+        response?.data?.customer ||
+        response?.data ||
+        response;
+
+      if (!created?._id) {
+        throw new Error(
+          "Customer was saved but no customer record was returned.",
+        );
+      }
+
+      setCustomers((previous) => {
+        const exists = previous.some((item) => item._id === created._id);
+
+        if (exists) {
+          return previous;
+        }
+
+        return [...previous, created].sort((a, b) =>
+          (a.name || "").localeCompare(b.name || ""),
+        );
+      });
+
+      await selectCustomer(created);
+
+      setNewCustomer(emptyCustomer);
+
+      setShowQuickAddCustomer(false);
+
+      alert("Customer added successfully.");
+    } catch (err) {
+      console.error("QUICK ADD CUSTOMER ERROR:", err);
+
+      alert(
+        err?.response?.data?.message ||
+          err?.message ||
+          "Unable to add customer.",
+      );
+    } finally {
+      setSavingCustomer(false);
+    }
+  };
+
+  // =====================================================
+  // LINE ITEM HANDLING
+  // =====================================================
 
   const handleLineItemChange = (index, field, value) => {
     setLineItems((prev) =>
-      prev.map((item, i) => (i === index ? { ...item, [field]: value } : item)),
+      prev.map((item, i) =>
+        i === index
+          ? {
+              ...item,
+              [field]: value,
+            }
+          : item,
+      ),
     );
   };
 
@@ -149,22 +435,30 @@ export default function EggSales() {
     );
   };
 
-  // ==========================================
+  // =====================================================
   // LIVE CALCULATIONS
-  // ==========================================
+  // =====================================================
 
-  // Per-row subtotal: category's crate price is always looked up from
-  // EGG_CATEGORY_PRICES, never typed in, so it can't drift from what
-  // the backend will charge.
   const lineItemsWithSubtotal = useMemo(() => {
     return lineItems.map((item) => {
       const cratePrice = EGG_CATEGORY_PRICES[item.category] || 0;
+
       const eggPrice = Math.round(cratePrice / 30);
+
       const cratesSold = Number(item.cratesSold || 0);
+
       const looseEggs = Number(item.looseEggs || 0);
+
       const subtotal = cratesSold * cratePrice + looseEggs * eggPrice;
 
-      return { ...item, cratePrice, eggPrice, cratesSold, looseEggs, subtotal };
+      return {
+        ...item,
+        cratePrice,
+        eggPrice,
+        cratesSold,
+        looseEggs,
+        subtotal,
+      };
     });
   }, [lineItems]);
 
@@ -181,24 +475,21 @@ export default function EggSales() {
   const balance = grandTotal - Number(formData.amountPaid || 0);
 
   const paymentStatus =
-    balance <= 0
+    balance <= 0 && grandTotal > 0
       ? "Paid"
       : Number(formData.amountPaid) > 0
         ? "Part Paid"
         : "Unpaid";
 
-  // ==========================================
+  // =====================================================
   // EDIT MODE
-  // ==========================================
-  // Converts a saved sale's lineItems back into editable row shape
-  // (numbers → strings for the inputs) and prefills the sale-level
-  // fields, so the same form used for creating a sale can also edit
-  // an existing one.
+  // =====================================================
 
-  const startEdit = (sale) => {
+  const startEdit = async (sale) => {
     setEditingId(sale._id);
 
     setFormData({
+      customerId: sale.customerId?._id || sale.customerId || "",
       customer: sale.customer || "",
       phone: sale.phone || "",
       date: sale.date ? new Date(sale.date).toISOString().slice(0, 10) : "",
@@ -208,6 +499,41 @@ export default function EggSales() {
       paymentMethod: sale.paymentMethod || "Cash",
       remarks: sale.remarks || "",
     });
+
+    // -------------------------------------------------
+    // Restore linked customer
+    // -------------------------------------------------
+
+    if (sale.customerId) {
+      let customer =
+        typeof sale.customerId === "object" ? sale.customerId : null;
+
+      if (!customer && sale.customerId) {
+        customer =
+          customers.find((item) => item._id === sale.customerId) || null;
+      }
+
+      if (customer) {
+        setSelectedCustomer(customer);
+
+        setCustomerSearch(customer.name || "");
+
+        await loadCustomerHistory(customer._id);
+      } else {
+        setSelectedCustomer(null);
+
+        setCustomerSearch(sale.customer || "");
+
+        setCustomerHistory(null);
+      }
+    } else {
+      // Legacy sale without customerId.
+      setSelectedCustomer(null);
+
+      setCustomerSearch(sale.customer || "");
+
+      setCustomerHistory(null);
+    }
 
     setLineItems(
       (sale.lineItems || []).length
@@ -219,12 +545,23 @@ export default function EggSales() {
         : [emptyLineItem()],
     );
 
-    window.scrollTo({ top: 0, behavior: "smooth" });
+    window.scrollTo({
+      top: 0,
+      behavior: "smooth",
+    });
   };
 
   const cancelEdit = () => {
     setEditingId(null);
+
+    setSelectedCustomer(null);
+
+    setCustomerSearch("");
+
+    setCustomerHistory(null);
+
     setFormData({
+      customerId: "",
       customer: "",
       phone: "",
       date: "",
@@ -234,12 +571,13 @@ export default function EggSales() {
       paymentMethod: "Cash",
       remarks: "",
     });
+
     setLineItems([emptyLineItem()]);
   };
 
-  // ==========================================
+  // =====================================================
   // SAVE SALE
-  // ==========================================
+  // =====================================================
 
   const handleSubmit = async (e) => {
     e.preventDefault();
@@ -253,8 +591,18 @@ export default function EggSales() {
       return;
     }
 
+    if (!formData.customer.trim()) {
+      alert("Enter or select a customer.");
+      return;
+    }
+
     const payload = {
       ...formData,
+
+      // Important:
+      // customerId is blank for old/manual customers,
+      // but present for registered customers.
+      customerId: formData.customerId || undefined,
 
       lineItems: validLineItems.map((item) => ({
         category: item.category,
@@ -284,7 +632,14 @@ export default function EggSales() {
         alert("Sale recorded successfully.");
       }
 
+      setSelectedCustomer(null);
+
+      setCustomerSearch("");
+
+      setCustomerHistory(null);
+
       setFormData({
+        customerId: "",
         customer: "",
         phone: "",
         date: "",
@@ -297,12 +652,13 @@ export default function EggSales() {
 
       setLineItems([emptyLineItem()]);
 
-      loadSales();
+      await loadSales();
     } catch (err) {
-      console.error(err);
+      console.error("SAVE SALE ERROR:", err);
 
       alert(
-        err.response?.data?.message ||
+        err?.response?.data?.message ||
+          err?.message ||
           `Unable to ${editingId ? "update" : "save"} sale.`,
       );
     } finally {
@@ -310,27 +666,49 @@ export default function EggSales() {
     }
   };
 
-  // ==========================================
+  // =====================================================
   // DELETE
-  // ==========================================
+  // =====================================================
 
   const handleDelete = async (id) => {
-    if (!window.confirm("Delete sale?")) return;
+    if (!window.confirm("Delete sale?")) {
+      return;
+    }
 
     try {
       await deleteSale(id);
 
-      // If the sale being deleted was mid-edit, back out of edit mode
-      // so the form doesn't keep showing now-stale data.
       if (editingId === id) {
         cancelEdit();
       }
 
-      loadSales();
+      await loadSales();
     } catch (err) {
-      console.error(err);
+      console.error("DELETE SALE ERROR:", err);
+
+      alert(err?.response?.data?.message || "Unable to delete sale.");
     }
   };
+
+  // =====================================================
+  // RESTORE
+  // =====================================================
+
+  const handleRestore = async (id) => {
+    try {
+      await restoreSale(id);
+
+      await loadSales();
+    } catch (err) {
+      console.error("RESTORE SALE ERROR:", err);
+
+      alert(err?.response?.data?.message || "Unable to restore sale.");
+    }
+  };
+
+  // =====================================================
+  // INVOICE
+  // =====================================================
 
   const openInvoice = (sale) => {
     setSelectedSale(sale);
@@ -342,21 +720,21 @@ export default function EggSales() {
     setSelectedSale(null);
   };
 
-  // ==========================================
+  // =====================================================
   // FILTERED SALES
-  // ==========================================
+  // =====================================================
 
   const filteredSales = useMemo(() => {
     return sales.filter((sale) => {
-      const customer = sale.customer
-        ?.toLowerCase()
-        .includes(search.toLowerCase());
+      const query = search.toLowerCase().trim();
 
-      const invoice = sale.invoiceNumber
-        ?.toLowerCase()
-        .includes(search.toLowerCase());
+      const customer = sale.customer?.toLowerCase().includes(query);
 
-      const matchesSearch = customer || invoice;
+      const phone = sale.phone?.toLowerCase().includes(query);
+
+      const invoice = sale.invoiceNumber?.toLowerCase().includes(query);
+
+      const matchesSearch = !query || customer || phone || invoice;
 
       const matchesStatus =
         statusFilter === "All" ? true : sale.status === statusFilter;
@@ -365,25 +743,28 @@ export default function EggSales() {
     });
   }, [sales, search, statusFilter]);
 
-  // KPI cards and charts should never include deleted sales in the
-  // totals, even for superadmin — deleted sales still show in the
-  // table for audit purposes, but shouldn't count toward revenue.
+  // =====================================================
+  // ACTIVE SALES
+  // =====================================================
+
   const activeSales = useMemo(
     () => filteredSales.filter((sale) => !sale.isDeleted),
     [filteredSales],
   );
 
-  // Helper: sum a numeric field across a sale's line items. Falls back
-  // to 0 for any sale that somehow has no lineItems.
+  // =====================================================
+  // LINE ITEM HELPER
+  // =====================================================
+
   const sumLineItemField = (sale, field) =>
     (sale.lineItems || []).reduce(
       (sum, item) => sum + Number(item[field] || 0),
       0,
     );
 
-  // ==========================================
+  // =====================================================
   // KPI CARDS
-  // ==========================================
+  // =====================================================
 
   const totalRevenue = activeSales.reduce(
     (sum, sale) => sum + Number(sale.totalAmount || 0),
@@ -405,6 +786,19 @@ export default function EggSales() {
     0,
   );
 
+  const uniqueCustomerCount = new Set(
+    activeSales.map(
+      (sale) =>
+        sale.customerId?._id ||
+        sale.customerId ||
+        `${sale.customer || ""}|${sale.phone || ""}`,
+    ),
+  ).size;
+
+  // =====================================================
+  // PAYMENT CHART
+  // =====================================================
+
   const paymentChart = [
     {
       name: "Paid",
@@ -422,20 +816,13 @@ export default function EggSales() {
 
   const COLORS = ["#16a34a", "#f59e0b", "#dc2626"];
 
-  // ==========================================
+  // =====================================================
   // DAILY / WEEKLY / MONTHLY SALES
-  // ==========================================
-  // These compare calendar dates using UTC components rather than the
-  // viewer's local timezone. sale.date comes from a plain date input
-  // ("2026-07-28") which Mongoose stores as UTC midnight — comparing
-  // it with toDateString()/getMonth() (both local-timezone) silently
-  // shifts the "day" depending on what timezone the person viewing
-  // the dashboard happens to be in, which can make a sale entered
-  // "today" in Nigeria compute as "yesterday" for a superadmin
-  // checking from elsewhere, undercounting Daily Sales.
+  // =====================================================
 
   const toUTCDayNumber = (value) => {
     const d = new Date(value);
+
     return Math.floor(
       Date.UTC(d.getUTCFullYear(), d.getUTCMonth(), d.getUTCDate()) /
         (1000 * 60 * 60 * 24),
@@ -443,6 +830,7 @@ export default function EggSales() {
   };
 
   const today = new Date();
+
   const todayUTCDay = toUTCDayNumber(today);
 
   const dailySales = activeSales
@@ -455,10 +843,6 @@ export default function EggSales() {
 
       const diffDays = todayUTCDay - toUTCDayNumber(sale.date);
 
-      // Lower bound matters: without it, a sale accidentally dated in
-      // the future (e.g. picked next month by mistake) produces a
-      // negative diff that still satisfies "<= 7" and gets wrongly
-      // counted as part of "this week."
       return diffDays >= 0 && diffDays <= 6;
     })
     .reduce((sum, sale) => sum + Number(sale.totalAmount || 0), 0);
@@ -475,23 +859,26 @@ export default function EggSales() {
       );
     })
     .reduce((sum, sale) => sum + Number(sale.totalAmount || 0), 0);
-  const handleRestore = async (id) => {
-    try {
-      await restoreSale(id);
-      loadSales();
-    } catch (err) {
-      console.error(err);
-    }
-  };
 
   const isSuperadmin = user?.role === "superadmin";
+
+  // =====================================================
+  // LOADING
+  // =====================================================
 
   if (loading) {
     return <div className="p-8">Loading Sales...</div>;
   }
+
+  // =====================================================
+  // RENDER
+  // =====================================================
+
   return (
     <div className="p-6 bg-gray-100 min-h-screen">
-      {/* ================= HEADER ================= */}
+      {/* =================================================
+          HEADER
+      ================================================= */}
 
       <div className="flex flex-col md:flex-row md:items-center md:justify-between mb-8">
         <div>
@@ -505,7 +892,9 @@ export default function EggSales() {
         </div>
       </div>
 
-      {/* ================= KPI CARDS ================= */}
+      {/* =================================================
+          KPI CARDS
+      ================================================= */}
 
       <div className="grid grid-cols-1 md:grid-cols-5 gap-6 mb-8">
         <div className="bg-white rounded-xl shadow p-5">
@@ -544,18 +933,20 @@ export default function EggSales() {
           <h3 className="text-gray-500">Customers</h3>
 
           <p className="text-3xl font-bold text-purple-600 mt-2">
-            {activeSales.length}
+            {uniqueCustomerCount}
           </p>
         </div>
       </div>
 
-      {/* ================= SEARCH ================= */}
+      {/* =================================================
+          SEARCH
+      ================================================= */}
 
       <div className="bg-white rounded-xl shadow p-5 mb-8">
         <div className="grid md:grid-cols-2 gap-4">
           <input
             type="text"
-            placeholder="Search customer..."
+            placeholder="Search customer, phone or invoice..."
             value={search}
             onChange={(e) => setSearch(e.target.value)}
             className="border rounded-lg p-3"
@@ -567,13 +958,19 @@ export default function EggSales() {
             className="border rounded-lg p-3"
           >
             <option value="All">All Payments</option>
+
             <option value="Paid">Paid</option>
+
             <option value="Part Paid">Part Paid</option>
+
             <option value="Unpaid">Unpaid</option>
           </select>
         </div>
       </div>
-      {/* ================= QUICK SUMMARY ================= */}
+
+      {/* =================================================
+          QUICK SUMMARY
+      ================================================= */}
 
       {isSuperadmin && (
         <div className="grid md:grid-cols-4 gap-6 mb-8">
@@ -610,15 +1007,21 @@ export default function EggSales() {
           </div>
         </div>
       )}
-      {/* ================= CHARTS ================= */}
+
+      {/* =================================================
+          CHARTS
+      ================================================= */}
 
       <div className="grid grid-cols-1 lg:grid-cols-2 gap-8 mb-10">
-        {/* Payment Status */}
-
         <div className="bg-white rounded-xl shadow p-6">
           <h2 className="text-xl font-bold mb-6">Payment Status</h2>
 
-          <div style={{ width: "100%", height: 350 }}>
+          <div
+            style={{
+              width: "100%",
+              height: 350,
+            }}
+          >
             <ResponsiveContainer>
               <PieChart>
                 <Pie
@@ -641,12 +1044,15 @@ export default function EggSales() {
           </div>
         </div>
 
-        {/* Revenue */}
-
         <div className="bg-white rounded-xl shadow p-6">
           <h2 className="text-xl font-bold mb-6">Revenue Overview</h2>
 
-          <div style={{ width: "100%", height: 350 }}>
+          <div
+            style={{
+              width: "100%",
+              height: 350,
+            }}
+          >
             <ResponsiveContainer>
               <BarChart
                 data={[
@@ -679,7 +1085,9 @@ export default function EggSales() {
         </div>
       </div>
 
-      {/* ================= SALES ENTRY FORM ================= */}
+      {/* =================================================
+          SALES ENTRY FORM
+      ================================================= */}
 
       <div className="bg-white rounded-xl shadow p-6 mb-10">
         <h2 className="text-2xl font-bold mb-6">
@@ -691,6 +1099,7 @@ export default function EggSales() {
             <span className="font-semibold">
               Editing this sale — update the fields below and save.
             </span>
+
             <button
               type="button"
               onClick={cancelEdit}
@@ -702,36 +1111,378 @@ export default function EggSales() {
         )}
 
         <form onSubmit={handleSubmit}>
-          {/* Customer / sale-level fields */}
+          {/* =================================================
+              CUSTOMER SECTION
+          ================================================= */}
+
+          <div className="bg-green-50 border border-green-100 rounded-xl p-5 mb-6">
+            <div className="flex flex-col md:flex-row md:items-center md:justify-between gap-3 mb-4">
+              <div>
+                <h3 className="text-lg font-bold text-green-800">Customer</h3>
+
+                <p className="text-sm text-gray-600">
+                  Search an existing customer or add a new one.
+                </p>
+              </div>
+
+              <button
+                type="button"
+                onClick={() => setShowQuickAddCustomer(true)}
+                className="bg-green-600 hover:bg-green-700 text-white px-4 py-2 rounded-lg font-semibold"
+              >
+                + New Customer
+              </button>
+            </div>
+
+            {/* Customer Search */}
+
+            <div className="relative">
+              <div className="flex gap-2">
+                <input
+                  type="text"
+                  placeholder="Search customer by name, phone or email..."
+                  value={customerSearch}
+                  onChange={handleCustomerSearchChange}
+                  onFocus={() => setShowCustomerDropdown(true)}
+                  className="border rounded-lg p-3 flex-1 bg-white"
+                />
+
+                {selectedCustomer && (
+                  <button
+                    type="button"
+                    onClick={clearSelectedCustomer}
+                    className="bg-gray-200 hover:bg-gray-300 px-4 rounded-lg text-gray-700 font-semibold"
+                  >
+                    Clear
+                  </button>
+                )}
+              </div>
+
+              {showCustomerDropdown && (
+                <div className="absolute z-50 left-0 right-0 mt-1 bg-white border rounded-lg shadow-xl max-h-72 overflow-y-auto">
+                  {customerLoading ? (
+                    <div className="p-4 text-gray-500">
+                      Loading customers...
+                    </div>
+                  ) : filteredCustomerOptions.length > 0 ? (
+                    filteredCustomerOptions.map((customer) => (
+                      <button
+                        key={customer._id}
+                        type="button"
+                        onClick={() => selectCustomer(customer)}
+                        className="w-full text-left px-4 py-3 hover:bg-green-50 border-b last:border-b-0"
+                      >
+                        <div className="font-semibold text-gray-800">
+                          {customer.name}
+                        </div>
+
+                        <div className="text-sm text-gray-500 flex flex-wrap gap-3">
+                          {customer.phone && <span>{customer.phone}</span>}
+
+                          {customer.email && <span>{customer.email}</span>}
+
+                          <span className="text-green-700">
+                            {customer.customerType}
+                          </span>
+                        </div>
+                      </button>
+                    ))
+                  ) : (
+                    <div className="p-4 text-gray-500">
+                      No matching customer found.
+                    </div>
+                  )}
+                </div>
+              )}
+            </div>
+
+            {/* Selected Customer */}
+
+            {selectedCustomer && (
+              <div className="mt-4 bg-white rounded-lg border p-4">
+                <div className="flex flex-col lg:flex-row lg:items-start lg:justify-between gap-4">
+                  <div>
+                    <p className="text-xs uppercase tracking-wide text-gray-400">
+                      Selected Customer
+                    </p>
+
+                    <h4 className="text-xl font-bold text-green-700 mt-1">
+                      {selectedCustomer.name}
+                    </h4>
+
+                    <div className="mt-2 grid sm:grid-cols-2 lg:grid-cols-4 gap-3 text-sm">
+                      <div>
+                        <span className="text-gray-400">Phone</span>
+
+                        <p className="font-medium">
+                          {selectedCustomer.phone || "-"}
+                        </p>
+                      </div>
+
+                      <div>
+                        <span className="text-gray-400">Email</span>
+
+                        <p className="font-medium break-all">
+                          {selectedCustomer.email || "-"}
+                        </p>
+                      </div>
+
+                      <div>
+                        <span className="text-gray-400">Type</span>
+
+                        <p className="font-medium">
+                          {selectedCustomer.customerType}
+                        </p>
+                      </div>
+
+                      <div>
+                        <span className="text-gray-400">Address</span>
+
+                        <p className="font-medium">
+                          {selectedCustomer.address || "-"}
+                        </p>
+                      </div>
+                    </div>
+                  </div>
+                </div>
+              </div>
+            )}
+
+            {/* Customer Name / Phone / Sale Date */}
+
+            <div className="grid grid-cols-1 md:grid-cols-3 gap-4 mt-4">
+              <div>
+                <label className="block text-sm font-semibold text-gray-600 mb-1">
+                  Customer Name
+                </label>
+
+                <input
+                  type="text"
+                  name="customer"
+                  placeholder="Customer Name"
+                  value={formData.customer}
+                  onChange={handleChange}
+                  readOnly={!!selectedCustomer}
+                  className={`border rounded-lg p-3 w-full ${
+                    selectedCustomer
+                      ? "bg-gray-100 cursor-not-allowed text-gray-600"
+                      : "bg-white"
+                  }`}
+                  required
+                />
+              </div>
+
+              <div>
+                <label className="block text-sm font-semibold text-gray-600 mb-1">
+                  Phone Number
+                </label>
+
+                <input
+                  type="text"
+                  name="phone"
+                  placeholder="Phone Number"
+                  value={formData.phone}
+                  onChange={handleChange}
+                  readOnly={!!selectedCustomer}
+                  className={`border rounded-lg p-3 w-full ${
+                    selectedCustomer
+                      ? "bg-gray-100 cursor-not-allowed text-gray-600"
+                      : "bg-white"
+                  }`}
+                />
+              </div>
+
+              <div>
+                <label className="block text-sm font-semibold text-gray-600 mb-1">
+                  Sale Date
+                </label>
+
+                <input
+                  type="date"
+                  name="date"
+                  value={formData.date}
+                  onChange={handleChange}
+                  className="border rounded-lg p-3 w-full bg-white"
+                  required
+                />
+              </div>
+            </div>
+
+            {/* Selected customer history */}
+
+            {selectedCustomer && (
+              <div className="mt-5 bg-gray-50 rounded-xl border p-5">
+                <div className="flex flex-col md:flex-row md:items-center md:justify-between mb-4">
+                  <div>
+                    <h3 className="font-bold text-lg">
+                      Customer Purchase History
+                    </h3>
+
+                    <p className="text-sm text-gray-500">
+                      Previous egg purchases linked to this customer.
+                    </p>
+                  </div>
+
+                  {historyLoading && (
+                    <span className="text-sm text-gray-500 mt-2 md:mt-0">
+                      Loading history...
+                    </span>
+                  )}
+                </div>
+
+                {!historyLoading && customerHistory && (
+                  <>
+                    <div className="grid grid-cols-2 md:grid-cols-5 gap-3 mb-5">
+                      <div className="bg-white rounded-lg p-3">
+                        <p className="text-xs text-gray-500">Transactions</p>
+
+                        <p className="text-xl font-bold">
+                          {Number(
+                            customerHistory?.summary?.transactionCount || 0,
+                          )}
+                        </p>
+                      </div>
+
+                      <div className="bg-white rounded-lg p-3">
+                        <p className="text-xs text-gray-500">Purchases</p>
+
+                        <p className="text-xl font-bold text-green-700">
+                          ₦
+                          {Number(
+                            customerHistory?.summary?.totalPurchases || 0,
+                          ).toLocaleString()}
+                        </p>
+                      </div>
+
+                      <div className="bg-white rounded-lg p-3">
+                        <p className="text-xs text-gray-500">Paid</p>
+
+                        <p className="text-xl font-bold text-blue-700">
+                          ₦
+                          {Number(
+                            customerHistory?.summary?.totalPaid || 0,
+                          ).toLocaleString()}
+                        </p>
+                      </div>
+
+                      <div className="bg-white rounded-lg p-3">
+                        <p className="text-xs text-gray-500">Outstanding</p>
+
+                        <p className="text-xl font-bold text-red-600">
+                          ₦
+                          {Number(
+                            customerHistory?.summary?.totalOutstanding || 0,
+                          ).toLocaleString()}
+                        </p>
+                      </div>
+
+                      <div className="bg-white rounded-lg p-3">
+                        <p className="text-xs text-gray-500">Crates</p>
+
+                        <p className="text-xl font-bold text-purple-700">
+                          {Number(customerHistory?.summary?.totalCrates || 0)}
+                        </p>
+                      </div>
+                    </div>
+
+                    {Array.isArray(customerHistory.sales) &&
+                      customerHistory.sales.length > 0 && (
+                        <div className="overflow-x-auto">
+                          <table className="min-w-full text-sm">
+                            <thead>
+                              <tr className="border-b">
+                                <th className="p-2 text-left">Date</th>
+
+                                <th className="p-2 text-left">Invoice</th>
+
+                                <th className="p-2 text-right">Total</th>
+
+                                <th className="p-2 text-right">Paid</th>
+
+                                <th className="p-2 text-right">Balance</th>
+
+                                <th className="p-2 text-center">Status</th>
+                              </tr>
+                            </thead>
+
+                            <tbody>
+                              {customerHistory.sales
+                                .slice(0, 10)
+                                .map((historySale) => (
+                                  <tr
+                                    key={historySale._id}
+                                    className="border-b last:border-b-0"
+                                  >
+                                    <td className="p-2">
+                                      {historySale.date
+                                        ? new Date(
+                                            historySale.date,
+                                          ).toLocaleDateString()
+                                        : "-"}
+                                    </td>
+
+                                    <td className="p-2 font-medium">
+                                      {historySale.invoiceNumber}
+                                    </td>
+
+                                    <td className="p-2 text-right">
+                                      ₦
+                                      {Number(
+                                        historySale.totalAmount || 0,
+                                      ).toLocaleString()}
+                                    </td>
+
+                                    <td className="p-2 text-right">
+                                      ₦
+                                      {Number(
+                                        historySale.amountPaid || 0,
+                                      ).toLocaleString()}
+                                    </td>
+
+                                    <td className="p-2 text-right text-red-600">
+                                      ₦
+                                      {Number(
+                                        historySale.balance || 0,
+                                      ).toLocaleString()}
+                                    </td>
+
+                                    <td className="p-2 text-center">
+                                      <span
+                                        className={`px-2 py-1 rounded-full text-xs font-semibold ${
+                                          historySale.status === "Paid"
+                                            ? "bg-green-100 text-green-700"
+                                            : historySale.status === "Part Paid"
+                                              ? "bg-yellow-100 text-yellow-700"
+                                              : "bg-red-100 text-red-700"
+                                        }`}
+                                      >
+                                        {historySale.status}
+                                      </span>
+                                    </td>
+                                  </tr>
+                                ))}
+                            </tbody>
+                          </table>
+                        </div>
+                      )}
+
+                    {(!customerHistory.sales ||
+                      customerHistory.sales.length === 0) && (
+                      <p className="text-sm text-gray-500">
+                        No previous purchases are linked to this customer.
+                      </p>
+                    )}
+                  </>
+                )}
+              </div>
+            )}
+          </div>
+
+          {/* =================================================
+              PAYMENT / SALE FIELDS
+          ================================================= */}
+
           <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-4 gap-4 mb-6">
-            <input
-              type="text"
-              name="customer"
-              placeholder="Customer Name"
-              value={formData.customer}
-              onChange={handleChange}
-              className="border rounded-lg p-3"
-              required
-            />
-
-            <input
-              type="text"
-              name="phone"
-              placeholder="Phone Number"
-              value={formData.phone}
-              onChange={handleChange}
-              className="border rounded-lg p-3"
-            />
-
-            <input
-              type="date"
-              name="date"
-              value={formData.date}
-              onChange={handleChange}
-              className="border rounded-lg p-3"
-              required
-            />
-
             <select
               name="paymentMethod"
               value={formData.paymentMethod}
@@ -739,12 +1490,17 @@ export default function EggSales() {
               className="border rounded-lg p-3"
             >
               <option>Cash</option>
+
               <option>Transfer</option>
+
               <option>POS</option>
             </select>
           </div>
 
-          {/* ============ EGG CATEGORY LINE ITEMS ============ */}
+          {/* =================================================
+              EGG CATEGORY LINE ITEMS
+          ================================================= */}
+
           <div className="mb-6">
             <div className="flex items-center justify-between mb-3">
               <h3 className="font-semibold text-lg">Egg Categories</h3>
@@ -774,7 +1530,8 @@ export default function EggSales() {
                     {Object.keys(EGG_CATEGORY_PRICES).map((cat) => (
                       <option key={cat} value={cat}>
                         {EGG_CATEGORY_LABELS[cat]} (₦
-                        {EGG_CATEGORY_PRICES[cat].toLocaleString()}/crate)
+                        {EGG_CATEGORY_PRICES[cat].toLocaleString()}
+                        /crate)
                       </option>
                     ))}
                   </select>
@@ -802,7 +1559,8 @@ export default function EggSales() {
                   />
 
                   <div className="text-sm text-gray-500">
-                    ₦{item.cratePrice.toLocaleString()}/crate · ₦{item.eggPrice}
+                    ₦{item.cratePrice.toLocaleString()}
+                    /crate · ₦{item.eggPrice}
                     /egg
                   </div>
 
@@ -823,10 +1581,14 @@ export default function EggSales() {
             </div>
           </div>
 
-          {/* Discount / transport / amount paid */}
+          {/* =================================================
+              DISCOUNT / TRANSPORT / PAID / REMARKS
+          ================================================= */}
+
           <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-4 gap-4 mb-6">
             <input
               type="number"
+              min="0"
               name="discount"
               placeholder="Discount"
               value={formData.discount}
@@ -836,6 +1598,7 @@ export default function EggSales() {
 
             <input
               type="number"
+              min="0"
               name="transportCharge"
               placeholder="Transport Charge"
               value={formData.transportCharge}
@@ -845,6 +1608,7 @@ export default function EggSales() {
 
             <input
               type="number"
+              min="0"
               name="amountPaid"
               placeholder="Amount Paid"
               value={formData.amountPaid}
@@ -861,7 +1625,9 @@ export default function EggSales() {
             />
           </div>
 
-          {/* Live Totals */}
+          {/* =================================================
+              LIVE TOTALS
+          ================================================= */}
 
           <div className="bg-gray-50 rounded-xl p-5 mb-6">
             <div className="grid md:grid-cols-4 gap-4">
@@ -885,7 +1651,7 @@ export default function EggSales() {
                 <p className="text-gray-500">Balance</p>
 
                 <p className="font-bold text-red-600 text-lg">
-                  ₦{balance.toLocaleString()}
+                  ₦{Math.max(0, balance).toLocaleString()}
                 </p>
               </div>
 
@@ -898,6 +1664,10 @@ export default function EggSales() {
               </div>
             </div>
           </div>
+
+          {/* =================================================
+              SAVE BUTTONS
+          ================================================= */}
 
           <div className="flex gap-3">
             <button
@@ -928,7 +1698,156 @@ export default function EggSales() {
         </form>
       </div>
 
-      {/* ================= SALES TABLE ================= */}
+      {/* =================================================
+          QUICK ADD CUSTOMER MODAL
+      ================================================= */}
+
+      {showQuickAddCustomer && (
+        <div className="fixed inset-0 z-[100] flex items-center justify-center bg-black/50 p-4">
+          <div className="bg-white rounded-2xl shadow-2xl w-full max-w-2xl max-h-[90vh] overflow-y-auto">
+            <div className="flex items-center justify-between px-6 py-5 border-b">
+              <div>
+                <h2 className="text-2xl font-bold text-green-700">
+                  Add New Customer
+                </h2>
+
+                <p className="text-sm text-gray-500 mt-1">
+                  The new customer will automatically be selected for this sale.
+                </p>
+              </div>
+
+              <button
+                type="button"
+                onClick={() => setShowQuickAddCustomer(false)}
+                className="text-gray-500 hover:text-gray-800 text-2xl"
+              >
+                ×
+              </button>
+            </div>
+
+            <form onSubmit={handleQuickAddCustomer} className="p-6">
+              <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
+                <div>
+                  <label className="block text-sm font-semibold text-gray-600 mb-1">
+                    Customer Name *
+                  </label>
+
+                  <input
+                    type="text"
+                    name="name"
+                    value={newCustomer.name}
+                    onChange={handleNewCustomerChange}
+                    className="border rounded-lg p-3 w-full"
+                    required
+                    autoFocus
+                  />
+                </div>
+
+                <div>
+                  <label className="block text-sm font-semibold text-gray-600 mb-1">
+                    Phone
+                  </label>
+
+                  <input
+                    type="text"
+                    name="phone"
+                    value={newCustomer.phone}
+                    onChange={handleNewCustomerChange}
+                    className="border rounded-lg p-3 w-full"
+                  />
+                </div>
+
+                <div>
+                  <label className="block text-sm font-semibold text-gray-600 mb-1">
+                    Customer Type
+                  </label>
+
+                  <select
+                    name="customerType"
+                    value={newCustomer.customerType}
+                    onChange={handleNewCustomerChange}
+                    className="border rounded-lg p-3 w-full"
+                  >
+                    <option>Individual</option>
+                    <option>Supermarket</option>
+                    <option>Restaurant</option>
+                    <option>Hotel</option>
+                    <option>Wholesaler</option>
+                    <option>Retailer</option>
+                    <option>Distributor</option>
+                    <option>Other</option>
+                  </select>
+                </div>
+
+                <div>
+                  <label className="block text-sm font-semibold text-gray-600 mb-1">
+                    Email
+                  </label>
+
+                  <input
+                    type="email"
+                    name="email"
+                    value={newCustomer.email}
+                    onChange={handleNewCustomerChange}
+                    className="border rounded-lg p-3 w-full"
+                  />
+                </div>
+
+                <div className="md:col-span-2">
+                  <label className="block text-sm font-semibold text-gray-600 mb-1">
+                    Address
+                  </label>
+
+                  <input
+                    type="text"
+                    name="address"
+                    value={newCustomer.address}
+                    onChange={handleNewCustomerChange}
+                    className="border rounded-lg p-3 w-full"
+                  />
+                </div>
+
+                <div className="md:col-span-2">
+                  <label className="block text-sm font-semibold text-gray-600 mb-1">
+                    Notes
+                  </label>
+
+                  <textarea
+                    name="notes"
+                    value={newCustomer.notes}
+                    onChange={handleNewCustomerChange}
+                    className="border rounded-lg p-3 w-full"
+                    rows="3"
+                  />
+                </div>
+              </div>
+
+              <div className="flex justify-end gap-3 mt-6">
+                <button
+                  type="button"
+                  onClick={() => setShowQuickAddCustomer(false)}
+                  disabled={savingCustomer}
+                  className="bg-gray-200 hover:bg-gray-300 text-gray-700 px-6 py-3 rounded-lg font-semibold"
+                >
+                  Cancel
+                </button>
+
+                <button
+                  type="submit"
+                  disabled={savingCustomer}
+                  className="bg-green-600 hover:bg-green-700 text-white px-6 py-3 rounded-lg font-semibold disabled:opacity-60"
+                >
+                  {savingCustomer ? "Saving..." : "Save & Select Customer"}
+                </button>
+              </div>
+            </form>
+          </div>
+        </div>
+      )}
+
+      {/* =================================================
+          SALES TABLE
+      ================================================= */}
 
       <div className="bg-white rounded-xl shadow p-6 mb-10">
         <div className="flex flex-col md:flex-row md:items-center md:justify-between mb-6">
@@ -1005,7 +1924,12 @@ export default function EggSales() {
                       {(sale.lineItems || [])
                         .map(
                           (item) =>
-                            `${EGG_CATEGORY_LABELS[item.category] || item.category} (${item.cratesSold || 0}c${item.looseEggs ? ` +${item.looseEggs}` : ""})`,
+                            `${
+                              EGG_CATEGORY_LABELS[item.category] ||
+                              item.category
+                            } (${item.cratesSold || 0}c${
+                              item.looseEggs ? ` +${item.looseEggs}` : ""
+                            })`,
                         )
                         .join(", ") || "-"}
                     </td>
@@ -1045,6 +1969,7 @@ export default function EggSales() {
                             <span className="inline-block bg-red-100 text-red-700 font-semibold px-2 py-1 rounded-full mb-1">
                               Deleted
                             </span>
+
                             <div className="text-gray-500 capitalize">
                               by {sale.deletedBy?.role || "Unknown"}
                               {sale.deletedAt &&
@@ -1104,7 +2029,9 @@ export default function EggSales() {
         </div>
       </div>
 
-      {/* ================= SALES SUMMARY ================= */}
+      {/* =================================================
+          SALES SUMMARY
+      ================================================= */}
 
       {isSuperadmin && (
         <div className="bg-white rounded-xl shadow p-6 mb-10">
@@ -1146,13 +2073,20 @@ export default function EggSales() {
         </div>
       )}
 
-      {/* ================= FOOTER ================= */}
+      {/* =================================================
+          FOOTER
+      ================================================= */}
 
       <div className="text-center text-gray-500 text-sm py-6 border-t">
         <p>Egg Sales Management System</p>
 
         <p className="mt-1">Built for efficient poultry farm sales tracking.</p>
       </div>
+
+      {/* =================================================
+          INVOICE
+      ================================================= */}
+
       <InvoiceModal
         open={showInvoice}
         sale={selectedSale}

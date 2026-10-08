@@ -5,6 +5,15 @@ export const fetchSales = async () => {
   return res.data;
 };
 
+// =====================================================
+// GET SALES FOR A SPECIFIC CUSTOMER
+// =====================================================
+
+export const fetchCustomerSales = async (customerId) => {
+  const res = await api.get(`/egg-sales/customer/${customerId}`);
+  return res.data;
+};
+
 export const createSale = async (data) => {
   const res = await api.post("/egg-sales", data);
   return res.data;
