@@ -5,13 +5,13 @@ const mongoose = require("mongoose");
 // =====================================================
 // These are the official farm prices per crate.
 // The frontend must NOT be trusted to determine prices.
-// The controller always uses these server-side prices.
+// The controller should always use these server-side prices.
 
 const EGG_CATEGORY_PRICES = {
-  big: 5000,
+  big: 5100,
   jumbo: 5800,
   turkey: 6000,
-  normal: 4900,
+  normal: 5000,
   small: 4000,
 };
 
@@ -39,7 +39,8 @@ const eggLineItemSchema = new mongoose.Schema(
       min: 0,
     },
 
-    // Official price stored with the sale for historical accuracy.
+    // Official price stored with the sale
+    // for historical accuracy.
     cratePrice: {
       type: Number,
       required: true,
@@ -76,22 +77,50 @@ const eggSaleSchema = new mongoose.Schema(
       index: true,
     },
 
+    // =================================================
+    // CUSTOMER INFORMATION
+    // =================================================
+
+    // Historical snapshot of the customer's name
+    // at the time the invoice was created.
     customer: {
       type: String,
       required: true,
       trim: true,
     },
 
+    // Permanent link to the Customer document.
+    //
+    // This is intentionally separate from `customer`
+    // and `phone`.
+    //
+    // customerId = permanent customer reference
+    // customer   = name recorded on invoice
+    // phone      = phone recorded on invoice
+    //
+    // Existing/old sales can have this as null.
+    customerId: {
+      type: mongoose.Schema.Types.ObjectId,
+      ref: "Customer",
+      default: null,
+      index: true,
+    },
+
+    // Historical snapshot of the customer's phone
+    // at the time the invoice was created.
     phone: {
       type: String,
       default: "",
       trim: true,
     },
 
-    // IMPORTANT:
+    // =================================================
+    // SALE DATE
+    // =================================================
     // This is the date the sale belongs to.
-    // Daily/weekly/monthly sales must use this field,
+    // Daily/weekly/monthly sales should use this field,
     // NOT createdAt.
+
     date: {
       type: Date,
       default: Date.now,
@@ -168,6 +197,10 @@ const eggSaleSchema = new mongoose.Schema(
       default: 0,
     },
 
+    // =================================================
+    // PAYMENT
+    // =================================================
+
     paymentMethod: {
       type: String,
       enum: ["Cash", "Transfer", "POS"],
@@ -185,6 +218,10 @@ const eggSaleSchema = new mongoose.Schema(
       default: "",
       trim: true,
     },
+
+    // =================================================
+    // SALE AUDIT
+    // =================================================
 
     soldBy: {
       type: mongoose.Schema.Types.ObjectId,
@@ -222,17 +259,29 @@ const eggSaleSchema = new mongoose.Schema(
 // INDEXES
 // =====================================================
 
+// Search sales by customer name, phone, or remarks.
 eggSaleSchema.index({
   customer: "text",
   phone: "text",
   remarks: "text",
 });
 
+// Customer purchase history.
+// This allows us to quickly retrieve all sales
+// belonging to a specific Customer.
+eggSaleSchema.index({
+  customerId: 1,
+  isDeleted: 1,
+  date: -1,
+});
+
+// Active/deleted sales sorted by sale date.
 eggSaleSchema.index({
   isDeleted: 1,
   date: -1,
 });
 
+// Active/deleted sales sorted by creation date.
 eggSaleSchema.index({
   isDeleted: 1,
   createdAt: -1,
@@ -246,6 +295,6 @@ const EggSale = mongoose.model("EggSale", eggSaleSchema);
 
 module.exports = EggSale;
 
-// Export prices separately so the controller can safely use them.
-module.exports.EGG_CATEGORY_PRICES = EGG_CATEGORY_PRICES;
+// Export official prices so the controller can safely
+// use the server-side price list.
 module.exports.EGG_CATEGORY_PRICES = EGG_CATEGORY_PRICES;

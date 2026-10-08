@@ -89,6 +89,20 @@ const productionSchema = new mongoose.Schema(
       min: [0, "sickBirds cannot be negative"],
     },
 
+    // ============================================================
+    // FEED
+    // ============================================================
+    // Decimal values are intentionally allowed.
+    //
+    // Examples:
+    // 0
+    // 0.5
+    // 1
+    // 1.25
+    // 2.5
+    // 10
+    // ============================================================
+
     feedBagsConsumed: {
       type: Number,
       default: 0,

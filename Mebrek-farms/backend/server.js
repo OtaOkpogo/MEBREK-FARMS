@@ -50,6 +50,7 @@ const notificationRoutes = require("./routes/notification");
 const roomInventoryRoutes = require("./routes/roomInventoryRoutes");
 const searchRoutes = require("./routes/search");
 const reportRoutes = require("./routes/reportRoutes");
+const customerRoutes = require("./routes/customerRoutes");
 
 // ==============================
 // ENVIRONMENT VARIABLES
@@ -266,6 +267,8 @@ app.use("/api/notifications", notificationRoutes);
 app.use("/api/room-inventory", roomInventoryRoutes);
 
 app.use("/api/search", searchRoutes);
+
+app.use("/api/customers", customerRoutes);
 
 app.use("/api/reports", require("./routes/reportRoutes"));
 

@@ -12,25 +12,77 @@ const {
   deleteSale,
   getDeletedSales,
   restoreSale,
+  getSalesByCustomer,
 } = require("../controllers/eggSaleController");
 
-// SUPERADMIN + MANAGER — matches Egg Sales' access level in App.jsx.
-// These main routes previously only checked authentication, meaning
-// staff could hit them directly regardless of what the frontend hid.
-// Deleted-record visibility and restore stay superadmin-only, unchanged.
+// =====================================================
+// EGG SALES ACCESS
+// =====================================================
+// Egg Sales is available to:
+// - superadmin
+// - manager
+//
+// Staff are blocked at the backend even if the frontend
+// happens to hide the page.
+// =====================================================
 
 router.get("/", auth, allowRoles("superadmin", "manager"), getSales);
 
-// Must come before "/:id" — otherwise Express treats "deleted" as an id.
+// =====================================================
+// DELETED SALES
+// =====================================================
+// Superadmin only.
+// IMPORTANT: This must come before "/:id".
+// =====================================================
+
 router.get("/deleted", auth, allowRoles("superadmin"), getDeletedSales);
+
+// =====================================================
+// CUSTOMER PURCHASE HISTORY
+// =====================================================
+// Returns all active Egg Sales belonging to a specific
+// Customer, together with purchase summary information.
+//
+// IMPORTANT: This MUST come before "/:id".
+// Otherwise Express may interpret "customer" as an id.
+// =====================================================
+
+router.get(
+  "/customer/:customerId",
+  auth,
+  allowRoles("superadmin", "manager"),
+  getSalesByCustomer,
+);
+
+// =====================================================
+// SINGLE SALE
+// =====================================================
 
 router.get("/:id", auth, allowRoles("superadmin", "manager"), getSale);
 
+// =====================================================
+// CREATE SALE
+// =====================================================
+
 router.post("/", auth, allowRoles("superadmin", "manager"), createSale);
+
+// =====================================================
+// UPDATE SALE
+// =====================================================
 
 router.put("/:id", auth, allowRoles("superadmin", "manager"), updateSale);
 
+// =====================================================
+// RESTORE SALE
+// =====================================================
+// Superadmin only.
+// =====================================================
+
 router.put("/:id/restore", auth, allowRoles("superadmin"), restoreSale);
+
+// =====================================================
+// SOFT DELETE SALE
+// =====================================================
 
 router.delete("/:id", auth, allowRoles("superadmin", "manager"), deleteSale);
 
