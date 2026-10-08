@@ -8,6 +8,8 @@ const { EGG_CATEGORY_PRICES } = require("../models/EggSale");
 
 const EGGS_PER_CRATE = 30;
 
+const VALID_PAYMENT_METHODS = ["Cash", "Transfer", "POS"];
+
 // =====================================================
 // EGG CATEGORY VALIDATION
 // =====================================================
@@ -20,7 +22,7 @@ const buildValidatedLineItems = (lineItems) => {
   const seenCategories = new Set();
 
   return lineItems.map((item) => {
-    const category = String(item.category || "")
+    const category = String(item?.category || "")
       .trim()
       .toLowerCase();
 
@@ -28,7 +30,6 @@ const buildValidatedLineItems = (lineItems) => {
       throw new Error(`Unknown egg category: ${category}`);
     }
 
-    // Prevent duplicate egg categories in the same sale.
     if (seenCategories.has(category)) {
       throw new Error(
         `The ${category} egg category has been entered more than once.`,
@@ -37,8 +38,8 @@ const buildValidatedLineItems = (lineItems) => {
 
     seenCategories.add(category);
 
-    const cratesSold = Number(item.cratesSold || 0);
-    const looseEggs = Number(item.looseEggs || 0);
+    const cratesSold = Number(item?.cratesSold || 0);
+    const looseEggs = Number(item?.looseEggs || 0);
 
     if (!Number.isFinite(cratesSold) || !Number.isFinite(looseEggs)) {
       throw new Error("Egg quantities must be valid numbers.");
@@ -68,8 +69,6 @@ const buildValidatedLineItems = (lineItems) => {
 // =====================================================
 // LEGACY SALE CALCULATION
 // =====================================================
-// Used for older sales that were created before lineItems
-// were introduced.
 
 const getLegacySaleTotal = (sale) => {
   const cratesTotal =
@@ -82,7 +81,7 @@ const getLegacySaleTotal = (sale) => {
 };
 
 // =====================================================
-// CALCULATE TOTAL
+// CALCULATE SALE TOTAL
 // =====================================================
 
 const calculateTotal = (lineItems, transportCharge = 0, discount = 0) => {
@@ -91,33 +90,194 @@ const calculateTotal = (lineItems, transportCharge = 0, discount = 0) => {
     0,
   );
 
-  const totalAmount =
-    itemsTotal + Number(transportCharge || 0) - Number(discount || 0);
+  const transport = Number(transportCharge || 0);
+  const discountAmount = Number(discount || 0);
 
-  return Math.max(0, totalAmount);
+  if (!Number.isFinite(transport)) {
+    throw new Error("Invalid transport charge.");
+  }
+
+  if (!Number.isFinite(discountAmount)) {
+    throw new Error("Invalid discount amount.");
+  }
+
+  return Math.max(0, itemsTotal + transport - discountAmount);
 };
 
 // =====================================================
-// PAYMENT STATUS
+// NORMALIZE PAYMENT SEGMENTS
+// =====================================================
+//
+// IMPORTANT:
+// This function does NOT combine payment rows.
+//
+// For example:
+//
+// [
+//   { method: "Cash", amount: 10000 },
+//   { method: "Cash", amount: 5000 },
+//   { method: "Transfer", amount: 2000 }
+// ]
+//
+// remains three separate payment records.
+//
+
+const normalizePayments = (payments) => {
+  if (!Array.isArray(payments)) {
+    return [];
+  }
+
+  return payments
+    .map((payment) => {
+      if (!payment) {
+        return null;
+      }
+
+      const method = String(payment.method || "").trim();
+
+      const amount = Number(payment.amount || 0);
+
+      // Empty frontend row.
+      if (!method && amount <= 0) {
+        return null;
+      }
+
+      if (!VALID_PAYMENT_METHODS.includes(method)) {
+        throw new Error(
+          "Invalid payment method. Allowed methods are Cash, Transfer and POS.",
+        );
+      }
+
+      if (!Number.isFinite(amount) || amount < 0) {
+        throw new Error("Payment amounts must be valid non-negative numbers.");
+      }
+
+      // Ignore zero-value rows.
+      if (amount === 0) {
+        return null;
+      }
+
+      let paidAt = new Date();
+
+      if (payment.paidAt) {
+        const suppliedDate = new Date(payment.paidAt);
+
+        if (!Number.isNaN(suppliedDate.getTime())) {
+          paidAt = suppliedDate;
+        }
+      }
+
+      return {
+        method,
+        amount,
+        paidAt,
+      };
+    })
+    .filter(Boolean);
+};
+
+// =====================================================
+// PAYMENT CALCULATION
 // =====================================================
 
-const calculatePayment = (totalAmount, amountPaid) => {
-  const paid = Math.max(0, Number(amountPaid || 0));
+const calculatePayment = (totalAmount, payments = []) => {
+  const normalizedPayments = Array.isArray(payments) ? payments : [];
+
+  const paid = normalizedPayments.reduce(
+    (sum, payment) => sum + Number(payment.amount || 0),
+    0,
+  );
+
+  if (!Number.isFinite(paid)) {
+    throw new Error("Invalid payment total.");
+  }
+
+  if (paid > totalAmount) {
+    throw new Error(
+      `Payment total of ₦${paid.toLocaleString()} cannot exceed the sale total of ₦${totalAmount.toLocaleString()}.`,
+    );
+  }
 
   const balance = Math.max(0, totalAmount - paid);
 
   let status = "Unpaid";
 
-  if (paid >= totalAmount && totalAmount > 0) {
+  if (totalAmount === 0) {
+    status = "Unpaid";
+  } else if (paid >= totalAmount) {
     status = "Paid";
   } else if (paid > 0) {
     status = "Part Paid";
   }
 
+  // Determine payment method from ALL payment rows.
+  const methods = [
+    ...new Set(normalizedPayments.map((payment) => payment.method)),
+  ];
+
+  let paymentMethod = "Cash";
+
+  if (methods.length === 1) {
+    paymentMethod = methods[0];
+  } else if (methods.length > 1) {
+    paymentMethod = "Mixed";
+  }
+
   return {
+    amountPaid: paid,
     balance,
     status,
+    paymentMethod,
   };
+};
+
+// =====================================================
+// RESOLVE PAYMENTS
+// =====================================================
+//
+// New API:
+// payments: [
+//   { method: "Cash", amount: 16000 },
+//   { method: "Transfer", amount: 1400 }
+// ]
+//
+// Legacy API:
+// amountPaid: 17400
+// paymentMethod: "Transfer"
+//
+
+const resolvePayments = ({ payments, amountPaid, paymentMethod }) => {
+  // New segmented-payment request.
+  if (Array.isArray(payments)) {
+    return normalizePayments(payments);
+  }
+
+  // Legacy payment request.
+  const legacyAmount = Number(amountPaid || 0);
+
+  if (!Number.isFinite(legacyAmount) || legacyAmount < 0) {
+    throw new Error("Invalid amount paid.");
+  }
+
+  if (legacyAmount === 0) {
+    return [];
+  }
+
+  const legacyMethod = String(paymentMethod || "Cash").trim();
+
+  if (!VALID_PAYMENT_METHODS.includes(legacyMethod)) {
+    throw new Error(
+      "Invalid payment method. Allowed methods are Cash, Transfer and POS.",
+    );
+  }
+
+  return [
+    {
+      method: legacyMethod,
+      amount: legacyAmount,
+      paidAt: new Date(),
+    },
+  ];
 };
 
 // =====================================================
@@ -156,18 +316,8 @@ const generateInvoiceNumber = async (year) => {
 // =====================================================
 // RESOLVE CUSTOMER
 // =====================================================
-// If customerId is supplied, the sale is permanently
-// linked to the Customer record.
-//
-// The customer name and phone are ALSO saved on the sale
-// as historical snapshots. This means changing a customer's
-// details later will not rewrite old invoices.
 
 const resolveCustomer = async ({ customerId, customer, phone }) => {
-  // ---------------------------------------------------
-  // No customerId = legacy/manual customer entry
-  // ---------------------------------------------------
-
   if (!customerId) {
     const customerName = String(customer || "").trim();
 
@@ -181,10 +331,6 @@ const resolveCustomer = async ({ customerId, customer, phone }) => {
       phone: String(phone || "").trim(),
     };
   }
-
-  // ---------------------------------------------------
-  // Customer ID supplied
-  // ---------------------------------------------------
 
   let customerRecord;
 
@@ -224,12 +370,8 @@ exports.getSales = async (req, res) => {
     let filter;
 
     if (isSuperadmin) {
-      // Superadmin sees active and deleted records
-      // for audit purposes.
       filter = {};
     } else {
-      // Other users see active records created
-      // within the last 24 hours.
       const cutoff = new Date(Date.now() - 24 * 60 * 60 * 1000);
 
       filter = {
@@ -302,6 +444,7 @@ exports.createSale = async (req, res) => {
       transportCharge,
       amountPaid,
       paymentMethod,
+      payments,
       remarks,
     } = req.body;
 
@@ -316,7 +459,7 @@ exports.createSale = async (req, res) => {
     });
 
     // ---------------------------------------------------
-    // SALE DATE
+    // DATE
     // ---------------------------------------------------
 
     const saleDate = date ? new Date(`${date}T12:00:00`) : new Date();
@@ -344,12 +487,16 @@ exports.createSale = async (req, res) => {
     );
 
     // ---------------------------------------------------
-    // PAYMENT
+    // PAYMENTS
     // ---------------------------------------------------
 
-    const paidAmount = Math.max(0, Number(amountPaid || 0));
+    const resolvedPayments = resolvePayments({
+      payments,
+      amountPaid,
+      paymentMethod,
+    });
 
-    const { balance, status } = calculatePayment(totalAmount, paidAmount);
+    const paymentSummary = calculatePayment(totalAmount, resolvedPayments);
 
     // ---------------------------------------------------
     // INVOICE
@@ -374,7 +521,6 @@ exports.createSale = async (req, res) => {
 
           customerId: resolvedCustomer.customerId,
 
-          // Snapshot customer details.
           customer: resolvedCustomer.customer,
 
           phone: resolvedCustomer.phone,
@@ -389,20 +535,24 @@ exports.createSale = async (req, res) => {
 
           totalAmount,
 
-          amountPaid: paidAmount,
+          // IMPORTANT:
+          // Store every individual payment row.
+          payments: resolvedPayments,
 
-          balance,
+          // Compatibility total.
+          amountPaid: paymentSummary.amountPaid,
 
-          paymentMethod: paymentMethod || "Cash",
+          balance: paymentSummary.balance,
 
-          status,
+          paymentMethod: paymentSummary.paymentMethod,
+
+          status: paymentSummary.status,
 
           remarks: String(remarks || "").trim(),
 
           soldBy: req.user?.id || null,
         });
       } catch (err) {
-        // Invoice number collision.
         if (err.code === 11000 && attempts < maxAttempts) {
           continue;
         }
@@ -415,7 +565,6 @@ exports.createSale = async (req, res) => {
       throw new Error("Unable to generate a unique invoice number.");
     }
 
-    // Populate customer relationship before returning.
     await sale.populate(
       "customerId",
       "name phone email address customerType isActive",
@@ -457,16 +606,13 @@ exports.updateSale = async (req, res) => {
       transportCharge,
       amountPaid,
       paymentMethod,
+      payments,
       remarks,
     } = req.body;
 
     // ---------------------------------------------------
-    // CUSTOMER UPDATE
+    // CUSTOMER
     // ---------------------------------------------------
-    // If customerId is supplied, use the customer record.
-    //
-    // If customerId is explicitly empty/null, preserve
-    // manual/legacy customer editing.
 
     if (customerId !== undefined) {
       if (customerId === null || customerId === "") {
@@ -479,9 +625,7 @@ exports.updateSale = async (req, res) => {
         }
 
         sale.customerId = null;
-
         sale.customer = manualName;
-
         sale.phone = String(phone || "").trim();
       } else {
         const resolvedCustomer = await resolveCustomer({
@@ -497,10 +641,6 @@ exports.updateSale = async (req, res) => {
         sale.phone = resolvedCustomer.phone;
       }
     } else {
-      // -------------------------------------------------
-      // Backward-compatible manual editing.
-      // -------------------------------------------------
-
       if (customer !== undefined) {
         const manualName = String(customer || "").trim();
 
@@ -539,9 +679,7 @@ exports.updateSale = async (req, res) => {
     // ---------------------------------------------------
 
     if (lineItems !== undefined) {
-      const validatedLineItems = buildValidatedLineItems(lineItems);
-
-      sale.lineItems = validatedLineItems;
+      sale.lineItems = buildValidatedLineItems(lineItems);
     }
 
     // ---------------------------------------------------
@@ -577,40 +715,8 @@ exports.updateSale = async (req, res) => {
     }
 
     // ---------------------------------------------------
-    // AMOUNT PAID
-    // ---------------------------------------------------
-
-    if (amountPaid !== undefined) {
-      const value = Number(amountPaid || 0);
-
-      if (!Number.isFinite(value)) {
-        return res.status(400).json({
-          message: "Invalid amount paid.",
-        });
-      }
-
-      sale.amountPaid = Math.max(0, value);
-    }
-
-    // ---------------------------------------------------
-    // PAYMENT METHOD
-    // ---------------------------------------------------
-
-    if (paymentMethod !== undefined) {
-      sale.paymentMethod = paymentMethod;
-    }
-
-    // ---------------------------------------------------
-    // REMARKS
-    // ---------------------------------------------------
-
-    if (remarks !== undefined) {
-      sale.remarks = String(remarks || "").trim();
-    }
-
-    // ===================================================
     // RECALCULATE TOTAL
-    // ===================================================
+    // ---------------------------------------------------
 
     let itemsTotal = 0;
 
@@ -620,7 +726,6 @@ exports.updateSale = async (req, res) => {
         0,
       );
     } else {
-      // Legacy sale support.
       itemsTotal = getLegacySaleTotal(sale);
     }
 
@@ -632,22 +737,142 @@ exports.updateSale = async (req, res) => {
     );
 
     // ===================================================
-    // RECALCULATE PAYMENT
+    // PAYMENT UPDATE
     // ===================================================
 
-    const { balance, status } = calculatePayment(
-      sale.totalAmount,
-      sale.amountPaid,
-    );
+    if (Array.isArray(payments)) {
+      // New segmented payment system.
+      //
+      // IMPORTANT:
+      // Every row is preserved.
 
-    sale.balance = balance;
+      const resolvedPayments = resolvePayments({
+        payments,
+        amountPaid,
+        paymentMethod,
+      });
 
-    sale.status = status;
+      const paymentSummary = calculatePayment(
+        sale.totalAmount,
+        resolvedPayments,
+      );
 
-    // Existing records may contain legacy fields or
-    // incomplete data, so preserve the original behavior
-    // of allowing the save without forcing unrelated
-    // validation failures.
+      sale.payments = resolvedPayments;
+
+      sale.amountPaid = paymentSummary.amountPaid;
+
+      sale.balance = paymentSummary.balance;
+
+      sale.paymentMethod = paymentSummary.paymentMethod;
+
+      sale.status = paymentSummary.status;
+    } else if (amountPaid !== undefined || paymentMethod !== undefined) {
+      // -------------------------------------------------
+      // LEGACY SINGLE PAYMENT UPDATE
+      // -------------------------------------------------
+
+      let updatedAmountPaid = Number(sale.amountPaid || 0);
+
+      if (amountPaid !== undefined) {
+        const value = Number(amountPaid || 0);
+
+        if (!Number.isFinite(value) || value < 0) {
+          return res.status(400).json({
+            message: "Invalid amount paid.",
+          });
+        }
+
+        updatedAmountPaid = value;
+      }
+
+      let updatedPaymentMethod = VALID_PAYMENT_METHODS.includes(
+        sale.paymentMethod,
+      )
+        ? sale.paymentMethod
+        : "Cash";
+
+      if (paymentMethod !== undefined) {
+        updatedPaymentMethod = String(paymentMethod).trim();
+
+        if (!VALID_PAYMENT_METHODS.includes(updatedPaymentMethod)) {
+          return res.status(400).json({
+            message:
+              "Invalid payment method. Allowed methods are Cash, Transfer and POS.",
+          });
+        }
+      }
+
+      const legacyPayments =
+        updatedAmountPaid > 0
+          ? [
+              {
+                method: updatedPaymentMethod,
+                amount: updatedAmountPaid,
+                paidAt: new Date(),
+              },
+            ]
+          : [];
+
+      const paymentSummary = calculatePayment(sale.totalAmount, legacyPayments);
+
+      sale.payments = legacyPayments;
+
+      sale.amountPaid = paymentSummary.amountPaid;
+
+      sale.balance = paymentSummary.balance;
+
+      sale.paymentMethod = paymentSummary.paymentMethod;
+
+      sale.status = paymentSummary.status;
+    } else {
+      // -------------------------------------------------
+      // NO PAYMENT DATA SENT
+      // -------------------------------------------------
+      //
+      // Preserve existing segmented payments.
+
+      let existingPayments = [];
+
+      if (Array.isArray(sale.payments) && sale.payments.length > 0) {
+        existingPayments = normalizePayments(sale.payments);
+      } else if (Number(sale.amountPaid || 0) > 0) {
+        const legacyMethod = VALID_PAYMENT_METHODS.includes(sale.paymentMethod)
+          ? sale.paymentMethod
+          : "Cash";
+
+        existingPayments = [
+          {
+            method: legacyMethod,
+            amount: Number(sale.amountPaid || 0),
+            paidAt: sale.updatedAt || new Date(),
+          },
+        ];
+      }
+
+      const paymentSummary = calculatePayment(
+        sale.totalAmount,
+        existingPayments,
+      );
+
+      sale.payments = existingPayments;
+
+      sale.amountPaid = paymentSummary.amountPaid;
+
+      sale.balance = paymentSummary.balance;
+
+      sale.paymentMethod = paymentSummary.paymentMethod;
+
+      sale.status = paymentSummary.status;
+    }
+
+    // ---------------------------------------------------
+    // REMARKS
+    // ---------------------------------------------------
+
+    if (remarks !== undefined) {
+      sale.remarks = String(remarks || "").trim();
+    }
+
     await sale.save({
       validateBeforeSave: false,
     });
@@ -670,7 +895,7 @@ exports.updateSale = async (req, res) => {
 };
 
 // =====================================================
-// DELETE SALE — SOFT DELETE
+// DELETE SALE
 // =====================================================
 
 exports.deleteSale = async (req, res) => {
@@ -687,9 +912,7 @@ exports.deleteSale = async (req, res) => {
     }
 
     sale.isDeleted = true;
-
     sale.deletedAt = new Date();
-
     sale.deletedBy = req.user?.id || null;
 
     await sale.save({
@@ -752,9 +975,7 @@ exports.restoreSale = async (req, res) => {
     }
 
     sale.isDeleted = false;
-
     sale.deletedAt = null;
-
     sale.deletedBy = null;
 
     await sale.save({
@@ -779,14 +1000,8 @@ exports.restoreSale = async (req, res) => {
 };
 
 // =====================================================
-// GET SALES FOR ONE CUSTOMER
+// GET SALES FOR CUSTOMER
 // =====================================================
-// Used by Egg Sales to show a customer's purchase
-// history immediately after selecting the customer.
-//
-// Old sales created before customerId existed will
-// naturally not appear here. They remain available in
-// the normal sales list.
 
 exports.getSalesByCustomer = async (req, res) => {
   try {
@@ -824,7 +1039,7 @@ exports.getSalesByCustomer = async (req, res) => {
         createdAt: -1,
       })
       .select(
-        "invoiceNumber customer phone date lineItems totalAmount amountPaid balance status paymentMethod",
+        "invoiceNumber customer phone date lineItems totalAmount amountPaid balance status paymentMethod payments",
       );
 
     const totalPurchases = sales.reduce(
@@ -855,18 +1070,12 @@ exports.getSalesByCustomer = async (req, res) => {
 
     res.json({
       customer,
-
       sales,
-
       summary: {
         transactionCount: sales.length,
-
         totalPurchases,
-
         totalPaid,
-
         totalOutstanding,
-
         totalCrates,
       },
     });

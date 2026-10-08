@@ -3,9 +3,6 @@ const mongoose = require("mongoose");
 // =====================================================
 // OFFICIAL EGG CATEGORY PRICES
 // =====================================================
-// These are the official farm prices per crate.
-// The frontend must NOT be trusted to determine prices.
-// The controller should always use these server-side prices.
 
 const EGG_CATEGORY_PRICES = {
   big: 5100,
@@ -14,6 +11,37 @@ const EGG_CATEGORY_PRICES = {
   normal: 5000,
   small: 4000,
 };
+
+const VALID_PAYMENT_METHODS = ["Cash", "Transfer", "POS"];
+
+// =====================================================
+// PAYMENT SEGMENT SCHEMA
+// =====================================================
+
+const paymentSchema = new mongoose.Schema(
+  {
+    method: {
+      type: String,
+      enum: VALID_PAYMENT_METHODS,
+      required: true,
+      trim: true,
+    },
+
+    amount: {
+      type: Number,
+      required: true,
+      min: 0,
+    },
+
+    paidAt: {
+      type: Date,
+      default: Date.now,
+    },
+  },
+  {
+    _id: true,
+  },
+);
 
 // =====================================================
 // EGG LINE ITEM SCHEMA
@@ -25,6 +53,8 @@ const eggLineItemSchema = new mongoose.Schema(
       type: String,
       enum: ["big", "jumbo", "turkey", "normal", "small"],
       required: true,
+      lowercase: true,
+      trim: true,
     },
 
     cratesSold: {
@@ -39,15 +69,12 @@ const eggLineItemSchema = new mongoose.Schema(
       min: 0,
     },
 
-    // Official price stored with the sale
-    // for historical accuracy.
     cratePrice: {
       type: Number,
       required: true,
       min: 0,
     },
 
-    // Price of one loose egg.
     eggPrice: {
       type: Number,
       required: true,
@@ -66,39 +93,25 @@ const eggLineItemSchema = new mongoose.Schema(
 );
 
 // =====================================================
-// MAIN EGG SALE SCHEMA
+// EGG SALE SCHEMA
 // =====================================================
 
 const eggSaleSchema = new mongoose.Schema(
   {
+    // ---------------------------------------------------
+    // INVOICE
+    // ---------------------------------------------------
+
     invoiceNumber: {
       type: String,
       unique: true,
       index: true,
     },
 
-    // =================================================
-    // CUSTOMER INFORMATION
-    // =================================================
+    // ---------------------------------------------------
+    // CUSTOMER
+    // ---------------------------------------------------
 
-    // Historical snapshot of the customer's name
-    // at the time the invoice was created.
-    customer: {
-      type: String,
-      required: true,
-      trim: true,
-    },
-
-    // Permanent link to the Customer document.
-    //
-    // This is intentionally separate from `customer`
-    // and `phone`.
-    //
-    // customerId = permanent customer reference
-    // customer   = name recorded on invoice
-    // phone      = phone recorded on invoice
-    //
-    // Existing/old sales can have this as null.
     customerId: {
       type: mongoose.Schema.Types.ObjectId,
       ref: "Customer",
@@ -106,20 +119,21 @@ const eggSaleSchema = new mongoose.Schema(
       index: true,
     },
 
-    // Historical snapshot of the customer's phone
-    // at the time the invoice was created.
+    customer: {
+      type: String,
+      required: true,
+      trim: true,
+    },
+
     phone: {
       type: String,
       default: "",
       trim: true,
     },
 
-    // =================================================
+    // ---------------------------------------------------
     // SALE DATE
-    // =================================================
-    // This is the date the sale belongs to.
-    // Daily/weekly/monthly sales should use this field,
-    // NOT createdAt.
+    // ---------------------------------------------------
 
     date: {
       type: Date,
@@ -127,22 +141,19 @@ const eggSaleSchema = new mongoose.Schema(
       required: true,
     },
 
-    // =================================================
-    // NEW MULTI-CATEGORY SALE STRUCTURE
-    // =================================================
+    // ---------------------------------------------------
+    // EGG ITEMS
+    // ---------------------------------------------------
 
     lineItems: {
       type: [eggLineItemSchema],
       default: [],
     },
 
-    // =================================================
-    // LEGACY FIELDS
-    // =================================================
-    // These are retained temporarily so older sales
-    // already stored in MongoDB don't immediately break.
-    //
-    // New sales should use lineItems.
+    // ---------------------------------------------------
+    // LEGACY EGG FIELDS
+    // ---------------------------------------------------
+    // Kept for compatibility with older records.
 
     cratesSold: {
       type: Number,
@@ -164,9 +175,9 @@ const eggSaleSchema = new mongoose.Schema(
       default: 0,
     },
 
-    // =================================================
+    // ---------------------------------------------------
     // SALE TOTALS
-    // =================================================
+    // ---------------------------------------------------
 
     discount: {
       type: Number,
@@ -186,26 +197,74 @@ const eggSaleSchema = new mongoose.Schema(
       min: 0,
     },
 
+    // ---------------------------------------------------
+    // SEGMENTED PAYMENTS
+    // ---------------------------------------------------
+    //
+    // Example:
+    //
+    // payments: [
+    //   {
+    //     method: "Cash",
+    //     amount: 16000
+    //   },
+    //   {
+    //     method: "Transfer",
+    //     amount: 1400
+    //   }
+    // ]
+    //
+    // Multiple rows are intentionally preserved.
+
+    payments: {
+      type: [paymentSchema],
+      default: [],
+    },
+
+    // ---------------------------------------------------
+    // TOTAL AMOUNT PAID
+    // ---------------------------------------------------
+    //
+    // Kept for compatibility with existing records/UI.
+    //
+    // IMPORTANT:
+    // This is the sum of all payment segments.
+
     amountPaid: {
       type: Number,
       default: 0,
       min: 0,
     },
 
+    // ---------------------------------------------------
+    // BALANCE
+    // ---------------------------------------------------
+
     balance: {
       type: Number,
       default: 0,
+      min: 0,
     },
 
-    // =================================================
-    // PAYMENT
-    // =================================================
+    // ---------------------------------------------------
+    // PAYMENT METHOD
+    // ---------------------------------------------------
+    //
+    // Single payment:
+    // Cash / Transfer / POS
+    //
+    // Multiple payment methods:
+    // Mixed
 
     paymentMethod: {
       type: String,
-      enum: ["Cash", "Transfer", "POS"],
+      enum: ["Cash", "Transfer", "POS", "Mixed"],
       default: "Cash",
     },
+
+    // ---------------------------------------------------
+    // PAYMENT STATUS
+    // ---------------------------------------------------
 
     status: {
       type: String,
@@ -213,15 +272,19 @@ const eggSaleSchema = new mongoose.Schema(
       default: "Unpaid",
     },
 
+    // ---------------------------------------------------
+    // REMARKS
+    // ---------------------------------------------------
+
     remarks: {
       type: String,
       default: "",
       trim: true,
     },
 
-    // =================================================
-    // SALE AUDIT
-    // =================================================
+    // ---------------------------------------------------
+    // AUDIT
+    // ---------------------------------------------------
 
     soldBy: {
       type: mongoose.Schema.Types.ObjectId,
@@ -229,9 +292,9 @@ const eggSaleSchema = new mongoose.Schema(
       default: null,
     },
 
-    // =================================================
+    // ---------------------------------------------------
     // SOFT DELETE
-    // =================================================
+    // ---------------------------------------------------
 
     isDeleted: {
       type: Boolean,
@@ -259,42 +322,33 @@ const eggSaleSchema = new mongoose.Schema(
 // INDEXES
 // =====================================================
 
-// Search sales by customer name, phone, or remarks.
 eggSaleSchema.index({
   customer: "text",
   phone: "text",
   remarks: "text",
 });
 
-// Customer purchase history.
-// This allows us to quickly retrieve all sales
-// belonging to a specific Customer.
 eggSaleSchema.index({
   customerId: 1,
   isDeleted: 1,
   date: -1,
 });
 
-// Active/deleted sales sorted by sale date.
 eggSaleSchema.index({
   isDeleted: 1,
   date: -1,
 });
 
-// Active/deleted sales sorted by creation date.
 eggSaleSchema.index({
   isDeleted: 1,
   createdAt: -1,
 });
 
 // =====================================================
-// EXPORTS
+// MODEL
 // =====================================================
 
 const EggSale = mongoose.model("EggSale", eggSaleSchema);
 
 module.exports = EggSale;
-
-// Export official prices so the controller can safely
-// use the server-side price list.
 module.exports.EGG_CATEGORY_PRICES = EGG_CATEGORY_PRICES;
