@@ -56,33 +56,6 @@ const isBroodingHouse = (pen) => {
   return pen === BROODING_HOUSE;
 };
 
-const calculateFlockAgeForDate = (flock, productionDate) => {
-  if (!flock || !productionDate) {
-    return null;
-  }
-
-  const placementDate = new Date(flock.placementDate);
-  const recordDate = new Date(productionDate);
-
-  if (
-    Number.isNaN(placementDate.getTime()) ||
-    Number.isNaN(recordDate.getTime())
-  ) {
-    return null;
-  }
-
-  const millisecondsPerWeek = 7 * 24 * 60 * 60 * 1000;
-  const elapsedMilliseconds = recordDate.getTime() - placementDate.getTime();
-
-  if (elapsedMilliseconds < 0) {
-    return null;
-  }
-
-  const elapsedWeeks = Math.floor(elapsedMilliseconds / millisecondsPerWeek);
-
-  return Math.max(0, Number(flock.startingAgeWeeks || 0) + elapsedWeeks);
-};
-
 const toFormData = (record) => ({
   pen: record?.pen || "",
   date: record?.date ? new Date(record.date).toISOString().slice(0, 10) : "",
@@ -123,8 +96,6 @@ const Production = () => {
 
   const [formData, setFormData] = useState(emptyFormData);
 
-  // IMPORTANT:
-  // This exact line is intentionally kept here.
   const broodingHouse = isBroodingHouse(formData.pen);
 
   const [editingId, setEditingId] = useState(null);
@@ -146,28 +117,6 @@ const Production = () => {
   const [flockLoading, setFlockLoading] = useState(false);
 
   const [flockError, setFlockError] = useState("");
-
-  const selectedFlockAgeWeeks = useMemo(() => {
-    if (!activeFlock || broodingHouse || !formData.date) {
-      return null;
-    }
-
-    // When editing a saved record, the stored flockAgeWeeks is the
-    // historical snapshot and must not be replaced by today's age.
-    if (editingId && activeFlock.savedFlockAgeWeeks !== undefined) {
-      return activeFlock.savedFlockAgeWeeks;
-    }
-
-    return calculateFlockAgeForDate(activeFlock, formData.date);
-  }, [activeFlock, broodingHouse, formData.date, editingId]);
-
-  const selectedFlockWeeksRemaining = useMemo(() => {
-    if (selectedFlockAgeWeeks === null || selectedFlockAgeWeeks === undefined) {
-      return null;
-    }
-
-    return Math.max(0, 104 - Number(selectedFlockAgeWeeks));
-  }, [selectedFlockAgeWeeks]);
 
   // ============================================================
   // LOAD PRODUCTIONS
@@ -283,8 +232,6 @@ const Production = () => {
       ...prev,
       pen,
 
-      // Clear egg-specific values when changing
-      // to Brooding House.
       ...(pen === BROODING_HOUSE
         ? {
             cratesProduced: "",
@@ -360,6 +307,8 @@ const Production = () => {
 
       sickBirds: Number(formData.sickBirds || 0),
 
+      // Decimal values are preserved.
+      // Examples: 0.5, 1.25, 2.5
       feedBagsConsumed: Number(formData.feedBagsConsumed || 0),
 
       waterConsumed: Number(formData.waterConsumed || 0),
@@ -425,31 +374,18 @@ const Production = () => {
 
   const startEdit = async (record) => {
     setEditingId(record._id);
+
     setFormData(toFormData(record));
+
+    setActiveFlock(null);
     setFlockError("");
-    setFlockLoading(false);
 
-    // Preserve the flock snapshot saved with this production record.
-    // This prevents an historical record from displaying today's active flock.
-    if (record.flock) {
-      setActiveFlock({
-        ...record.flock,
-        flockId: record.flockId || record.flock.flockId || "",
-        savedFlockAgeWeeks:
-          record.flockAgeWeeks ?? record.flock.currentAgeWeeks ?? null,
-      });
-    } else {
-      setActiveFlock(null);
+    await loadActiveFlock(record.pen);
 
-      // Brooding House does not require a flock. For legacy records that
-      // pre-date flock tracking, load the current flock only when there is
-      // no historical flock snapshot to display.
-      if (!isBroodingHouse(record.pen)) {
-        await loadActiveFlock(record.pen);
-      }
-    }
-
-    window.scrollTo({ top: 0, behavior: "smooth" });
+    window.scrollTo({
+      top: 0,
+      behavior: "smooth",
+    });
   };
 
   // ============================================================
@@ -580,17 +516,41 @@ const Production = () => {
       0,
     );
 
-    const totalClosingStock = activeRecords.reduce(
-      (sum, item) => sum + Number(item.closingStock || 0),
-      0,
-    );
+    // Closing stock is a DAILY BALANCE, not a value to be summed.
+    // For the Brooding House, the latest active record represents
+    // the current number of birds remaining.
+    const broodingHouseRecords = activeRecords
+      .filter((item) => item.pen === BROODING_HOUSE)
+      .sort((a, b) => {
+        const dateDifference =
+          new Date(b.date).getTime() - new Date(a.date).getTime();
+
+        if (dateDifference !== 0) {
+          return dateDifference;
+        }
+
+        return (
+          new Date(b.createdAt || 0).getTime() -
+          new Date(a.createdAt || 0).getTime()
+        );
+      });
+
+    const latestBroodingHouseRecord = broodingHouseRecords[0] || null;
+
+    const currentBroodingHouseStock = latestBroodingHouseRecord
+      ? Number(latestBroodingHouseRecord.closingStock || 0)
+      : 0;
+
+    const currentBroodingHouseStockDate =
+      latestBroodingHouseRecord?.date || null;
 
     return {
       records: activeRecords.length,
       totalEggs,
       totalMortality,
       totalFeed,
-      totalClosingStock,
+      currentBroodingHouseStock,
+      currentBroodingHouseStockDate,
     };
   }, [productions]);
 
@@ -767,7 +727,7 @@ const Production = () => {
   };
 
   // ============================================================
-  // FORM FIELD COMPONENT
+  // FORM FIELD STYLES
   // ============================================================
 
   const inputClass =
@@ -778,30 +738,6 @@ const Production = () => {
   // ============================================================
   // RENDER
   // ============================================================
-
-  console.log("========== PRODUCTION DEBUG ==========");
-  console.log("PRODUCTIONS:", productions);
-  console.log("PRODUCTIONS LENGTH:", productions.length);
-
-  console.log("FILTERED PRODUCTIONS:", filteredProductions);
-  console.log("FILTERED LENGTH:", filteredProductions.length);
-
-  console.log("PAGINATED PRODUCTIONS:", paginatedProductions);
-  console.log("PAGINATED LENGTH:", paginatedProductions.length);
-
-  console.log(
-    "PRODUCTION ROW KEYS:",
-    paginatedProductions.map((record) => ({
-      id: record?._id,
-      pen: record?.pen,
-      date: record?.date,
-    })),
-  );
-
-  console.log("CURRENT PAGE:", currentPage);
-  console.log("TOTAL PAGES:", totalPages);
-  console.log("SEARCH:", search);
-  console.log("====================================");
 
   return (
     <div className="space-y-6 p-4 md:p-6">
@@ -881,10 +817,20 @@ const Production = () => {
         </div>
 
         <div className="rounded-xl border bg-white p-4 shadow-sm">
-          <p className="text-sm text-gray-500">Closing Stock</p>
+          <p className="text-sm text-gray-500">Brooding House Current Stock</p>
+
           <p className="mt-1 text-2xl font-bold">
-            {stats.totalClosingStock.toLocaleString()}
+            {stats.currentBroodingHouseStock.toLocaleString()}
           </p>
+
+          {stats.currentBroodingHouseStockDate && (
+            <p className="mt-1 text-xs text-gray-500">
+              As of{" "}
+              {new Date(
+                stats.currentBroodingHouseStockDate,
+              ).toLocaleDateString()}
+            </p>
+          )}
         </div>
       </div>
 
@@ -921,9 +867,7 @@ const Production = () => {
           onSubmit={handleSubmit}
           className="grid grid-cols-1 gap-4 md:grid-cols-3"
         >
-          {/* ==================================================
-              PEN
-          ================================================== */}
+          {/* PEN */}
 
           <div>
             <label htmlFor="pen" className={labelClass}>
@@ -948,14 +892,12 @@ const Production = () => {
             </select>
           </div>
 
-          {/* ==================================================
-              ACTIVE FLOCK INFORMATION
-          ================================================== */}
+          {/* ACTIVE FLOCK */}
 
           {formData.pen && (
             <div className="rounded-lg border border-blue-200 bg-blue-50 p-4 md:col-span-2">
               <h3 className="mb-3 font-semibold text-gray-800">
-                Flock Information
+                Active Flock Information
               </h3>
 
               {flockLoading ? (
@@ -979,12 +921,10 @@ const Production = () => {
                   </div>
 
                   <div>
-                    <p className="text-xs text-gray-500">
-                      Age on Production Date
-                    </p>
+                    <p className="text-xs text-gray-500">Current Age</p>
                     <p className="font-semibold text-gray-800">
-                      {selectedFlockAgeWeeks ?? "—"}{" "}
-                      {selectedFlockAgeWeeks !== null ? "weeks" : ""}
+                      {activeFlock.currentAgeWeeks ?? "—"}{" "}
+                      {activeFlock.currentAgeWeeks !== undefined ? "weeks" : ""}
                     </p>
                   </div>
 
@@ -1016,8 +956,7 @@ const Production = () => {
                   <div>
                     <p className="text-xs text-gray-500">Weeks Remaining</p>
                     <p className="font-semibold text-gray-800">
-                      {selectedFlockWeeksRemaining ?? "—"}
-                      {selectedFlockWeeksRemaining !== null ? " weeks" : ""}
+                      {activeFlock.weeksRemaining ?? "—"} weeks
                     </p>
                   </div>
 
@@ -1046,9 +985,7 @@ const Production = () => {
             </div>
           )}
 
-          {/* ==================================================
-              DATE
-          ================================================== */}
+          {/* DATE */}
 
           <div>
             <label htmlFor="date" className={labelClass}>
@@ -1066,9 +1003,7 @@ const Production = () => {
             />
           </div>
 
-          {/* ==================================================
-              DAYS
-          ================================================== */}
+          {/* DAYS */}
 
           <div>
             <label htmlFor="days" className={labelClass}>
@@ -1087,9 +1022,7 @@ const Production = () => {
             />
           </div>
 
-          {/* ==================================================
-              OPENING STOCK
-          ================================================== */}
+          {/* OPENING STOCK */}
 
           <div>
             <label htmlFor="openingStock" className={labelClass}>
@@ -1108,9 +1041,7 @@ const Production = () => {
             />
           </div>
 
-          {/* ==================================================
-              TRANSFER IN
-          ================================================== */}
+          {/* TRANSFER IN */}
 
           <div>
             <label htmlFor="transferIn" className={labelClass}>
@@ -1128,9 +1059,7 @@ const Production = () => {
             />
           </div>
 
-          {/* ==================================================
-              TRANSFER OUT
-          ================================================== */}
+          {/* TRANSFER OUT */}
 
           <div>
             <label htmlFor="transferOut" className={labelClass}>
@@ -1148,9 +1077,7 @@ const Production = () => {
             />
           </div>
 
-          {/* ==================================================
-              MORTALITY
-          ================================================== */}
+          {/* MORTALITY */}
 
           <div>
             <label htmlFor="mortality" className={labelClass}>
@@ -1168,9 +1095,7 @@ const Production = () => {
             />
           </div>
 
-          {/* ==================================================
-              SICK BIRDS
-          ================================================== */}
+          {/* SICK BIRDS */}
 
           <div>
             <label htmlFor="sickBirds" className={labelClass}>
@@ -1190,6 +1115,7 @@ const Production = () => {
 
           {/* ==================================================
               FEED
+              DECIMALS ARE ALLOWED
           ================================================== */}
 
           <div>
@@ -1201,6 +1127,7 @@ const Production = () => {
               id="feedBagsConsumed"
               type="number"
               min="0"
+              step="0.01"
               name="feedBagsConsumed"
               value={formData.feedBagsConsumed}
               onChange={handleChange}
@@ -1208,9 +1135,7 @@ const Production = () => {
             />
           </div>
 
-          {/* ==================================================
-              WATER
-          ================================================== */}
+          {/* WATER */}
 
           <div>
             <label htmlFor="waterConsumed" className={labelClass}>
@@ -1228,9 +1153,7 @@ const Production = () => {
             />
           </div>
 
-          {/* ==================================================
-              DRUGS
-          ================================================== */}
+          {/* DRUGS */}
 
           <div>
             <label htmlFor="drugsUsed" className={labelClass}>
@@ -1247,10 +1170,7 @@ const Production = () => {
             />
           </div>
 
-          {/* ==================================================
-              EGG PRODUCTION
-              HIDDEN FOR BROODING HOUSE
-          ================================================== */}
+          {/* EGG PRODUCTION */}
 
           {!broodingHouse && (
             <>
@@ -1320,9 +1240,7 @@ const Production = () => {
             </>
           )}
 
-          {/* ==================================================
-              CLOSING STOCK PREVIEW
-          ================================================== */}
+          {/* CLOSING STOCK PREVIEW */}
 
           <div className="rounded-lg border border-gray-200 bg-gray-50 p-4">
             <p className="text-sm text-gray-500">Calculated Closing Stock</p>
@@ -1338,9 +1256,7 @@ const Production = () => {
             </p>
           </div>
 
-          {/* ==================================================
-              TOTAL EGGS PREVIEW
-          ================================================== */}
+          {/* TOTAL EGGS PREVIEW */}
 
           {!broodingHouse && (
             <div className="rounded-lg border border-gray-200 bg-gray-50 p-4">
@@ -1355,9 +1271,7 @@ const Production = () => {
             </div>
           )}
 
-          {/* ==================================================
-              PRODUCTION PERCENTAGE PREVIEW
-          ================================================== */}
+          {/* PRODUCTION PERCENTAGE */}
 
           {!broodingHouse && (
             <div className="rounded-lg border border-gray-200 bg-gray-50 p-4">
@@ -1383,9 +1297,7 @@ const Production = () => {
             </div>
           )}
 
-          {/* ==================================================
-              REMARKS
-          ================================================== */}
+          {/* REMARKS */}
 
           <div className="md:col-span-3">
             <label htmlFor="remarks" className={labelClass}>
@@ -1403,9 +1315,7 @@ const Production = () => {
             />
           </div>
 
-          {/* ==================================================
-              FORM ACTIONS
-          ================================================== */}
+          {/* FORM ACTIONS */}
 
           <div className="flex flex-wrap gap-3 md:col-span-3">
             <button
@@ -1464,10 +1374,6 @@ const Production = () => {
             />
           </div>
         </div>
-
-        {/* ====================================================
-            TABLE
-        ==================================================== */}
 
         <div className="overflow-x-auto">
           <table className="min-w-[1500px] w-full text-sm">
@@ -1544,24 +1450,20 @@ const Production = () => {
                       record.isDeleted ? "bg-red-50" : "hover:bg-gray-50"
                     }
                   >
-                    {/* DATE */}
                     <td className="px-4 py-3 whitespace-nowrap">
                       {record.date
                         ? new Date(record.date).toLocaleDateString()
                         : "—"}
                     </td>
 
-                    {/* PEN */}
                     <td className="px-4 py-3 whitespace-nowrap font-medium">
                       {record.pen || "—"}
                     </td>
 
-                    {/* FLOCK ID */}
                     <td className="px-4 py-3 whitespace-nowrap">
                       {record.flockId || record.flock?.flockId || "—"}
                     </td>
 
-                    {/* FLOCK AGE */}
                     <td className="px-4 py-3 whitespace-nowrap">
                       {record.flockAgeWeeks !== null &&
                       record.flockAgeWeeks !== undefined
@@ -1569,82 +1471,66 @@ const Production = () => {
                         : "—"}
                     </td>
 
-                    {/* DAYS */}
                     <td className="px-4 py-3">{record.days ?? 0}</td>
 
-                    {/* OPENING */}
                     <td className="px-4 py-3">
                       {Number(record.openingStock || 0).toLocaleString()}
                     </td>
 
-                    {/* TRANSFER IN */}
                     <td className="px-4 py-3">
                       {Number(record.transferIn || 0).toLocaleString()}
                     </td>
 
-                    {/* TRANSFER OUT */}
                     <td className="px-4 py-3">
                       {Number(record.transferOut || 0).toLocaleString()}
                     </td>
 
-                    {/* MORTALITY */}
                     <td className="px-4 py-3">
                       {Number(record.mortality || 0).toLocaleString()}
                     </td>
 
-                    {/* CLOSING */}
                     <td className="px-4 py-3 font-semibold">
                       {Number(record.closingStock || 0).toLocaleString()}
                     </td>
 
-                    {/* SICK */}
                     <td className="px-4 py-3">
                       {Number(record.sickBirds || 0).toLocaleString()}
                     </td>
 
-                    {/* FEED */}
                     <td className="px-4 py-3">
                       {Number(record.feedBagsConsumed || 0).toLocaleString()}
                     </td>
 
-                    {/* WATER */}
                     <td className="px-4 py-3">
                       {Number(record.waterConsumed || 0).toLocaleString()}
                     </td>
 
-                    {/* CRATES */}
                     <td className="px-4 py-3">
                       {Number(record.cratesProduced || 0).toLocaleString()}
                     </td>
 
-                    {/* EXTRA */}
                     <td className="px-4 py-3">
                       {Number(record.extraEggPieces || 0).toLocaleString()}
                     </td>
 
-                    {/* TOTAL EGGS */}
                     <td className="px-4 py-3 font-semibold">
                       {Number(record.totalEggs || 0).toLocaleString()}
                     </td>
 
-                    {/* PRODUCTION % */}
                     <td className="px-4 py-3">
                       {Number(record.productionPercentage || 0).toFixed(2)}%
                     </td>
 
-                    {/* MISCARRIAGE */}
                     <td className="px-4 py-3">
                       {Number(
                         record.miscarriageProduction || 0,
                       ).toLocaleString()}
                     </td>
 
-                    {/* CRACKED */}
                     <td className="px-4 py-3">
                       {Number(record.crackedEggs || 0).toLocaleString()}
                     </td>
 
-                    {/* STATUS */}
                     <td className="px-4 py-3 whitespace-nowrap">
                       {record.isDeleted ? (
                         <span className="rounded-full bg-red-100 px-2.5 py-1 text-xs font-medium text-red-700">
@@ -1657,7 +1543,6 @@ const Production = () => {
                       )}
                     </td>
 
-                    {/* ACTIONS */}
                     <td className="px-4 py-3">
                       {!record.isDeleted && (
                         <div className="flex gap-2">
@@ -1692,9 +1577,7 @@ const Production = () => {
           </table>
         </div>
 
-        {/* ====================================================
-            PAGINATION
-        ==================================================== */}
+        {/* PAGINATION */}
 
         {filteredProductions.length > 0 && (
           <div className="flex flex-col gap-3 border-t p-4 sm:flex-row sm:items-center sm:justify-between">

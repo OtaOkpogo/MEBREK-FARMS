@@ -1,7 +1,6 @@
 import { Link as RouterLink } from "react-router-dom";
 import { useState } from "react";
 import axios from "axios";
-import logo from "../assets/logo.PNG";
 
 // =========================================================
 // REUSABLE PRODUCT CARD
@@ -63,6 +62,7 @@ function Stat({ value, label }) {
       <div className="text-3xl font-extrabold text-white sm:text-4xl">
         {value}
       </div>
+
       <div className="mt-1 text-sm text-green-100">{label}</div>
     </div>
   );
@@ -124,77 +124,6 @@ export default function Home() {
 
   return (
     <div className="min-h-screen overflow-x-hidden bg-stone-50 text-gray-800">
-      {/* =====================================================
-          NAVBAR
-      ===================================================== */}
-
-      <nav className="navbar">
-        <div className="site-container">
-          <div className="flex min-h-[76px] items-center justify-between gap-6">
-            {/* LOGO */}
-            <RouterLink to="/" className="flex shrink-0 items-center gap-3">
-              <img
-                src={logo}
-                alt="Mebrek Farms Logo"
-                className="h-12 w-auto sm:h-14"
-              />
-
-              <div className="hidden sm:block">
-                <div className="text-lg font-extrabold tracking-tight text-farmGreen">
-                  MEBREK FARMS
-                </div>
-                <div className="text-[10px] font-semibold uppercase tracking-[0.22em] text-gray-500">
-                  Quality Farming
-                </div>
-              </div>
-            </RouterLink>
-
-            {/* DESKTOP NAVIGATION */}
-            <div className="hidden items-center gap-7 md:flex">
-              <RouterLink
-                to="/"
-                className="font-medium text-gray-700 transition hover:text-farmGreen"
-              >
-                Home
-              </RouterLink>
-
-              <RouterLink
-                to="/about"
-                className="font-medium text-gray-700 transition hover:text-farmGreen"
-              >
-                About
-              </RouterLink>
-
-              <RouterLink
-                to="/products"
-                className="font-medium text-gray-700 transition hover:text-farmGreen"
-              >
-                Products
-              </RouterLink>
-
-              <RouterLink
-                to="/contact"
-                className="font-medium text-gray-700 transition hover:text-farmGreen"
-              >
-                Contact
-              </RouterLink>
-
-              <RouterLink to="/login" className="btn btn-primary px-5 py-2.5">
-                Management Login
-              </RouterLink>
-            </div>
-
-            {/* MOBILE CTA */}
-            <RouterLink
-              to="/contact"
-              className="btn btn-primary px-4 py-2 text-sm md:hidden"
-            >
-              Contact Us
-            </RouterLink>
-          </div>
-        </div>
-      </nav>
-
       {/* =====================================================
           HERO
       ===================================================== */}
@@ -317,7 +246,9 @@ export default function Home() {
 
               <div className="absolute -bottom-6 -left-4 hidden rounded-2xl bg-farmGreen p-5 text-white shadow-xl sm:block md:-left-8">
                 <div className="text-3xl">🐔</div>
+
                 <div className="mt-1 font-bold">Poultry Production</div>
+
                 <div className="text-sm text-green-100">
                   Quality-focused farming
                 </div>
@@ -361,7 +292,9 @@ export default function Home() {
             <div className="grid gap-4 sm:grid-cols-2">
               <div className="rounded-2xl bg-white/10 p-6 ring-1 ring-white/10 backdrop-blur transition hover:bg-white/15">
                 <div className="text-3xl">🌿</div>
+
                 <h3 className="mt-4 text-xl font-bold">Responsible Farming</h3>
+
                 <p className="mt-2 text-sm leading-7 text-green-100">
                   We value responsible farming practices and a clean,
                   well-managed production environment.
@@ -370,7 +303,9 @@ export default function Home() {
 
               <div className="rounded-2xl bg-white/10 p-6 ring-1 ring-white/10 backdrop-blur transition hover:bg-white/15">
                 <div className="text-3xl">🥚</div>
+
                 <h3 className="mt-4 text-xl font-bold">Quality Products</h3>
+
                 <p className="mt-2 text-sm leading-7 text-green-100">
                   Our products are produced with attention to quality and
                   consistency.
@@ -379,7 +314,9 @@ export default function Home() {
 
               <div className="rounded-2xl bg-white/10 p-6 ring-1 ring-white/10 backdrop-blur transition hover:bg-white/15">
                 <div className="text-3xl">🐔</div>
+
                 <h3 className="mt-4 text-xl font-bold">Healthy Poultry</h3>
+
                 <p className="mt-2 text-sm leading-7 text-green-100">
                   Farm health and proper management are important parts of our
                   production process.
@@ -388,7 +325,9 @@ export default function Home() {
 
               <div className="rounded-2xl bg-white/10 p-6 ring-1 ring-white/10 backdrop-blur transition hover:bg-white/15">
                 <div className="text-3xl">🤝</div>
+
                 <h3 className="mt-4 text-xl font-bold">Reliable Service</h3>
+
                 <p className="mt-2 text-sm leading-7 text-green-100">
                   We make it easy for customers to contact us and request our
                   farm products.
@@ -537,8 +476,10 @@ export default function Home() {
               <div className="mt-8 space-y-5">
                 <div className="flex gap-4">
                   <div className="text-2xl">📞</div>
+
                   <div>
                     <div className="font-bold">Phone</div>
+
                     <a
                       href="tel:+2349033723103"
                       className="text-green-100 hover:text-white"
@@ -550,8 +491,10 @@ export default function Home() {
 
                 <div className="flex gap-4">
                   <div className="text-2xl">✉️</div>
+
                   <div>
                     <div className="font-bold">Email</div>
+
                     <a
                       href="mailto:info@mebrekfarms.com"
                       className="text-green-100 hover:text-white"
@@ -563,8 +506,10 @@ export default function Home() {
 
                 <div className="flex gap-4">
                   <div className="text-2xl">💬</div>
+
                   <div>
                     <div className="font-bold">WhatsApp</div>
+
                     <a
                       href="https://wa.me/2349033723103"
                       target="_blank"
@@ -672,118 +617,6 @@ export default function Home() {
           </div>
         </div>
       </section>
-
-      {/* =====================================================
-          FOOTER
-      ===================================================== */}
-
-      <footer className="bg-gray-950 text-white">
-        <div className="site-container py-12 sm:py-16">
-          <div className="grid gap-10 md:grid-cols-2 lg:grid-cols-4">
-            {/* BRAND */}
-            <div className="lg:col-span-2">
-              <RouterLink to="/" className="inline-flex items-center gap-3">
-                <img
-                  src={logo}
-                  alt="Mebrek Farms Logo"
-                  className="h-14 w-auto"
-                />
-
-                <div>
-                  <div className="text-xl font-extrabold">MEBREK FARMS</div>
-                  <div className="text-xs uppercase tracking-[0.2em] text-gray-400">
-                    Quality Farming
-                  </div>
-                </div>
-              </RouterLink>
-
-              <p className="mt-5 max-w-md leading-7 text-gray-400">
-                Quality poultry products and agricultural services delivered
-                with care, responsible farm management and customer-focused
-                service.
-              </p>
-            </div>
-
-            {/* QUICK LINKS */}
-            <div>
-              <h3 className="font-bold">Quick Links</h3>
-
-              <div className="mt-4 space-y-3 text-sm text-gray-400">
-                <RouterLink
-                  to="/"
-                  className="block transition hover:text-white"
-                >
-                  Home
-                </RouterLink>
-
-                <RouterLink
-                  to="/about"
-                  className="block transition hover:text-white"
-                >
-                  About Us
-                </RouterLink>
-
-                <RouterLink
-                  to="/products"
-                  className="block transition hover:text-white"
-                >
-                  Products
-                </RouterLink>
-
-                <RouterLink
-                  to="/contact"
-                  className="block transition hover:text-white"
-                >
-                  Contact
-                </RouterLink>
-              </div>
-            </div>
-
-            {/* CONTACT */}
-            <div>
-              <h3 className="font-bold">Contact</h3>
-
-              <div className="mt-4 space-y-3 text-sm text-gray-400">
-                <a
-                  href="tel:+2349033723103"
-                  className="block transition hover:text-white"
-                >
-                  +234 903 372 3103
-                </a>
-
-                <a
-                  href="mailto:info@mebrekfarms.com"
-                  className="block transition hover:text-white"
-                >
-                  info@mebrekfarms.com
-                </a>
-
-                <a
-                  href="https://wa.me/2349033723103"
-                  target="_blank"
-                  rel="noopener noreferrer"
-                  className="block transition hover:text-white"
-                >
-                  WhatsApp
-                </a>
-              </div>
-            </div>
-          </div>
-
-          <div className="mt-10 border-t border-white/10 pt-6 text-center text-sm text-gray-500 sm:flex sm:items-center sm:justify-between sm:text-left">
-            <p>
-              © {new Date().getFullYear()} Mebrek Farms. All rights reserved.
-            </p>
-
-            <RouterLink
-              to="/login"
-              className="mt-2 inline-block transition hover:text-white sm:mt-0"
-            >
-              Management Login
-            </RouterLink>
-          </div>
-        </div>
-      </footer>
 
       {/* =====================================================
           FLOATING WHATSAPP

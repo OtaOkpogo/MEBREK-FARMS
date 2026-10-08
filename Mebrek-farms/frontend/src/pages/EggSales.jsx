@@ -28,10 +28,10 @@ import {
 // Keeping it here (rather than trusting form input) means the price shown
 // to staff always matches what the server will actually charge.
 const EGG_CATEGORY_PRICES = {
-  big: 5000,
+  big: 5100,
   jumbo: 5800,
   turkey: 6000,
-  normal: 4900,
+  normal: 5000,
   small: 4000,
 };
 
