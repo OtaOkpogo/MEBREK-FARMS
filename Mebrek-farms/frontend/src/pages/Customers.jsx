@@ -48,7 +48,9 @@ export default function Customers() {
   const [showModal, setShowModal] = useState(false);
   const [editingCustomer, setEditingCustomer] = useState(null);
 
-  const [formData, setFormData] = useState(EMPTY_FORM);
+  const [formData, setFormData] = useState({
+    ...EMPTY_FORM,
+  });
 
   const [showDeleteModal, setShowDeleteModal] = useState(false);
   const [customerToDelete, setCustomerToDelete] = useState(null);
@@ -63,14 +65,39 @@ export default function Customers() {
 
       const response = await fetchCustomers();
 
-      setCustomers(Array.isArray(response) ? response : []);
+      console.log("CUSTOMERS API RESPONSE:", response);
+
+      /*
+       * Support the common response formats:
+       *
+       * 1. [customers]
+       *
+       * 2. { customers: [...] }
+       *
+       * 3. { data: [...] }
+       *
+       * 4. { data: { customers: [...] } }
+       */
+
+      let customerList = [];
+
+      if (Array.isArray(response)) {
+        customerList = response;
+      } else if (Array.isArray(response?.customers)) {
+        customerList = response.customers;
+      } else if (Array.isArray(response?.data)) {
+        customerList = response.data;
+      } else if (Array.isArray(response?.data?.customers)) {
+        customerList = response.data.customers;
+      }
+
+      setCustomers(customerList);
     } catch (error) {
       console.error("LOAD CUSTOMERS ERROR:", error);
 
-      toast.error(
-        error?.response?.data?.message ||
-          "Failed to load customers",
-      );
+      console.error("LOAD CUSTOMERS RESPONSE:", error?.response?.data);
+
+      toast.error(error?.response?.data?.message || "Failed to load customers");
 
       setCustomers([]);
     } finally {
@@ -109,9 +136,7 @@ export default function Customers() {
   // ==========================================================
 
   const stats = useMemo(() => {
-    const activeCustomers = customers.filter(
-      (customer) => customer.isActive,
-    );
+    const activeCustomers = customers.filter((customer) => customer.isActive);
 
     const inactiveCustomers = customers.filter(
       (customer) => !customer.isActive,
@@ -130,9 +155,11 @@ export default function Customers() {
 
   const handleAddCustomer = () => {
     setEditingCustomer(null);
+
     setFormData({
       ...EMPTY_FORM,
     });
+
     setShowModal(true);
   };
 
@@ -161,10 +188,13 @@ export default function Customers() {
   // ==========================================================
 
   const handleCloseModal = () => {
-    if (saving) return;
+    if (saving) {
+      return;
+    }
 
     setShowModal(false);
     setEditingCustomer(null);
+
     setFormData({
       ...EMPTY_FORM,
     });
@@ -198,49 +228,52 @@ export default function Customers() {
     try {
       setSaving(true);
 
+      // ======================================================
+      // UPDATE EXISTING CUSTOMER
+      // ======================================================
+
       if (editingCustomer) {
-        const response = await updateCustomer(
-          editingCustomer._id,
-          formData,
-        );
+        console.log("UPDATING CUSTOMER:", editingCustomer._id, formData);
 
-        const updatedCustomer = response?.customer;
-
-        if (updatedCustomer) {
-          setCustomers((previous) =>
-            previous.map((customer) =>
-              customer._id === updatedCustomer._id
-                ? updatedCustomer
-                : customer,
-            ),
-          );
-        }
+        await updateCustomer(editingCustomer._id, formData);
 
         toast.success("Customer updated successfully");
-      } else {
+      }
+
+      // ======================================================
+      // CREATE NEW CUSTOMER
+      // ======================================================
+      else {
+        console.log("CREATING CUSTOMER:", formData);
+
         const response = await createCustomer(formData);
 
-        const newCustomer = response?.customer;
-
-        if (newCustomer) {
-          setCustomers((previous) =>
-            [...previous, newCustomer].sort((a, b) =>
-              (a.name || "").localeCompare(b.name || ""),
-            ),
-          );
-        } else {
-          await loadCustomers();
-        }
+        console.log("CREATE CUSTOMER RESPONSE:", response);
 
         toast.success("Customer added successfully");
       }
+
+      /*
+       * IMPORTANT:
+       *
+       * Always reload the customers from MongoDB after
+       * saving instead of depending on the structure of
+       * the create/update response.
+       *
+       * This makes sure the customer actually appears
+       * in the table after it has been saved.
+       */
+      await loadCustomers();
 
       handleCloseModal();
     } catch (error) {
       console.error("SAVE CUSTOMER ERROR:", error);
 
+      console.error("SAVE CUSTOMER RESPONSE:", error?.response?.data);
+
       toast.error(
         error?.response?.data?.message ||
+          error?.message ||
           "Failed to save customer",
       );
     } finally {
@@ -258,6 +291,10 @@ export default function Customers() {
   };
 
   const closeDeleteModal = () => {
+    if (saving) {
+      return;
+    }
+
     setShowDeleteModal(false);
     setCustomerToDelete(null);
   };
@@ -267,29 +304,30 @@ export default function Customers() {
   // ==========================================================
 
   const handleDeleteCustomer = async () => {
-    if (!customerToDelete) return;
+    if (!customerToDelete) {
+      return;
+    }
 
     try {
       setSaving(true);
 
       await deleteCustomer(customerToDelete._id);
 
-      setCustomers((previous) =>
-        previous.filter(
-          (customer) =>
-            customer._id !== customerToDelete._id,
-        ),
-      );
-
       toast.success("Customer deleted successfully");
 
-      closeDeleteModal();
+      /*
+       * Reload from backend so the table always reflects
+       * the actual database state.
+       */
+      await loadCustomers();
+
+      setShowDeleteModal(false);
+      setCustomerToDelete(null);
     } catch (error) {
       console.error("DELETE CUSTOMER ERROR:", error);
 
       toast.error(
-        error?.response?.data?.message ||
-          "Failed to delete customer",
+        error?.response?.data?.message || "Failed to delete customer",
       );
     } finally {
       setSaving(false);
@@ -306,29 +344,22 @@ export default function Customers() {
         isActive: !customer.isActive,
       });
 
-      const updatedCustomer = response?.customer;
-
-      if (updatedCustomer) {
-        setCustomers((previous) =>
-          previous.map((item) =>
-            item._id === updatedCustomer._id
-              ? updatedCustomer
-              : item,
-          ),
-        );
-      }
+      console.log("TOGGLE CUSTOMER RESPONSE:", response);
 
       toast.success(
-        customer.isActive
-          ? "Customer deactivated"
-          : "Customer activated",
+        customer.isActive ? "Customer deactivated" : "Customer activated",
       );
+
+      /*
+       * Reload from backend so the displayed status is
+       * guaranteed to match MongoDB.
+       */
+      await loadCustomers();
     } catch (error) {
       console.error("TOGGLE CUSTOMER STATUS ERROR:", error);
 
       toast.error(
-        error?.response?.data?.message ||
-          "Failed to update customer status",
+        error?.response?.data?.message || "Failed to update customer status",
       );
     }
   };
@@ -338,7 +369,9 @@ export default function Customers() {
   // ==========================================================
 
   const formatDate = (date) => {
-    if (!date) return "—";
+    if (!date) {
+      return "—";
+    }
 
     const parsedDate = new Date(date);
 
@@ -365,9 +398,7 @@ export default function Customers() {
 
       <div className="flex flex-col gap-4 lg:flex-row lg:items-center lg:justify-between">
         <div>
-          <h1 className="text-2xl font-bold text-gray-900">
-            Customers
-          </h1>
+          <h1 className="text-2xl font-bold text-gray-900">Customers</h1>
 
           <p className="mt-1 text-sm text-gray-500">
             Manage your egg customers and their contact details.
@@ -389,9 +420,7 @@ export default function Customers() {
 
       <div className="grid grid-cols-1 gap-4 sm:grid-cols-3">
         <div className="rounded-xl border bg-white p-5 shadow-sm">
-          <p className="text-sm font-medium text-gray-500">
-            Total Customers
-          </p>
+          <p className="text-sm font-medium text-gray-500">Total Customers</p>
 
           <p className="mt-1 text-3xl font-bold text-gray-900">
             {stats.total.toLocaleString()}
@@ -399,9 +428,7 @@ export default function Customers() {
         </div>
 
         <div className="rounded-xl border bg-white p-5 shadow-sm">
-          <p className="text-sm font-medium text-gray-500">
-            Active Customers
-          </p>
+          <p className="text-sm font-medium text-gray-500">Active Customers</p>
 
           <p className="mt-1 text-3xl font-bold text-green-600">
             {stats.active.toLocaleString()}
@@ -429,9 +456,7 @@ export default function Customers() {
             <input
               type="text"
               value={searchTerm}
-              onChange={(event) =>
-                setSearchTerm(event.target.value)
-              }
+              onChange={(event) => setSearchTerm(event.target.value)}
               placeholder="Search by name, phone, email, address..."
               className="w-full rounded-lg border border-gray-300 px-4 py-2.5 text-sm outline-none transition focus:border-green-500 focus:ring-2 focus:ring-green-100"
             />
@@ -457,37 +482,21 @@ export default function Customers() {
           <table className="min-w-full text-sm">
             <thead className="bg-gray-50 text-left text-gray-700">
               <tr>
-                <th className="px-4 py-3 font-semibold">
-                  Customer
-                </th>
+                <th className="px-4 py-3 font-semibold">Customer</th>
 
-                <th className="px-4 py-3 font-semibold">
-                  Phone
-                </th>
+                <th className="px-4 py-3 font-semibold">Phone</th>
 
-                <th className="px-4 py-3 font-semibold">
-                  Email
-                </th>
+                <th className="px-4 py-3 font-semibold">Email</th>
 
-                <th className="px-4 py-3 font-semibold">
-                  Type
-                </th>
+                <th className="px-4 py-3 font-semibold">Type</th>
 
-                <th className="px-4 py-3 font-semibold">
-                  Address
-                </th>
+                <th className="px-4 py-3 font-semibold">Address</th>
 
-                <th className="px-4 py-3 font-semibold">
-                  Status
-                </th>
+                <th className="px-4 py-3 font-semibold">Status</th>
 
-                <th className="px-4 py-3 font-semibold">
-                  Added
-                </th>
+                <th className="px-4 py-3 font-semibold">Added</th>
 
-                <th className="px-4 py-3 text-right font-semibold">
-                  Actions
-                </th>
+                <th className="px-4 py-3 text-right font-semibold">Actions</th>
               </tr>
             </thead>
 
@@ -503,14 +512,9 @@ export default function Customers() {
                 </tr>
               ) : filteredCustomers.length === 0 ? (
                 <tr>
-                  <td
-                    colSpan="8"
-                    className="px-4 py-12 text-center"
-                  >
+                  <td colSpan="8" className="px-4 py-12 text-center">
                     <div className="text-gray-500">
-                      <p className="font-medium">
-                        No customers found
-                      </p>
+                      <p className="font-medium">No customers found</p>
 
                       <p className="mt-1 text-sm">
                         {searchTerm
@@ -528,7 +532,7 @@ export default function Customers() {
                   >
                     <td className="px-4 py-4">
                       <div className="font-semibold text-gray-900">
-                        {customer.name}
+                        {customer.name || "—"}
                       </div>
 
                       {customer.notes && (
@@ -548,8 +552,7 @@ export default function Customers() {
 
                     <td className="px-4 py-4">
                       <span className="rounded-full bg-gray-100 px-2.5 py-1 text-xs font-medium text-gray-700">
-                        {customer.customerType ||
-                          "Individual"}
+                        {customer.customerType || "Individual"}
                       </span>
                     </td>
 
@@ -562,9 +565,7 @@ export default function Customers() {
                     <td className="px-4 py-4">
                       <button
                         type="button"
-                        onClick={() =>
-                          handleToggleStatus(customer)
-                        }
+                        onClick={() => handleToggleStatus(customer)}
                         className={`rounded-full px-2.5 py-1 text-xs font-semibold ${
                           customer.isActive
                             ? "bg-green-100 text-green-700"
@@ -572,9 +573,7 @@ export default function Customers() {
                         }`}
                         title="Click to change status"
                       >
-                        {customer.isActive
-                          ? "Active"
-                          : "Inactive"}
+                        {customer.isActive ? "Active" : "Inactive"}
                       </button>
                     </td>
 
@@ -586,9 +585,7 @@ export default function Customers() {
                       <div className="flex justify-end gap-2">
                         <button
                           type="button"
-                          onClick={() =>
-                            handleEditCustomer(customer)
-                          }
+                          onClick={() => handleEditCustomer(customer)}
                           className="rounded-lg border border-blue-200 px-3 py-1.5 text-xs font-semibold text-blue-600 transition hover:bg-blue-50"
                         >
                           Edit
@@ -596,9 +593,7 @@ export default function Customers() {
 
                         <button
                           type="button"
-                          onClick={() =>
-                            openDeleteModal(customer)
-                          }
+                          onClick={() => openDeleteModal(customer)}
                           className="rounded-lg border border-red-200 px-3 py-1.5 text-xs font-semibold text-red-600 transition hover:bg-red-50"
                         >
                           Delete
@@ -625,9 +620,7 @@ export default function Customers() {
             <div className="flex items-center justify-between border-b px-6 py-4">
               <div>
                 <h2 className="text-xl font-bold text-gray-900">
-                  {editingCustomer
-                    ? "Edit Customer"
-                    : "Add Customer"}
+                  {editingCustomer ? "Edit Customer" : "Add Customer"}
                 </h2>
 
                 <p className="mt-1 text-sm text-gray-500">
@@ -649,10 +642,7 @@ export default function Customers() {
 
             {/* Form */}
 
-            <form
-              onSubmit={handleSubmit}
-              className="space-y-5 p-6"
-            >
+            <form onSubmit={handleSubmit} className="space-y-5 p-6">
               {/* Customer name */}
 
               <div>
@@ -778,8 +768,7 @@ export default function Customers() {
                     </span>
 
                     <span className="block text-xs text-gray-500">
-                      Active customers can be selected when
-                      creating egg sales.
+                      Active customers can be selected when creating egg sales.
                     </span>
                   </span>
                 </label>
@@ -821,9 +810,7 @@ export default function Customers() {
       {showDeleteModal && customerToDelete && (
         <div className="fixed inset-0 z-[60] flex items-center justify-center bg-black/50 p-4">
           <div className="w-full max-w-md rounded-2xl bg-white p-6 shadow-2xl">
-            <h2 className="text-xl font-bold text-gray-900">
-              Delete Customer
-            </h2>
+            <h2 className="text-xl font-bold text-gray-900">Delete Customer</h2>
 
             <p className="mt-3 text-sm leading-6 text-gray-600">
               Are you sure you want to delete{" "}
@@ -834,8 +821,8 @@ export default function Customers() {
             </p>
 
             <p className="mt-2 text-xs text-gray-500">
-              This is a soft delete. Existing egg sales records
-              will not be deleted.
+              This is a soft delete. Existing egg sales records will not be
+              deleted.
             </p>
 
             <div className="mt-6 flex flex-col-reverse gap-3 sm:flex-row sm:justify-end">

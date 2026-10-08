@@ -792,6 +792,13 @@ export default function AdminLayout() {
               </Link>
 
               <Link
+                to="/admin/customers"
+                className="block hover:bg-green-700 p-3 rounded-lg transition"
+              >
+                Customers 👥
+              </Link>
+
+              <Link
                 to="/admin/manure-sales"
                 className="block hover:bg-green-700 p-3 rounded-lg transition"
               >

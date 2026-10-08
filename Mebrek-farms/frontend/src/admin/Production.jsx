@@ -519,22 +519,23 @@ const Production = () => {
     // Closing stock is a point-in-time balance, not a daily value to sum.
     // For every pen, use only its latest active production record.
     const currentStockByPen = PENS.map((pen) => {
-      const latestRecord =
-        activeRecords
-          .filter((item) => item.pen === pen)
-          .sort((a, b) => {
-            const dateDifference =
-              new Date(b.date).getTime() - new Date(a.date).getTime();
+      const penRecords = activeRecords
+        .filter((item) => item.pen === pen)
+        .sort((a, b) => {
+          const dateDifference =
+            new Date(b.date).getTime() - new Date(a.date).getTime();
 
-            if (dateDifference !== 0) {
-              return dateDifference;
-            }
+          if (dateDifference !== 0) {
+            return dateDifference;
+          }
 
-            return (
-              new Date(b.updatedAt || b.createdAt || 0).getTime() -
-              new Date(a.updatedAt || a.createdAt || 0).getTime()
-            );
-          })[0] || null;
+          return (
+            new Date(b.updatedAt || b.createdAt || 0).getTime() -
+            new Date(a.updatedAt || a.createdAt || 0).getTime()
+          );
+        });
+
+      const latestRecord = penRecords[0] || null;
 
       return {
         pen,
@@ -546,12 +547,23 @@ const Production = () => {
       };
     });
 
+    // ============================================================
+    // TOTAL CURRENT BIRDS ACROSS ALL PENS
+    // ============================================================
+
+    const totalCurrentBirds = currentStockByPen.reduce(
+      (sum, item) =>
+        sum + (item.hasRecord ? Number(item.currentStock || 0) : 0),
+      0,
+    );
+
     return {
       records: activeRecords.length,
       totalEggs,
       totalMortality,
       totalFeed,
       currentStockByPen,
+      totalCurrentBirds,
     };
   }, [productions]);
 
@@ -815,6 +827,32 @@ const Production = () => {
           <p className="mt-1 text-2xl font-bold">
             {stats.totalFeed.toLocaleString()}
           </p>
+        </div>
+      </div>
+
+      {/* ======================================================
+          TOTAL CURRENT BIRDS
+      ====================================================== */}
+
+      <div className="rounded-xl border border-blue-200 bg-blue-50 p-5 shadow-sm">
+        <div className="flex flex-col gap-2 sm:flex-row sm:items-center sm:justify-between">
+          <div>
+            <h2 className="text-lg font-semibold text-blue-900">
+              Total Birds Across All Pens
+            </h2>
+
+            <p className="text-sm text-blue-700">
+              Sum of the latest closing stock from each pen.
+            </p>
+          </div>
+
+          <div className="text-left sm:text-right">
+            <p className="text-3xl font-bold text-blue-900">
+              {stats.totalCurrentBirds.toLocaleString()}
+            </p>
+
+            <p className="text-xs text-blue-600">Current total birds</p>
+          </div>
         </div>
       </div>
 

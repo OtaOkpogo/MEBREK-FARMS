@@ -36,6 +36,7 @@ import Backup from "./admin/Backup";
 
 import Expenses from "./pages/Expenses";
 import Flocks from "./pages/Flocks";
+import Customers from "./pages/Customers";
 
 /* =========================================================
    PUBLIC WEBSITE LAYOUT
@@ -148,6 +149,7 @@ function App() {
           <Route path="mortality" element={<Mortality />} />
 
           <Route path="profile" element={<Profile />} />
+          <Route path="/admin/customers" element={<Customers />} />
 
           {/* ===================================================
               SUPERADMIN ONLY
