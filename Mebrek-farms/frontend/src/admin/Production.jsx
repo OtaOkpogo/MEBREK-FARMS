@@ -516,41 +516,42 @@ const Production = () => {
       0,
     );
 
-    // Closing stock is a DAILY BALANCE, not a value to be summed.
-    // For the Brooding House, the latest active record represents
-    // the current number of birds remaining.
-    const broodingHouseRecords = activeRecords
-      .filter((item) => item.pen === BROODING_HOUSE)
-      .sort((a, b) => {
-        const dateDifference =
-          new Date(b.date).getTime() - new Date(a.date).getTime();
+    // Closing stock is a point-in-time balance, not a daily value to sum.
+    // For every pen, use only its latest active production record.
+    const currentStockByPen = PENS.map((pen) => {
+      const latestRecord =
+        activeRecords
+          .filter((item) => item.pen === pen)
+          .sort((a, b) => {
+            const dateDifference =
+              new Date(b.date).getTime() - new Date(a.date).getTime();
 
-        if (dateDifference !== 0) {
-          return dateDifference;
-        }
+            if (dateDifference !== 0) {
+              return dateDifference;
+            }
 
-        return (
-          new Date(b.createdAt || 0).getTime() -
-          new Date(a.createdAt || 0).getTime()
-        );
-      });
+            return (
+              new Date(b.updatedAt || b.createdAt || 0).getTime() -
+              new Date(a.updatedAt || a.createdAt || 0).getTime()
+            );
+          })[0] || null;
 
-    const latestBroodingHouseRecord = broodingHouseRecords[0] || null;
-
-    const currentBroodingHouseStock = latestBroodingHouseRecord
-      ? Number(latestBroodingHouseRecord.closingStock || 0)
-      : 0;
-
-    const currentBroodingHouseStockDate =
-      latestBroodingHouseRecord?.date || null;
+      return {
+        pen,
+        currentStock: latestRecord
+          ? Number(latestRecord.closingStock || 0)
+          : null,
+        date: latestRecord?.date || null,
+        hasRecord: Boolean(latestRecord),
+      };
+    });
 
     return {
       records: activeRecords.length,
       totalEggs,
       totalMortality,
       totalFeed,
-      currentBroodingHouseStock,
-      currentBroodingHouseStockDate,
+      currentStockByPen,
     };
   }, [productions]);
 
@@ -815,22 +816,50 @@ const Production = () => {
             {stats.totalFeed.toLocaleString()}
           </p>
         </div>
+      </div>
 
-        <div className="rounded-xl border bg-white p-4 shadow-sm">
-          <p className="text-sm text-gray-500">Brooding House Current Stock</p>
+      {/* ======================================================
+          CURRENT STOCK BY PEN
+      ====================================================== */}
 
-          <p className="mt-1 text-2xl font-bold">
-            {stats.currentBroodingHouseStock.toLocaleString()}
+      <div className="space-y-3">
+        <div>
+          <h2 className="text-lg font-semibold text-gray-800">
+            Current Stock by Pen
+          </h2>
+
+          <p className="text-sm text-gray-500">
+            Shows the latest closing stock recorded for each pen.
           </p>
+        </div>
 
-          {stats.currentBroodingHouseStockDate && (
-            <p className="mt-1 text-xs text-gray-500">
-              As of{" "}
-              {new Date(
-                stats.currentBroodingHouseStockDate,
-              ).toLocaleDateString()}
-            </p>
-          )}
+        <div className="grid grid-cols-1 gap-4 sm:grid-cols-2 lg:grid-cols-3 xl:grid-cols-4">
+          {stats.currentStockByPen.map((item) => (
+            <div
+              key={item.pen}
+              className="rounded-xl border bg-white p-4 shadow-sm"
+            >
+              <p className="text-sm font-medium text-gray-500">
+                {item.pen} Current Stock
+              </p>
+
+              {item.hasRecord ? (
+                <>
+                  <p className="mt-1 text-2xl font-bold text-gray-800">
+                    {item.currentStock.toLocaleString()}
+                  </p>
+
+                  <p className="mt-1 text-xs text-gray-500">
+                    As of {new Date(item.date).toLocaleDateString("en-US")}
+                  </p>
+                </>
+              ) : (
+                <p className="mt-2 text-sm font-medium text-gray-400">
+                  No production record yet
+                </p>
+              )}
+            </div>
+          ))}
         </div>
       </div>
 
