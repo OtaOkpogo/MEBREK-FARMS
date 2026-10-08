@@ -1,4 +1,19 @@
 import { useEffect, useMemo, useState } from "react";
+import { toast } from "react-toastify";
+import {
+  ResponsiveContainer,
+  PieChart,
+  Pie,
+  Cell,
+  Tooltip,
+  Legend,
+  BarChart,
+  Bar,
+  CartesianGrid,
+  XAxis,
+  YAxis,
+} from "recharts";
+
 import InvoiceModal from "../components/InvoiceModal";
 
 import {
@@ -12,28 +27,9 @@ import {
 
 import { fetchCustomers, createCustomer } from "../services/customerService";
 
-import { getCurrentUser } from "../services/authService";
-
-import {
-  ResponsiveContainer,
-  PieChart,
-  Pie,
-  Cell,
-  Tooltip,
-  Legend,
-  BarChart,
-  Bar,
-  XAxis,
-  YAxis,
-  CartesianGrid,
-} from "recharts";
-
 // =====================================================
-// EGG CATEGORY PRICES
+// OFFICIAL EGG PRICES
 // =====================================================
-// IMPORTANT:
-// These values MUST match EGG_CATEGORY_PRICES in
-// backend/models/EggSale.js.
 
 const EGG_CATEGORY_PRICES = {
   big: 5100,
@@ -43,13 +39,41 @@ const EGG_CATEGORY_PRICES = {
   small: 4000,
 };
 
-const EGG_CATEGORY_LABELS = {
-  big: "Big",
-  jumbo: "Jumbo",
-  turkey: "Turkey Egg",
-  normal: "Normal",
-  small: "Small",
-};
+const EGG_CATEGORIES = [
+  {
+    value: "big",
+    label: "Big",
+  },
+  {
+    value: "jumbo",
+    label: "Jumbo",
+  },
+  {
+    value: "turkey",
+    label: "Turkey Egg",
+  },
+  {
+    value: "normal",
+    label: "Normal",
+  },
+  {
+    value: "small",
+    label: "Small",
+  },
+];
+
+const PAYMENT_METHODS = ["Cash", "Transfer", "POS"];
+
+const PAGE_SIZE = 10;
+
+// =====================================================
+// HELPERS
+// =====================================================
+
+const emptyPayment = () => ({
+  method: "Cash",
+  amount: "",
+});
 
 const emptyLineItem = () => ({
   category: "big",
@@ -57,66 +81,112 @@ const emptyLineItem = () => ({
   looseEggs: "",
 });
 
-const emptyCustomer = {
-  name: "",
+const emptyForm = () => ({
+  customerId: "",
+  customer: "",
   phone: "",
-  email: "",
-  address: "",
-  customerType: "Individual",
-  notes: "",
+  date: new Date().toISOString().split("T")[0],
+  discount: "",
+  transportCharge: "",
+  amountPaid: "",
+  paymentMethod: "Cash",
+  remarks: "",
+});
+
+const formatCurrency = (value) => `₦${Number(value || 0).toLocaleString()}`;
+
+const formatDate = (value) => {
+  if (!value) return "-";
+
+  const date = new Date(value);
+
+  if (Number.isNaN(date.getTime())) {
+    return "-";
+  }
+
+  return date.toLocaleDateString("en-NG", {
+    year: "numeric",
+    month: "short",
+    day: "numeric",
+  });
 };
 
+const getResponseArray = (response, keys = []) => {
+  if (Array.isArray(response)) {
+    return response;
+  }
+
+  if (Array.isArray(response?.data)) {
+    return response.data;
+  }
+
+  for (const key of keys) {
+    if (Array.isArray(response?.[key])) {
+      return response[key];
+    }
+
+    if (Array.isArray(response?.data?.[key])) {
+      return response.data[key];
+    }
+  }
+
+  return [];
+};
+
+const getCustomerFromSale = (sale) => {
+  if (sale?.customerId && typeof sale.customerId === "object") {
+    return sale.customerId;
+  }
+
+  return null;
+};
+
+// =====================================================
+// COMPONENT
+// =====================================================
+
 export default function EggSales() {
-  // =====================================================
-  // STATE
-  // =====================================================
-
-  const [sales, setSales] = useState([]);
-
-  const [loading, setLoading] = useState(true);
-
-  const [search, setSearch] = useState("");
-
-  const [selectedSale, setSelectedSale] = useState(null);
-
-  const [showInvoice, setShowInvoice] = useState(false);
-
-  const [statusFilter, setStatusFilter] = useState("All");
+  // ===================================================
+  // USER
+  // ===================================================
 
   const [user, setUser] = useState(null);
 
-  // =====================================================
-  // SALE FORM
-  // =====================================================
+  // ===================================================
+  // SALES
+  // ===================================================
 
-  const [formData, setFormData] = useState({
-    customerId: "",
-    customer: "",
-    phone: "",
-    date: "",
-    discount: "",
-    transportCharge: "",
-    amountPaid: "",
-    paymentMethod: "Cash",
-    remarks: "",
-  });
-
-  // One row per egg category.
-  const [lineItems, setLineItems] = useState([emptyLineItem()]);
-
-  // Non-null while editing.
-  const [editingId, setEditingId] = useState(null);
-
+  const [sales, setSales] = useState([]);
+  const [loading, setLoading] = useState(true);
   const [saving, setSaving] = useState(false);
 
-  // =====================================================
-  // CUSTOMER STATE
-  // =====================================================
+  const [search, setSearch] = useState("");
+  const [statusFilter, setStatusFilter] = useState("All");
+  const [showDeleted, setShowDeleted] = useState(false);
+
+  // ===================================================
+  // PAGINATION
+  // ===================================================
+
+  const [currentPage, setCurrentPage] = useState(1);
+
+  // ===================================================
+  // SALE FORM
+  // ===================================================
+
+  const [formData, setFormData] = useState(emptyForm());
+  const [lineItems, setLineItems] = useState([emptyLineItem()]);
+
+  const [payments, setPayments] = useState([emptyPayment()]);
+
+  const [editingId, setEditingId] = useState(null);
+
+  // ===================================================
+  // CUSTOMER
+  // ===================================================
 
   const [customers, setCustomers] = useState([]);
-
   const [customerSearch, setCustomerSearch] = useState("");
-
   const [selectedCustomer, setSelectedCustomer] = useState(null);
 
   const [showCustomerDropdown, setShowCustomerDropdown] = useState(false);
@@ -125,36 +195,65 @@ export default function EggSales() {
 
   const [showQuickAddCustomer, setShowQuickAddCustomer] = useState(false);
 
-  const [newCustomer, setNewCustomer] = useState(emptyCustomer);
-
   const [savingCustomer, setSavingCustomer] = useState(false);
 
-  // =====================================================
+  const [newCustomer, setNewCustomer] = useState({
+    name: "",
+    phone: "",
+    email: "",
+    address: "",
+    customerType: "Individual",
+    notes: "",
+  });
+
+  // ===================================================
   // CUSTOMER HISTORY
-  // =====================================================
+  // ===================================================
 
   const [customerHistory, setCustomerHistory] = useState(null);
 
   const [historyLoading, setHistoryLoading] = useState(false);
 
-  // =====================================================
-  // LOAD DATA
-  // =====================================================
+  // ===================================================
+  // INVOICE
+  // ===================================================
+
+  const [selectedSale, setSelectedSale] = useState(null);
+
+  const [showInvoice, setShowInvoice] = useState(false);
+
+  // ===================================================
+  // LOAD USER
+  // ===================================================
 
   useEffect(() => {
-    loadUser();
-    loadSales();
-    loadCustomers();
+    try {
+      const storedUser = localStorage.getItem("user");
+
+      const storedRole = localStorage.getItem("role");
+
+      if (storedUser) {
+        setUser({
+          ...JSON.parse(storedUser),
+          role: storedRole || undefined,
+        });
+      } else {
+        setUser({
+          role: storedRole || "",
+        });
+      }
+    } catch {
+      setUser({
+        role: localStorage.getItem("role") || "",
+      });
+    }
   }, []);
 
-  const loadUser = async () => {
-    try {
-      const data = await getCurrentUser();
-      setUser(data);
-    } catch (err) {
-      console.error("LOAD CURRENT USER ERROR:", err);
-    }
-  };
+  const isSuperadmin = user?.role === "superadmin";
+
+  // ===================================================
+  // LOAD SALES
+  // ===================================================
 
   const loadSales = async () => {
     try {
@@ -162,25 +261,25 @@ export default function EggSales() {
 
       const response = await fetchSales();
 
-      let list = [];
+      const data = getResponseArray(response, ["sales"]);
 
-      if (Array.isArray(response)) {
-        list = response;
-      } else if (Array.isArray(response?.sales)) {
-        list = response.sales;
-      } else if (Array.isArray(response?.data)) {
-        list = response.data;
-      } else if (Array.isArray(response?.data?.sales)) {
-        list = response.data.sales;
-      }
+      setSales(data);
+    } catch (error) {
+      console.error("LOAD EGG SALES ERROR:", error);
 
-      setSales(list);
-    } catch (err) {
-      console.error("LOAD SALES ERROR:", err);
+      toast.error(
+        error?.response?.data?.message ||
+          error?.message ||
+          "Unable to load egg sales.",
+      );
     } finally {
       setLoading(false);
     }
   };
+
+  // ===================================================
+  // LOAD CUSTOMERS
+  // ===================================================
 
   const loadCustomers = async () => {
     try {
@@ -188,47 +287,43 @@ export default function EggSales() {
 
       const response = await fetchCustomers();
 
-      let list = [];
+      const data = getResponseArray(response, ["customers"]);
 
-      if (Array.isArray(response)) {
-        list = response;
-      } else if (Array.isArray(response?.customers)) {
-        list = response.customers;
-      } else if (Array.isArray(response?.data)) {
-        list = response.data;
-      } else if (Array.isArray(response?.data?.customers)) {
-        list = response.data.customers;
-      }
+      setCustomers(data);
+    } catch (error) {
+      console.error("LOAD CUSTOMERS ERROR:", error);
 
-      setCustomers(
-        list.filter(
-          (customer) =>
-            customer.isActive !== false && customer.isDeleted !== true,
-        ),
+      toast.error(
+        error?.response?.data?.message || "Unable to load customers.",
       );
-    } catch (err) {
-      console.error("LOAD CUSTOMERS ERROR:", err);
     } finally {
       setCustomerLoading(false);
     }
   };
 
-  // =====================================================
-  // SALE FORM CHANGE
-  // =====================================================
+  useEffect(() => {
+    loadSales();
+    loadCustomers();
+  }, []);
 
-  const handleChange = (e) => {
-    setFormData((prev) => ({
-      ...prev,
-      [e.target.name]: e.target.value,
+  // ===================================================
+  // FORM CHANGE
+  // ===================================================
+
+  const handleChange = (event) => {
+    const { name, value } = event.target;
+
+    setFormData((previous) => ({
+      ...previous,
+      [name]: value,
     }));
   };
 
-  // =====================================================
+  // ===================================================
   // CUSTOMER SEARCH
-  // =====================================================
+  // ===================================================
 
-  const filteredCustomerOptions = useMemo(() => {
+  const filteredCustomers = useMemo(() => {
     const query = customerSearch.trim().toLowerCase();
 
     if (!query) {
@@ -237,37 +332,45 @@ export default function EggSales() {
 
     return customers
       .filter((customer) => {
+        const name = String(customer?.name || "").toLowerCase();
+
+        const phone = String(customer?.phone || "").toLowerCase();
+
+        const email = String(customer?.email || "").toLowerCase();
+
         return (
-          customer.name?.toLowerCase().includes(query) ||
-          customer.phone?.toLowerCase().includes(query) ||
-          customer.email?.toLowerCase().includes(query)
+          name.includes(query) || phone.includes(query) || email.includes(query)
         );
       })
       .slice(0, 10);
   }, [customers, customerSearch]);
 
-  // =====================================================
+  // ===================================================
   // SELECT CUSTOMER
-  // =====================================================
+  // ===================================================
 
   const selectCustomer = async (customer) => {
+    if (!customer) return;
+
     setSelectedCustomer(customer);
+
+    setFormData((previous) => ({
+      ...previous,
+      customerId: customer._id || customer.id || "",
+      customer: customer.name || "",
+      phone: customer.phone || "",
+    }));
 
     setCustomerSearch(customer.name || "");
 
     setShowCustomerDropdown(false);
 
-    setFormData((previous) => ({
-      ...previous,
-      customerId: customer._id || "",
-      customer: customer.name || "",
-      phone: customer.phone || "",
-    }));
-
-    if (customer._id) {
-      await loadCustomerHistory(customer._id);
-    }
+    await loadCustomerHistory(customer._id || customer.id);
   };
+
+  // ===================================================
+  // CLEAR CUSTOMER
+  // ===================================================
 
   const clearSelectedCustomer = () => {
     setSelectedCustomer(null);
@@ -284,9 +387,9 @@ export default function EggSales() {
     }));
   };
 
-  // =====================================================
+  // ===================================================
   // CUSTOMER HISTORY
-  // =====================================================
+  // ===================================================
 
   const loadCustomerHistory = async (customerId) => {
     if (!customerId) {
@@ -299,9 +402,9 @@ export default function EggSales() {
 
       const response = await fetchCustomerSales(customerId);
 
-      setCustomerHistory(response || null);
-    } catch (err) {
-      console.error("LOAD CUSTOMER HISTORY ERROR:", err);
+      setCustomerHistory(response?.data || response || null);
+    } catch (error) {
+      console.error("CUSTOMER HISTORY ERROR:", error);
 
       setCustomerHistory(null);
     } finally {
@@ -309,113 +412,127 @@ export default function EggSales() {
     }
   };
 
-  // =====================================================
-  // CUSTOMER INPUT
-  // =====================================================
-
-  const handleCustomerSearchChange = (e) => {
-    const value = e.target.value;
-
-    setCustomerSearch(value);
-
-    setShowCustomerDropdown(true);
-
-    // If the user changes the selected
-    // customer text, remove the old link.
-    if (selectedCustomer && value !== selectedCustomer.name) {
-      setSelectedCustomer(null);
-
-      setCustomerHistory(null);
-
-      setFormData((previous) => ({
-        ...previous,
-        customerId: "",
-        customer: value,
-      }));
-    } else {
-      setFormData((previous) => ({
-        ...previous,
-        customer: value,
-      }));
-    }
-  };
-
-  // =====================================================
+  // ===================================================
   // QUICK ADD CUSTOMER
-  // =====================================================
+  // ===================================================
 
-  const handleNewCustomerChange = (e) => {
+  const handleNewCustomerChange = (event) => {
+    const { name, value } = event.target;
+
     setNewCustomer((previous) => ({
       ...previous,
-      [e.target.name]: e.target.value,
+      [name]: value,
     }));
   };
 
-  const handleQuickAddCustomer = async (e) => {
-    e.preventDefault();
+  const handleCreateCustomer = async (event) => {
+    event.preventDefault();
 
-    if (!newCustomer.name.trim()) {
-      alert("Customer name is required.");
+    const name = newCustomer.name.trim();
+
+    if (!name) {
+      toast.error("Customer name is required.");
       return;
     }
 
     try {
       setSavingCustomer(true);
 
-      const response = await createCustomer(newCustomer);
+      const response = await createCustomer({
+        name,
+        phone: newCustomer.phone.trim(),
+        email: newCustomer.email.trim(),
+        address: newCustomer.address.trim(),
+        customerType: newCustomer.customerType,
+        notes: newCustomer.notes.trim(),
+      });
 
-      const created =
+      const createdCustomer =
         response?.customer ||
         response?.data?.customer ||
         response?.data ||
         response;
 
-      if (!created?._id) {
+      if (!createdCustomer) {
         throw new Error(
-          "Customer was saved but no customer record was returned.",
+          "Customer was created but no customer record was returned.",
         );
       }
 
-      setCustomers((previous) => {
-        const exists = previous.some((item) => item._id === created._id);
+      setCustomers((previous) => [
+        createdCustomer,
+        ...previous.filter(
+          (item) => String(item?._id) !== String(createdCustomer?._id),
+        ),
+      ]);
 
-        if (exists) {
-          return previous;
-        }
+      await selectCustomer(createdCustomer);
 
-        return [...previous, created].sort((a, b) =>
-          (a.name || "").localeCompare(b.name || ""),
-        );
+      setNewCustomer({
+        name: "",
+        phone: "",
+        email: "",
+        address: "",
+        customerType: "Individual",
+        notes: "",
       });
-
-      await selectCustomer(created);
-
-      setNewCustomer(emptyCustomer);
 
       setShowQuickAddCustomer(false);
 
-      alert("Customer added successfully.");
-    } catch (err) {
-      console.error("QUICK ADD CUSTOMER ERROR:", err);
+      toast.success("Customer created successfully.");
+    } catch (error) {
+      console.error("CREATE CUSTOMER ERROR:", error);
 
-      alert(
-        err?.response?.data?.message ||
-          err?.message ||
-          "Unable to add customer.",
+      toast.error(
+        error?.response?.data?.message ||
+          error?.message ||
+          "Unable to create customer.",
       );
     } finally {
       setSavingCustomer(false);
     }
   };
 
-  // =====================================================
-  // LINE ITEM HANDLING
-  // =====================================================
+  // ===================================================
+  // LINE ITEMS
+  // ===================================================
 
-  const handleLineItemChange = (index, field, value) => {
-    setLineItems((prev) =>
-      prev.map((item, i) =>
-        i === index
+  const addLineItem = () => {
+    const usedCategories = new Set(lineItems.map((item) => item.category));
+
+    const nextCategory = EGG_CATEGORIES.find(
+      (category) => !usedCategories.has(category.value),
+    )?.value;
+
+    if (!nextCategory) {
+      toast.info("All egg categories have already been added.");
+      return;
+    }
+
+    setLineItems((previous) => [
+      ...previous,
+      {
+        category: nextCategory,
+        cratesSold: "",
+        looseEggs: "",
+      },
+    ]);
+  };
+
+  const removeLineItem = (index) => {
+    setLineItems((previous) => {
+      if (previous.length === 1) {
+        return previous;
+      }
+
+      return previous.filter((_, itemIndex) => itemIndex !== index);
+    });
+  };
+
+  const updateLineItem = (index, field, value) => {
+    setLineItems((previous) =>
+      previous.map((item, itemIndex) =>
+        itemIndex === index
           ? {
               ...item,
               [field]: value,
@@ -425,23 +542,15 @@ export default function EggSales() {
     );
   };
 
-  const addLineItemRow = () => {
-    setLineItems((prev) => [...prev, emptyLineItem()]);
-  };
-
-  const removeLineItemRow = (index) => {
-    setLineItems((prev) =>
-      prev.length === 1 ? prev : prev.filter((_, i) => i !== index),
-    );
-  };
-
-  // =====================================================
-  // LIVE CALCULATIONS
-  // =====================================================
+  // ===================================================
+  // LINE ITEM CALCULATIONS
+  // ===================================================
 
   const lineItemsWithSubtotal = useMemo(() => {
     return lineItems.map((item) => {
-      const cratePrice = EGG_CATEGORY_PRICES[item.category] || 0;
+      const category = item.category;
+
+      const cratePrice = EGG_CATEGORY_PRICES[category] || 0;
 
       const eggPrice = Math.round(cratePrice / 30);
 
@@ -455,95 +564,185 @@ export default function EggSales() {
         ...item,
         cratePrice,
         eggPrice,
-        cratesSold,
-        looseEggs,
         subtotal,
       };
     });
   }, [lineItems]);
 
-  const itemsTotal = lineItemsWithSubtotal.reduce(
-    (sum, item) => sum + item.subtotal,
-    0,
+  const itemsTotal = useMemo(
+    () =>
+      lineItemsWithSubtotal.reduce(
+        (sum, item) => sum + Number(item.subtotal || 0),
+        0,
+      ),
+    [lineItemsWithSubtotal],
   );
 
-  const grandTotal =
-    itemsTotal +
-    Number(formData.transportCharge || 0) -
-    Number(formData.discount || 0);
+  const grandTotal = useMemo(() => {
+    const transportCharge = Number(formData.transportCharge || 0);
 
-  const balance = grandTotal - Number(formData.amountPaid || 0);
+    const discount = Number(formData.discount || 0);
+
+    return Math.max(0, itemsTotal + transportCharge - discount);
+  }, [itemsTotal, formData.transportCharge, formData.discount]);
+
+  // ===================================================
+  // PAYMENT SEGMENTS
+  // ===================================================
+
+  const handlePaymentChange = (index, field, value) => {
+    setPayments((previous) =>
+      previous.map((payment, paymentIndex) =>
+        paymentIndex === index
+          ? {
+              ...payment,
+              [field]: value,
+            }
+          : payment,
+      ),
+    );
+  };
+
+  const addPaymentRow = () => {
+    setPayments((previous) => [...previous, emptyPayment()]);
+  };
+
+  const removePaymentRow = (index) => {
+    setPayments((previous) => {
+      if (previous.length === 1) {
+        return [emptyPayment()];
+      }
+
+      return previous.filter((_, paymentIndex) => paymentIndex !== index);
+    });
+  };
+
+  const normalizedPayments = useMemo(
+    () =>
+      payments
+        .map((payment) => ({
+          method: payment.method || "Cash",
+          amount: Number(payment.amount || 0),
+        }))
+        .filter((payment) => payment.amount > 0),
+    [payments],
+  );
+
+  const totalPayments = useMemo(
+    () => normalizedPayments.reduce((sum, payment) => sum + payment.amount, 0),
+    [normalizedPayments],
+  );
+
+  const paymentBreakdown = useMemo(() => {
+    return PAYMENT_METHODS.map((method) => ({
+      method,
+      amount: normalizedPayments
+        .filter((payment) => payment.method === method)
+        .reduce((sum, payment) => sum + payment.amount, 0),
+    }));
+  }, [normalizedPayments]);
+
+  const balance = Math.max(0, grandTotal - totalPayments);
 
   const paymentStatus =
-    balance <= 0 && grandTotal > 0
+    totalPayments >= grandTotal && grandTotal > 0
       ? "Paid"
-      : Number(formData.amountPaid) > 0
+      : totalPayments > 0
         ? "Part Paid"
         : "Unpaid";
 
-  // =====================================================
-  // EDIT MODE
-  // =====================================================
+  // ===================================================
+  // START EDIT
+  // ===================================================
 
   const startEdit = async (sale) => {
     setEditingId(sale._id);
 
+    const customerRecord = getCustomerFromSale(sale);
+
+    setSelectedCustomer(customerRecord);
+
+    setCustomerSearch(customerRecord?.name || sale.customer || "");
+
     setFormData({
-      customerId: sale.customerId?._id || sale.customerId || "",
-      customer: sale.customer || "",
-      phone: sale.phone || "",
-      date: sale.date ? new Date(sale.date).toISOString().slice(0, 10) : "",
+      customerId:
+        sale.customerId && typeof sale.customerId === "object"
+          ? sale.customerId._id || ""
+          : sale.customerId || "",
+
+      customer: sale.customer || customerRecord?.name || "",
+
+      phone: sale.phone || customerRecord?.phone || "",
+
+      date: sale.date
+        ? new Date(sale.date).toISOString().split("T")[0]
+        : new Date().toISOString().split("T")[0],
+
       discount: sale.discount ?? "",
+
       transportCharge: sale.transportCharge ?? "",
+
       amountPaid: sale.amountPaid ?? "",
+
       paymentMethod: sale.paymentMethod || "Cash",
+
       remarks: sale.remarks || "",
     });
 
-    // -------------------------------------------------
-    // Restore linked customer
-    // -------------------------------------------------
+    if (Array.isArray(sale.lineItems) && sale.lineItems.length > 0) {
+      setLineItems(
+        sale.lineItems.map((item) => ({
+          category: item.category || "big",
 
-    if (sale.customerId) {
-      let customer =
-        typeof sale.customerId === "object" ? sale.customerId : null;
+          cratesSold: item.cratesSold ?? "",
 
-      if (!customer && sale.customerId) {
-        customer =
-          customers.find((item) => item._id === sale.customerId) || null;
-      }
-
-      if (customer) {
-        setSelectedCustomer(customer);
-
-        setCustomerSearch(customer.name || "");
-
-        await loadCustomerHistory(customer._id);
-      } else {
-        setSelectedCustomer(null);
-
-        setCustomerSearch(sale.customer || "");
-
-        setCustomerHistory(null);
-      }
+          looseEggs: item.looseEggs ?? "",
+        })),
+      );
     } else {
-      // Legacy sale without customerId.
-      setSelectedCustomer(null);
-
-      setCustomerSearch(sale.customer || "");
-
-      setCustomerHistory(null);
+      setLineItems([
+        {
+          category: "big",
+          cratesSold: sale.cratesSold ?? "",
+          looseEggs: sale.looseEggs ?? "",
+        },
+      ]);
     }
 
-    setLineItems(
-      (sale.lineItems || []).length
-        ? sale.lineItems.map((item) => ({
-            category: item.category,
-            cratesSold: item.cratesSold ?? "",
-            looseEggs: item.looseEggs ?? "",
-          }))
-        : [emptyLineItem()],
-    );
+    // Restore segmented payments.
+    if (Array.isArray(sale.payments) && sale.payments.length > 0) {
+      setPayments(
+        sale.payments.map((payment) => ({
+          method: PAYMENT_METHODS.includes(payment.method)
+            ? payment.method
+            : "Cash",
+
+          amount: payment.amount ?? "",
+        })),
+      );
+    } else if (Number(sale.amountPaid || 0) > 0) {
+      // Legacy sale compatibility.
+      const legacyMethod = PAYMENT_METHODS.includes(sale.paymentMethod)
+        ? sale.paymentMethod
+        : "Cash";
+
+      setPayments([
+        {
+          method: legacyMethod,
+          amount: sale.amountPaid,
+        },
+      ]);
+    } else {
+      setPayments([emptyPayment()]);
+    }
+
+    if (sale.customerId && typeof sale.customerId === "object") {
+      await loadCustomerHistory(sale.customerId._id);
+    } else if (sale.customerId) {
+      await loadCustomerHistory(sale.customerId);
+    } else {
+      setCustomerHistory(null);
+    }
 
     window.scrollTo({
       top: 0,
@@ -551,220 +750,279 @@ export default function EggSales() {
     });
   };
 
+  // ===================================================
+  // CANCEL EDIT
+  // ===================================================
+
   const cancelEdit = () => {
     setEditingId(null);
 
-    setSelectedCustomer(null);
-
-    setCustomerSearch("");
-
-    setCustomerHistory(null);
-
-    setFormData({
-      customerId: "",
-      customer: "",
-      phone: "",
-      date: "",
-      discount: "",
-      transportCharge: "",
-      amountPaid: "",
-      paymentMethod: "Cash",
-      remarks: "",
-    });
+    setFormData(emptyForm());
 
     setLineItems([emptyLineItem()]);
+
+    setPayments([emptyPayment()]);
+
+    setSelectedCustomer(null);
+    setCustomerSearch("");
+    setCustomerHistory(null);
   };
 
-  // =====================================================
-  // SAVE SALE
-  // =====================================================
+  // ===================================================
+  // SUBMIT SALE
+  // ===================================================
 
-  const handleSubmit = async (e) => {
-    e.preventDefault();
-
-    const validLineItems = lineItemsWithSubtotal.filter(
-      (item) => item.cratesSold > 0 || item.looseEggs > 0,
-    );
-
-    if (validLineItems.length === 0) {
-      alert("Add at least one egg category with a quantity.");
-      return;
-    }
+  const handleSubmit = async (event) => {
+    event.preventDefault();
 
     if (!formData.customer.trim()) {
-      alert("Enter or select a customer.");
+      toast.error("Please select or enter a customer.");
       return;
     }
 
-    const payload = {
-      ...formData,
+    if (!lineItems.length) {
+      toast.error("Add at least one egg category.");
+      return;
+    }
 
-      // Important:
-      // customerId is blank for old/manual customers,
-      // but present for registered customers.
-      customerId: formData.customerId || undefined,
+    for (const item of lineItems) {
+      const crates = Number(item.cratesSold || 0);
 
-      lineItems: validLineItems.map((item) => ({
-        category: item.category,
-        cratesSold: item.cratesSold,
-        looseEggs: item.looseEggs,
-      })),
+      const loose = Number(item.looseEggs || 0);
 
-      discount: Number(formData.discount || 0),
+      if (
+        !Number.isFinite(crates) ||
+        !Number.isFinite(loose) ||
+        crates < 0 ||
+        loose < 0
+      ) {
+        toast.error("Egg quantities must be valid non-negative numbers.");
+        return;
+      }
 
-      transportCharge: Number(formData.transportCharge || 0),
+      if (crates === 0 && loose === 0) {
+        toast.error(
+          "Each selected egg category must contain at least one crate or loose egg.",
+        );
+        return;
+      }
+    }
 
-      amountPaid: Number(formData.amountPaid || 0),
-    };
+    const categorySet = new Set();
 
-    setSaving(true);
+    for (const item of lineItems) {
+      if (categorySet.has(item.category)) {
+        toast.error(
+          `The ${item.category} egg category has been added more than once.`,
+        );
+        return;
+      }
+
+      categorySet.add(item.category);
+    }
+
+    if (totalPayments > grandTotal) {
+      toast.error("Payment total cannot be greater than the sale total.");
+      return;
+    }
 
     try {
+      setSaving(true);
+
+      const payload = {
+        customerId: formData.customerId || undefined,
+
+        customer: formData.customer.trim(),
+
+        phone: formData.phone.trim(),
+
+        date: formData.date,
+
+        lineItems: lineItems.map((item) => ({
+          category: item.category,
+
+          cratesSold: Number(item.cratesSold || 0),
+
+          looseEggs: Number(item.looseEggs || 0),
+        })),
+
+        discount: Number(formData.discount || 0),
+
+        transportCharge: Number(formData.transportCharge || 0),
+
+        payments: normalizedPayments,
+
+        // Compatibility field.
+        // Backend recalculates it from payments.
+        amountPaid: totalPayments,
+
+        remarks: formData.remarks || "",
+      };
+
       if (editingId) {
         await updateSale(editingId, payload);
 
-        alert("Sale updated successfully.");
-
-        setEditingId(null);
+        toast.success("Egg sale updated successfully.");
       } else {
         await createSale(payload);
 
-        alert("Sale recorded successfully.");
+        toast.success("Egg sale recorded successfully.");
       }
 
-      setSelectedCustomer(null);
-
-      setCustomerSearch("");
-
-      setCustomerHistory(null);
-
-      setFormData({
-        customerId: "",
-        customer: "",
-        phone: "",
-        date: "",
-        discount: "",
-        transportCharge: "",
-        amountPaid: "",
-        paymentMethod: "Cash",
-        remarks: "",
-      });
-
-      setLineItems([emptyLineItem()]);
+      cancelEdit();
 
       await loadSales();
-    } catch (err) {
-      console.error("SAVE SALE ERROR:", err);
 
-      alert(
-        err?.response?.data?.message ||
-          err?.message ||
-          `Unable to ${editingId ? "update" : "save"} sale.`,
+      if (formData.customerId) {
+        await loadCustomerHistory(formData.customerId);
+      }
+    } catch (error) {
+      console.error("SAVE EGG SALE ERROR:", error);
+
+      toast.error(
+        error?.response?.data?.message ||
+          error?.message ||
+          "Unable to save egg sale.",
       );
     } finally {
       setSaving(false);
     }
   };
 
-  // =====================================================
+  // ===================================================
   // DELETE
-  // =====================================================
+  // ===================================================
 
-  const handleDelete = async (id) => {
-    if (!window.confirm("Delete sale?")) {
+  const handleDelete = async (sale) => {
+    const confirmed = window.confirm(
+      `Delete invoice ${sale.invoiceNumber || ""}?`,
+    );
+
+    if (!confirmed) {
       return;
     }
 
     try {
-      await deleteSale(id);
+      await deleteSale(sale._id);
 
-      if (editingId === id) {
-        cancelEdit();
-      }
+      toast.success("Egg sale deleted successfully.");
 
       await loadSales();
-    } catch (err) {
-      console.error("DELETE SALE ERROR:", err);
+    } catch (error) {
+      console.error("DELETE EGG SALE ERROR:", error);
 
-      alert(err?.response?.data?.message || "Unable to delete sale.");
+      toast.error(
+        error?.response?.data?.message ||
+          error?.message ||
+          "Unable to delete sale.",
+      );
     }
   };
 
-  // =====================================================
+  // ===================================================
   // RESTORE
-  // =====================================================
+  // ===================================================
 
-  const handleRestore = async (id) => {
+  const handleRestore = async (sale) => {
+    const confirmed = window.confirm(
+      `Restore invoice ${sale.invoiceNumber || ""}?`,
+    );
+
+    if (!confirmed) {
+      return;
+    }
+
     try {
-      await restoreSale(id);
+      await restoreSale(sale._id);
+
+      toast.success("Egg sale restored successfully.");
 
       await loadSales();
-    } catch (err) {
-      console.error("RESTORE SALE ERROR:", err);
+    } catch (error) {
+      console.error("RESTORE EGG SALE ERROR:", error);
 
-      alert(err?.response?.data?.message || "Unable to restore sale.");
+      toast.error(
+        error?.response?.data?.message ||
+          error?.message ||
+          "Unable to restore sale.",
+      );
     }
   };
 
-  // =====================================================
+  // ===================================================
   // INVOICE
-  // =====================================================
+  // ===================================================
 
-  const openInvoice = (sale) => {
+  const handleInvoice = (sale) => {
     setSelectedSale(sale);
     setShowInvoice(true);
   };
 
-  const closeInvoice = () => {
-    setShowInvoice(false);
-    setSelectedSale(null);
-  };
-
-  // =====================================================
-  // FILTERED SALES
-  // =====================================================
+  // ===================================================
+  // FILTER SALES
+  // ===================================================
 
   const filteredSales = useMemo(() => {
+    const query = search.trim().toLowerCase();
+
     return sales.filter((sale) => {
-      const query = search.toLowerCase().trim();
+      if (!showDeleted && sale.isDeleted) {
+        return false;
+      }
 
-      const customer = sale.customer?.toLowerCase().includes(query);
+      if (showDeleted && !sale.isDeleted) {
+        return false;
+      }
 
-      const phone = sale.phone?.toLowerCase().includes(query);
+      if (statusFilter !== "All" && sale.status !== statusFilter) {
+        return false;
+      }
 
-      const invoice = sale.invoiceNumber?.toLowerCase().includes(query);
+      if (!query) {
+        return true;
+      }
 
-      const matchesSearch = !query || customer || phone || invoice;
+      const invoice = String(sale.invoiceNumber || "").toLowerCase();
 
-      const matchesStatus =
-        statusFilter === "All" ? true : sale.status === statusFilter;
+      const customer = String(sale.customer || "").toLowerCase();
 
-      return matchesSearch && matchesStatus;
+      const phone = String(sale.phone || "").toLowerCase();
+
+      return (
+        invoice.includes(query) ||
+        customer.includes(query) ||
+        phone.includes(query)
+      );
     });
-  }, [sales, search, statusFilter]);
+  }, [sales, search, statusFilter, showDeleted]);
 
-  // =====================================================
-  // ACTIVE SALES
-  // =====================================================
+  // ===================================================
+  // PAGINATION
+  // ===================================================
 
-  const activeSales = useMemo(
-    () => filteredSales.filter((sale) => !sale.isDeleted),
-    [filteredSales],
-  );
+  useEffect(() => {
+    setCurrentPage(1);
+  }, [search, statusFilter, showDeleted]);
 
-  // =====================================================
-  // LINE ITEM HELPER
-  // =====================================================
+  const totalPages = Math.max(1, Math.ceil(filteredSales.length / PAGE_SIZE));
 
-  const sumLineItemField = (sale, field) =>
-    (sale.lineItems || []).reduce(
-      (sum, item) => sum + Number(item[field] || 0),
-      0,
-    );
+  const paginatedSales = useMemo(() => {
+    const start = (currentPage - 1) * PAGE_SIZE;
 
-  // =====================================================
-  // KPI CARDS
-  // =====================================================
+    return filteredSales.slice(start, start + PAGE_SIZE);
+  }, [filteredSales, currentPage]);
+
+  useEffect(() => {
+    if (currentPage > totalPages) {
+      setCurrentPage(totalPages);
+    }
+  }, [currentPage, totalPages]);
+
+  // ===================================================
+  // KPI DATA
+  // ===================================================
+
+  const activeSales = sales.filter((sale) => !sale.isDeleted);
 
   const totalRevenue = activeSales.reduce(
     (sum, sale) => sum + Number(sale.totalAmount || 0),
@@ -776,1011 +1034,1455 @@ export default function EggSales() {
     0,
   );
 
-  const outstanding = activeSales.reduce(
+  const outstandingBalance = activeSales.reduce(
     (sum, sale) => sum + Number(sale.balance || 0),
     0,
   );
 
-  const totalCrates = activeSales.reduce(
-    (sum, sale) => sum + sumLineItemField(sale, "cratesSold"),
-    0,
-  );
+  const totalTransactions = activeSales.length;
 
-  const uniqueCustomerCount = new Set(
-    activeSales.map(
-      (sale) =>
-        sale.customerId?._id ||
-        sale.customerId ||
-        `${sale.customer || ""}|${sale.phone || ""}`,
-    ),
-  ).size;
+  const paidCount = activeSales.filter((sale) => sale.status === "Paid").length;
 
-  // =====================================================
+  const partPaidCount = activeSales.filter(
+    (sale) => sale.status === "Part Paid",
+  ).length;
+
+  const unpaidCount = activeSales.filter(
+    (sale) => sale.status === "Unpaid",
+  ).length;
+
+  // ===================================================
   // PAYMENT CHART
-  // =====================================================
+  // ===================================================
 
-  const paymentChart = [
+  const paymentStatusData = [
     {
       name: "Paid",
-      value: activeSales.filter((x) => x.status === "Paid").length,
+      value: paidCount,
     },
     {
       name: "Part Paid",
-      value: activeSales.filter((x) => x.status === "Part Paid").length,
+      value: partPaidCount,
     },
     {
       name: "Unpaid",
-      value: activeSales.filter((x) => x.status === "Unpaid").length,
+      value: unpaidCount,
     },
-  ];
+  ].filter((item) => item.value > 0);
 
-  const COLORS = ["#16a34a", "#f59e0b", "#dc2626"];
+  // ===================================================
+  // REVENUE CHART
+  // ===================================================
 
-  // =====================================================
-  // DAILY / WEEKLY / MONTHLY SALES
-  // =====================================================
+  const revenueChartData = useMemo(() => {
+    const grouped = {};
 
-  const toUTCDayNumber = (value) => {
-    const d = new Date(value);
+    activeSales.forEach((sale) => {
+      const date = new Date(sale.date || sale.createdAt);
 
-    return Math.floor(
-      Date.UTC(d.getUTCFullYear(), d.getUTCMonth(), d.getUTCDate()) /
-        (1000 * 60 * 60 * 24),
-    );
-  };
+      if (Number.isNaN(date.getTime())) {
+        return;
+      }
 
-  const today = new Date();
+      const key = date.toISOString().split("T")[0];
 
-  const todayUTCDay = toUTCDayNumber(today);
+      if (!grouped[key]) {
+        grouped[key] = {
+          date: key,
+          revenue: 0,
+          paid: 0,
+        };
+      }
 
-  const dailySales = activeSales
-    .filter((sale) => sale.date && toUTCDayNumber(sale.date) === todayUTCDay)
-    .reduce((sum, sale) => sum + Number(sale.totalAmount || 0), 0);
+      grouped[key].revenue += Number(sale.totalAmount || 0);
 
-  const weeklySales = activeSales
-    .filter((sale) => {
-      if (!sale.date) return false;
+      grouped[key].paid += Number(sale.amountPaid || 0);
+    });
 
-      const diffDays = todayUTCDay - toUTCDayNumber(sale.date);
+    return Object.values(grouped)
+      .sort((a, b) => a.date.localeCompare(b.date))
+      .slice(-14)
+      .map((item) => ({
+        ...item,
+        label: new Date(`${item.date}T12:00:00`).toLocaleDateString("en-NG", {
+          month: "short",
+          day: "numeric",
+        }),
+      }));
+  }, [activeSales]);
 
-      return diffDays >= 0 && diffDays <= 6;
-    })
-    .reduce((sum, sale) => sum + Number(sale.totalAmount || 0), 0);
+  // ===================================================
+  // CATEGORY TOTALS
+  // ===================================================
 
-  const monthlySales = activeSales
-    .filter((sale) => {
-      if (!sale.date) return false;
+  const categoryTotals = useMemo(() => {
+    const totals = {
+      big: 0,
+      jumbo: 0,
+      turkey: 0,
+      normal: 0,
+      small: 0,
+    };
 
-      const d = new Date(sale.date);
+    activeSales.forEach((sale) => {
+      if (Array.isArray(sale.lineItems)) {
+        sale.lineItems.forEach((item) => {
+          if (totals[item.category] !== undefined) {
+            totals[item.category] += Number(item.cratesSold || 0);
+          }
+        });
+      }
+    });
 
-      return (
-        d.getUTCMonth() === today.getUTCMonth() &&
-        d.getUTCFullYear() === today.getUTCFullYear()
-      );
-    })
-    .reduce((sum, sale) => sum + Number(sale.totalAmount || 0), 0);
+    return totals;
+  }, [activeSales]);
 
-  const isSuperadmin = user?.role === "superadmin";
+  // ===================================================
+  // SELECTED CUSTOMER SUMMARY
+  // ===================================================
 
-  // =====================================================
-  // LOADING
-  // =====================================================
+  const historySummary = customerHistory?.summary || {};
 
-  if (loading) {
-    return <div className="p-8">Loading Sales...</div>;
-  }
-
-  // =====================================================
+  // ===================================================
   // RENDER
-  // =====================================================
+  // ===================================================
 
   return (
-    <div className="p-6 bg-gray-100 min-h-screen">
+    <div className="space-y-6 p-4 md:p-6">
       {/* =================================================
           HEADER
       ================================================= */}
 
-      <div className="flex flex-col md:flex-row md:items-center md:justify-between mb-8">
+      <div className="flex flex-col gap-3 lg:flex-row lg:items-center lg:justify-between">
         <div>
-          <h1 className="text-4xl font-bold text-green-700">
-            Egg Sales Management 🥚
-          </h1>
+          <h1 className="text-2xl font-bold text-gray-800">Egg Sales</h1>
 
-          <p className="text-gray-500 mt-2">
-            Track egg sales, customer payments and revenue.
+          <p className="mt-1 text-sm text-gray-500">
+            Record egg sales, customer payments and outstanding balances.
           </p>
         </div>
+
+        {editingId && (
+          <div className="rounded-lg bg-yellow-50 px-4 py-2 text-sm font-medium text-yellow-800">
+            Editing sale
+          </div>
+        )}
       </div>
 
       {/* =================================================
           KPI CARDS
       ================================================= */}
 
-      <div className="grid grid-cols-1 md:grid-cols-5 gap-6 mb-8">
-        <div className="bg-white rounded-xl shadow p-5">
-          <h3 className="text-gray-500">Total Sales</h3>
+      <div className="grid grid-cols-1 gap-4 sm:grid-cols-2 xl:grid-cols-5">
+        <div className="rounded-xl border bg-white p-4 shadow-sm">
+          <p className="text-sm text-gray-500">Transactions</p>
 
-          <p className="text-3xl font-bold text-green-600 mt-2">
-            ₦{totalRevenue.toLocaleString()}
+          <p className="mt-1 text-2xl font-bold text-gray-800">
+            {totalTransactions.toLocaleString()}
           </p>
         </div>
 
-        <div className="bg-white rounded-xl shadow p-5">
-          <h3 className="text-gray-500">Amount Paid</h3>
+        <div className="rounded-xl border bg-white p-4 shadow-sm">
+          <p className="text-sm text-gray-500">Sales Revenue</p>
 
-          <p className="text-3xl font-bold text-blue-600 mt-2">
-            ₦{amountReceived.toLocaleString()}
+          <p className="mt-1 text-2xl font-bold text-green-700">
+            {formatCurrency(totalRevenue)}
           </p>
         </div>
 
-        <div className="bg-white rounded-xl shadow p-5">
-          <h3 className="text-gray-500">Outstanding</h3>
+        <div className="rounded-xl border bg-white p-4 shadow-sm">
+          <p className="text-sm text-gray-500">Amount Received</p>
 
-          <p className="text-3xl font-bold text-red-600 mt-2">
-            ₦{outstanding.toLocaleString()}
+          <p className="mt-1 text-2xl font-bold text-blue-700">
+            {formatCurrency(amountReceived)}
           </p>
         </div>
 
-        <div className="bg-white rounded-xl shadow p-5">
-          <h3 className="text-gray-500">Crates Sold</h3>
+        <div className="rounded-xl border bg-white p-4 shadow-sm">
+          <p className="text-sm text-gray-500">Outstanding</p>
 
-          <p className="text-3xl font-bold text-yellow-500 mt-2">
-            {totalCrates}
+          <p className="mt-1 text-2xl font-bold text-red-600">
+            {formatCurrency(outstandingBalance)}
           </p>
         </div>
 
-        <div className="bg-white rounded-xl shadow p-5">
-          <h3 className="text-gray-500">Customers</h3>
+        <div className="rounded-xl border bg-white p-4 shadow-sm">
+          <p className="text-sm text-gray-500">Paid Sales</p>
 
-          <p className="text-3xl font-bold text-purple-600 mt-2">
-            {uniqueCustomerCount}
+          <p className="mt-1 text-2xl font-bold text-green-700">
+            {paidCount.toLocaleString()}
           </p>
         </div>
       </div>
 
       {/* =================================================
-          SEARCH
+          SALES FORM
       ================================================= */}
 
-      <div className="bg-white rounded-xl shadow p-5 mb-8">
-        <div className="grid md:grid-cols-2 gap-4">
-          <input
-            type="text"
-            placeholder="Search customer, phone or invoice..."
-            value={search}
-            onChange={(e) => setSearch(e.target.value)}
-            className="border rounded-lg p-3"
-          />
+      <form
+        onSubmit={handleSubmit}
+        className="space-y-5 rounded-2xl border bg-gray-50 p-4 shadow-sm md:p-6"
+      >
+        <div className="flex items-center justify-between">
+          <div>
+            <h2 className="text-lg font-bold text-gray-800">
+              {editingId ? "Edit Egg Sale" : "Record Egg Sale"}
+            </h2>
 
-          <select
-            value={statusFilter}
-            onChange={(e) => setStatusFilter(e.target.value)}
-            className="border rounded-lg p-3"
+            <p className="text-sm text-gray-500">
+              Select a customer and enter the egg quantities.
+            </p>
+          </div>
+
+          {editingId && (
+            <button
+              type="button"
+              onClick={cancelEdit}
+              className="rounded-lg border border-gray-300 bg-white px-4 py-2 text-sm font-medium text-gray-700 hover:bg-gray-100"
+            >
+              Cancel Edit
+            </button>
+          )}
+        </div>
+
+        {/* =================================================
+            CUSTOMER
+        ================================================= */}
+
+        <div className="rounded-xl border bg-white p-4">
+          <div className="mb-4 flex flex-col gap-2 sm:flex-row sm:items-center sm:justify-between">
+            <div>
+              <h3 className="font-semibold text-gray-800">Customer</h3>
+
+              <p className="text-xs text-gray-500">
+                Search an existing customer or create a new one.
+              </p>
+            </div>
+
+            <button
+              type="button"
+              onClick={() => setShowQuickAddCustomer(true)}
+              className="rounded-lg bg-green-600 px-4 py-2 text-sm font-medium text-white hover:bg-green-700"
+            >
+              + New Customer
+            </button>
+          </div>
+
+          <div className="relative">
+            <div className="flex flex-col gap-2 md:flex-row">
+              <div className="relative flex-1">
+                <input
+                  type="text"
+                  value={customerSearch}
+                  onChange={(event) => {
+                    setCustomerSearch(event.target.value);
+
+                    setShowCustomerDropdown(true);
+
+                    if (selectedCustomer) {
+                      setSelectedCustomer(null);
+
+                      setFormData((previous) => ({
+                        ...previous,
+                        customerId: "",
+                        customer: event.target.value,
+                        phone: "",
+                      }));
+                    }
+                  }}
+                  onFocus={() => setShowCustomerDropdown(true)}
+                  placeholder="Search customer by name, phone or email..."
+                  className="w-full rounded-lg border border-gray-300 px-4 py-3 text-sm outline-none focus:border-green-500"
+                />
+
+                {showCustomerDropdown && (
+                  <div className="absolute z-30 mt-1 max-h-72 w-full overflow-auto rounded-lg border bg-white shadow-lg">
+                    {customerLoading ? (
+                      <div className="p-4 text-sm text-gray-500">
+                        Loading customers...
+                      </div>
+                    ) : filteredCustomers.length > 0 ? (
+                      filteredCustomers.map((customer) => (
+                        <button
+                          type="button"
+                          key={customer._id}
+                          onClick={() => selectCustomer(customer)}
+                          className="block w-full border-b px-4 py-3 text-left last:border-b-0 hover:bg-green-50"
+                        >
+                          <div className="font-medium text-gray-800">
+                            {customer.name}
+                          </div>
+
+                          <div className="mt-1 text-xs text-gray-500">
+                            {customer.phone || "No phone"}
+                            {customer.email ? ` • ${customer.email}` : ""}
+                          </div>
+                        </button>
+                      ))
+                    ) : (
+                      <div className="p-4 text-sm text-gray-500">
+                        No matching customer found.
+                      </div>
+                    )}
+                  </div>
+                )}
+              </div>
+
+              {selectedCustomer && (
+                <button
+                  type="button"
+                  onClick={clearSelectedCustomer}
+                  className="rounded-lg border border-red-300 px-4 py-2 text-sm font-medium text-red-600 hover:bg-red-50"
+                >
+                  Clear
+                </button>
+              )}
+            </div>
+          </div>
+
+          {/* CUSTOMER DETAILS */}
+
+          <div className="mt-4 grid grid-cols-1 gap-4 md:grid-cols-3">
+            <div>
+              <label className="mb-1 block text-xs font-medium text-gray-600">
+                Customer Name
+              </label>
+
+              <input
+                name="customer"
+                value={formData.customer}
+                onChange={handleChange}
+                required
+                className="w-full rounded-lg border border-gray-300 px-3 py-2 text-sm outline-none focus:border-green-500"
+              />
+            </div>
+
+            <div>
+              <label className="mb-1 block text-xs font-medium text-gray-600">
+                Phone
+              </label>
+
+              <input
+                name="phone"
+                value={formData.phone}
+                onChange={handleChange}
+                className="w-full rounded-lg border border-gray-300 px-3 py-2 text-sm outline-none focus:border-green-500"
+              />
+            </div>
+
+            <div>
+              <label className="mb-1 block text-xs font-medium text-gray-600">
+                Sale Date
+              </label>
+
+              <input
+                type="date"
+                name="date"
+                value={formData.date}
+                onChange={handleChange}
+                required
+                className="w-full rounded-lg border border-gray-300 px-3 py-2 text-sm outline-none focus:border-green-500"
+              />
+            </div>
+          </div>
+
+          {selectedCustomer && (
+            <div className="mt-4 rounded-lg bg-green-50 p-3 text-sm text-green-800">
+              <span className="font-semibold">Selected customer:</span>{" "}
+              {selectedCustomer.name}
+              {selectedCustomer.phone ? ` • ${selectedCustomer.phone}` : ""}
+              {selectedCustomer.customerType
+                ? ` • ${selectedCustomer.customerType}`
+                : ""}
+            </div>
+          )}
+        </div>
+
+        {/* =================================================
+            CUSTOMER HISTORY
+        ================================================= */}
+
+        {selectedCustomer && (
+          <div className="rounded-xl border bg-white p-4">
+            <h3 className="font-semibold text-gray-800">
+              Customer Purchase History
+            </h3>
+
+            {historyLoading ? (
+              <p className="mt-3 text-sm text-gray-500">
+                Loading customer history...
+              </p>
+            ) : (
+              <>
+                <div className="mt-4 grid grid-cols-2 gap-3 md:grid-cols-4">
+                  <div className="rounded-lg bg-gray-50 p-3">
+                    <p className="text-xs text-gray-500">Transactions</p>
+
+                    <p className="mt-1 font-bold">
+                      {Number(
+                        historySummary.transactionCount || 0,
+                      ).toLocaleString()}
+                    </p>
+                  </div>
+
+                  <div className="rounded-lg bg-gray-50 p-3">
+                    <p className="text-xs text-gray-500">Purchases</p>
+
+                    <p className="mt-1 font-bold">
+                      {formatCurrency(historySummary.totalPurchases || 0)}
+                    </p>
+                  </div>
+
+                  <div className="rounded-lg bg-gray-50 p-3">
+                    <p className="text-xs text-gray-500">Total Paid</p>
+
+                    <p className="mt-1 font-bold text-green-700">
+                      {formatCurrency(historySummary.totalPaid || 0)}
+                    </p>
+                  </div>
+
+                  <div className="rounded-lg bg-gray-50 p-3">
+                    <p className="text-xs text-gray-500">Outstanding</p>
+
+                    <p className="mt-1 font-bold text-red-600">
+                      {formatCurrency(historySummary.totalOutstanding || 0)}
+                    </p>
+                  </div>
+                </div>
+
+                {Array.isArray(customerHistory?.sales) &&
+                  customerHistory.sales.length > 0 && (
+                    <div className="mt-4 overflow-x-auto">
+                      <table className="min-w-full text-sm">
+                        <thead>
+                          <tr className="border-b text-left text-xs uppercase text-gray-500">
+                            <th className="px-3 py-2">Invoice</th>
+
+                            <th className="px-3 py-2">Date</th>
+
+                            <th className="px-3 py-2">Total</th>
+
+                            <th className="px-3 py-2">Payments</th>
+
+                            <th className="px-3 py-2">Balance</th>
+
+                            <th className="px-3 py-2">Status</th>
+                          </tr>
+                        </thead>
+
+                        <tbody>
+                          {customerHistory.sales
+                            .slice(0, 5)
+                            .map((historySale) => (
+                              <tr
+                                key={historySale._id}
+                                className="border-b last:border-0"
+                              >
+                                <td className="px-3 py-3 font-medium">
+                                  {historySale.invoiceNumber}
+                                </td>
+
+                                <td className="px-3 py-3">
+                                  {formatDate(historySale.date)}
+                                </td>
+
+                                <td className="px-3 py-3">
+                                  {formatCurrency(historySale.totalAmount)}
+                                </td>
+
+                                <td className="px-3 py-3">
+                                  {Array.isArray(historySale.payments) &&
+                                  historySale.payments.length > 0 ? (
+                                    <div className="space-y-1">
+                                      {historySale.payments.map(
+                                        (payment, index) => (
+                                          <div
+                                            key={payment._id || index}
+                                            className="text-xs"
+                                          >
+                                            <span className="font-semibold">
+                                              {payment.method}:
+                                            </span>{" "}
+                                            {formatCurrency(payment.amount)}
+                                          </div>
+                                        ),
+                                      )}
+                                    </div>
+                                  ) : (
+                                    <span className="text-xs">
+                                      {historySale.paymentMethod || "-"}
+                                    </span>
+                                  )}
+                                </td>
+
+                                <td className="px-3 py-3 font-medium text-red-600">
+                                  {formatCurrency(historySale.balance)}
+                                </td>
+
+                                <td className="px-3 py-3">
+                                  <span className="rounded-full bg-gray-100 px-2 py-1 text-xs font-medium">
+                                    {historySale.status}
+                                  </span>
+                                </td>
+                              </tr>
+                            ))}
+                        </tbody>
+                      </table>
+                    </div>
+                  )}
+              </>
+            )}
+          </div>
+        )}
+
+        {/* =================================================
+            EGG CATEGORIES
+        ================================================= */}
+
+        <div className="rounded-xl border bg-white p-4">
+          <div className="mb-4 flex flex-col gap-2 sm:flex-row sm:items-center sm:justify-between">
+            <div>
+              <h3 className="font-semibold text-gray-800">Egg Categories</h3>
+
+              <p className="text-xs text-gray-500">
+                Enter crates and loose eggs for each category.
+              </p>
+            </div>
+
+            <button
+              type="button"
+              onClick={addLineItem}
+              className="rounded-lg bg-green-600 px-4 py-2 text-sm font-medium text-white hover:bg-green-700"
+            >
+              + Add Category
+            </button>
+          </div>
+
+          <div className="space-y-3">
+            {lineItemsWithSubtotal.map((item, index) => (
+              <div key={index} className="rounded-xl border bg-gray-50 p-3">
+                <div className="grid grid-cols-1 gap-3 md:grid-cols-4">
+                  <div>
+                    <label className="mb-1 block text-xs font-medium text-gray-600">
+                      Egg Category
+                    </label>
+
+                    <select
+                      value={item.category}
+                      onChange={(event) =>
+                        updateLineItem(index, "category", event.target.value)
+                      }
+                      className="w-full rounded-lg border border-gray-300 bg-white px-3 py-2 text-sm outline-none focus:border-green-500"
+                    >
+                      {EGG_CATEGORIES.map((category) => {
+                        const alreadyUsed = lineItems.some(
+                          (line, lineIndex) =>
+                            lineIndex !== index &&
+                            line.category === category.value,
+                        );
+
+                        return (
+                          <option
+                            key={category.value}
+                            value={category.value}
+                            disabled={alreadyUsed}
+                          >
+                            {category.label} —{" "}
+                            {formatCurrency(
+                              EGG_CATEGORY_PRICES[category.value],
+                            )}{" "}
+                            / crate
+                          </option>
+                        );
+                      })}
+                    </select>
+                  </div>
+
+                  <div>
+                    <label className="mb-1 block text-xs font-medium text-gray-600">
+                      Crates
+                    </label>
+
+                    <input
+                      type="number"
+                      min="0"
+                      step="1"
+                      value={item.cratesSold}
+                      onChange={(event) =>
+                        updateLineItem(index, "cratesSold", event.target.value)
+                      }
+                      className="w-full rounded-lg border border-gray-300 bg-white px-3 py-2 text-sm outline-none focus:border-green-500"
+                    />
+                  </div>
+
+                  <div>
+                    <label className="mb-1 block text-xs font-medium text-gray-600">
+                      Loose Eggs
+                    </label>
+
+                    <input
+                      type="number"
+                      min="0"
+                      step="1"
+                      value={item.looseEggs}
+                      onChange={(event) =>
+                        updateLineItem(index, "looseEggs", event.target.value)
+                      }
+                      className="w-full rounded-lg border border-gray-300 bg-white px-3 py-2 text-sm outline-none focus:border-green-500"
+                    />
+                  </div>
+
+                  <div className="flex items-end gap-2">
+                    <div className="flex-1 rounded-lg bg-white px-3 py-2">
+                      <p className="text-xs text-gray-500">Subtotal</p>
+
+                      <p className="font-bold text-gray-800">
+                        {formatCurrency(item.subtotal)}
+                      </p>
+                    </div>
+
+                    <button
+                      type="button"
+                      onClick={() => removeLineItem(index)}
+                      disabled={lineItems.length === 1}
+                      className="rounded-lg border border-red-300 px-3 py-2 text-sm font-medium text-red-600 hover:bg-red-50 disabled:cursor-not-allowed disabled:opacity-40"
+                    >
+                      Remove
+                    </button>
+                  </div>
+                </div>
+              </div>
+            ))}
+          </div>
+        </div>
+
+        {/* =================================================
+            EXTRA CHARGES
+        ================================================= */}
+
+        <div className="rounded-xl border bg-white p-4">
+          <h3 className="mb-4 font-semibold text-gray-800">
+            Charges & Adjustments
+          </h3>
+
+          <div className="grid grid-cols-1 gap-4 md:grid-cols-3">
+            <div>
+              <label className="mb-1 block text-xs font-medium text-gray-600">
+                Discount
+              </label>
+
+              <input
+                type="number"
+                min="0"
+                step="0.01"
+                name="discount"
+                value={formData.discount}
+                onChange={handleChange}
+                placeholder="0"
+                className="w-full rounded-lg border border-gray-300 px-3 py-2 text-sm outline-none focus:border-green-500"
+              />
+            </div>
+
+            <div>
+              <label className="mb-1 block text-xs font-medium text-gray-600">
+                Transport Charge
+              </label>
+
+              <input
+                type="number"
+                min="0"
+                step="0.01"
+                name="transportCharge"
+                value={formData.transportCharge}
+                onChange={handleChange}
+                placeholder="0"
+                className="w-full rounded-lg border border-gray-300 px-3 py-2 text-sm outline-none focus:border-green-500"
+              />
+            </div>
+
+            <div>
+              <label className="mb-1 block text-xs font-medium text-gray-600">
+                Remarks
+              </label>
+
+              <input
+                type="text"
+                name="remarks"
+                value={formData.remarks}
+                onChange={handleChange}
+                placeholder="Optional remarks"
+                className="w-full rounded-lg border border-gray-300 px-3 py-2 text-sm outline-none focus:border-green-500"
+              />
+            </div>
+          </div>
+        </div>
+
+        {/* =================================================
+            SEGMENTED PAYMENTS
+        ================================================= */}
+
+        <div className="rounded-xl border bg-white p-4">
+          <div className="mb-4 flex flex-col gap-3 sm:flex-row sm:items-center sm:justify-between">
+            <div>
+              <h3 className="font-semibold text-gray-800">Payment Breakdown</h3>
+
+              <p className="mt-1 text-xs text-gray-500">
+                Customers can pay using Cash, Transfer, POS, or a combination of
+                methods.
+              </p>
+            </div>
+
+            <button
+              type="button"
+              onClick={addPaymentRow}
+              className="rounded-lg bg-blue-600 px-4 py-2 text-sm font-medium text-white hover:bg-blue-700"
+            >
+              + Add Payment
+            </button>
+          </div>
+
+          <div className="space-y-3">
+            {payments.map((payment, index) => (
+              <div
+                key={index}
+                className="grid grid-cols-1 gap-3 rounded-xl border bg-gray-50 p-3 md:grid-cols-[1fr_1fr_auto]"
+              >
+                <div>
+                  <label className="mb-1 block text-xs font-medium text-gray-600">
+                    Payment Method
+                  </label>
+
+                  <select
+                    value={payment.method}
+                    onChange={(event) =>
+                      handlePaymentChange(index, "method", event.target.value)
+                    }
+                    className="w-full rounded-lg border border-gray-300 bg-white px-3 py-2 text-sm outline-none focus:border-blue-500"
+                  >
+                    {PAYMENT_METHODS.map((method) => (
+                      <option key={method} value={method}>
+                        {method}
+                      </option>
+                    ))}
+                  </select>
+                </div>
+
+                <div>
+                  <label className="mb-1 block text-xs font-medium text-gray-600">
+                    Amount
+                  </label>
+
+                  <input
+                    type="number"
+                    min="0"
+                    step="0.01"
+                    value={payment.amount}
+                    onChange={(event) =>
+                      handlePaymentChange(index, "amount", event.target.value)
+                    }
+                    placeholder="0"
+                    className="w-full rounded-lg border border-gray-300 bg-white px-3 py-2 text-sm outline-none focus:border-blue-500"
+                  />
+                </div>
+
+                <div className="flex items-end">
+                  <button
+                    type="button"
+                    onClick={() => removePaymentRow(index)}
+                    disabled={payments.length === 1}
+                    className="w-full rounded-lg border border-red-300 px-4 py-2 text-sm font-medium text-red-600 hover:bg-red-50 disabled:cursor-not-allowed disabled:opacity-40 md:w-auto"
+                  >
+                    Remove
+                  </button>
+                </div>
+              </div>
+            ))}
+          </div>
+
+          {/* PAYMENT BREAKDOWN */}
+
+          <div className="mt-4 grid grid-cols-2 gap-3 md:grid-cols-4">
+            {paymentBreakdown.map((item) => (
+              <div key={item.method} className="rounded-lg bg-gray-50 p-3">
+                <p className="text-xs text-gray-500">{item.method}</p>
+
+                <p className="mt-1 font-bold text-gray-800">
+                  {formatCurrency(item.amount)}
+                </p>
+              </div>
+            ))}
+
+            <div className="rounded-lg bg-green-50 p-3">
+              <p className="text-xs text-green-700">Total Paid</p>
+
+              <p className="mt-1 font-bold text-green-800">
+                {formatCurrency(totalPayments)}
+              </p>
+            </div>
+          </div>
+
+          {totalPayments > grandTotal && (
+            <div className="mt-4 rounded-lg border border-red-200 bg-red-50 p-3 text-sm font-medium text-red-700">
+              Payment total of {formatCurrency(totalPayments)} cannot exceed the
+              sale total of {formatCurrency(grandTotal)}.
+            </div>
+          )}
+        </div>
+
+        {/* =================================================
+            TOTALS
+        ================================================= */}
+
+        <div className="grid grid-cols-1 gap-4 lg:grid-cols-2">
+          <div className="rounded-xl border bg-white p-4">
+            <h3 className="mb-4 font-semibold text-gray-800">Sale Summary</h3>
+
+            <div className="space-y-3">
+              <div className="flex justify-between text-sm">
+                <span className="text-gray-600">Eggs Subtotal</span>
+
+                <span className="font-medium">
+                  {formatCurrency(itemsTotal)}
+                </span>
+              </div>
+
+              <div className="flex justify-between text-sm">
+                <span className="text-gray-600">Transport</span>
+
+                <span className="font-medium">
+                  {formatCurrency(formData.transportCharge)}
+                </span>
+              </div>
+
+              <div className="flex justify-between text-sm">
+                <span className="text-gray-600">Discount</span>
+
+                <span className="font-medium text-red-600">
+                  -{formatCurrency(formData.discount)}
+                </span>
+              </div>
+
+              <div className="border-t pt-3">
+                <div className="flex justify-between">
+                  <span className="font-bold text-gray-800">Grand Total</span>
+
+                  <span className="text-xl font-bold text-gray-900">
+                    {formatCurrency(grandTotal)}
+                  </span>
+                </div>
+              </div>
+            </div>
+          </div>
+
+          <div className="rounded-xl border bg-white p-4">
+            <h3 className="mb-4 font-semibold text-gray-800">
+              Payment Summary
+            </h3>
+
+            <div className="space-y-3">
+              <div className="flex justify-between text-sm">
+                <span className="text-gray-600">Total Paid</span>
+
+                <span className="font-bold text-green-700">
+                  {formatCurrency(totalPayments)}
+                </span>
+              </div>
+
+              <div className="flex justify-between text-sm">
+                <span className="text-gray-600">Balance</span>
+
+                <span
+                  className={`font-bold ${
+                    balance > 0 ? "text-red-600" : "text-green-600"
+                  }`}
+                >
+                  {formatCurrency(balance)}
+                </span>
+              </div>
+
+              <div className="flex justify-between border-t pt-3">
+                <span className="font-semibold">Status</span>
+
+                <span
+                  className={`rounded-full px-3 py-1 text-xs font-bold ${
+                    paymentStatus === "Paid"
+                      ? "bg-green-100 text-green-700"
+                      : paymentStatus === "Part Paid"
+                        ? "bg-yellow-100 text-yellow-700"
+                        : "bg-red-100 text-red-700"
+                  }`}
+                >
+                  {paymentStatus}
+                </span>
+              </div>
+
+              {normalizedPayments.length > 1 && (
+                <div className="rounded-lg bg-blue-50 p-3 text-xs text-blue-700">
+                  Multiple payment methods will be saved as{" "}
+                  <strong>Mixed</strong> by the server.
+                </div>
+              )}
+            </div>
+          </div>
+        </div>
+
+        {/* =================================================
+            FORM BUTTONS
+        ================================================= */}
+
+        <div className="flex flex-col gap-3 sm:flex-row sm:justify-end">
+          {editingId && (
+            <button
+              type="button"
+              onClick={cancelEdit}
+              disabled={saving}
+              className="rounded-lg border border-gray-300 bg-white px-5 py-3 text-sm font-semibold text-gray-700 hover:bg-gray-100 disabled:opacity-50"
+            >
+              Cancel
+            </button>
+          )}
+
+          <button
+            type="submit"
+            disabled={saving || totalPayments > grandTotal}
+            className="rounded-lg bg-green-600 px-6 py-3 text-sm font-semibold text-white hover:bg-green-700 disabled:cursor-not-allowed disabled:opacity-50"
           >
-            <option value="All">All Payments</option>
-
-            <option value="Paid">Paid</option>
-
-            <option value="Part Paid">Part Paid</option>
-
-            <option value="Unpaid">Unpaid</option>
-          </select>
+            {saving
+              ? "Saving..."
+              : editingId
+                ? "Update Egg Sale"
+                : "Save Egg Sale"}
+          </button>
         </div>
-      </div>
-
-      {/* =================================================
-          QUICK SUMMARY
-      ================================================= */}
-
-      {isSuperadmin && (
-        <div className="grid md:grid-cols-4 gap-6 mb-8">
-          <div className="bg-green-100 rounded-xl p-5">
-            <h3 className="font-semibold text-green-700">Daily Sales</h3>
-
-            <p className="text-2xl font-bold mt-3">
-              ₦{dailySales.toLocaleString()}
-            </p>
-          </div>
-
-          <div className="bg-blue-100 rounded-xl p-5">
-            <h3 className="font-semibold text-blue-700">Weekly Sales</h3>
-
-            <p className="text-2xl font-bold mt-3">
-              ₦{weeklySales.toLocaleString()}
-            </p>
-          </div>
-
-          <div className="bg-yellow-100 rounded-xl p-5">
-            <h3 className="font-semibold text-yellow-700">Monthly Sales</h3>
-
-            <p className="text-2xl font-bold mt-3">
-              ₦{monthlySales.toLocaleString()}
-            </p>
-          </div>
-
-          <div className="bg-red-100 rounded-xl p-5">
-            <h3 className="font-semibold text-red-700">Outstanding Balance</h3>
-
-            <p className="text-2xl font-bold mt-3">
-              ₦{outstanding.toLocaleString()}
-            </p>
-          </div>
-        </div>
-      )}
+      </form>
 
       {/* =================================================
           CHARTS
       ================================================= */}
 
-      <div className="grid grid-cols-1 lg:grid-cols-2 gap-8 mb-10">
-        <div className="bg-white rounded-xl shadow p-6">
-          <h2 className="text-xl font-bold mb-6">Payment Status</h2>
+      <div className="grid grid-cols-1 gap-6 xl:grid-cols-2">
+        <div className="rounded-xl border bg-white p-4 shadow-sm">
+          <h2 className="mb-4 font-semibold text-gray-800">Payment Status</h2>
 
-          <div
-            style={{
-              width: "100%",
-              height: 350,
-            }}
-          >
-            <ResponsiveContainer>
-              <PieChart>
-                <Pie
-                  data={paymentChart}
-                  dataKey="value"
-                  nameKey="name"
-                  outerRadius={120}
-                  label
-                >
-                  {paymentChart.map((entry, index) => (
-                    <Cell key={index} fill={COLORS[index % COLORS.length]} />
-                  ))}
-                </Pie>
+          {paymentStatusData.length > 0 ? (
+            <div className="h-72">
+              <ResponsiveContainer width="100%" height="100%">
+                <PieChart>
+                  <Pie
+                    data={paymentStatusData}
+                    dataKey="value"
+                    nameKey="name"
+                    cx="50%"
+                    cy="50%"
+                    outerRadius={90}
+                    label
+                  >
+                    {paymentStatusData.map((entry, index) => (
+                      <Cell key={`${entry.name}-${index}`} />
+                    ))}
+                  </Pie>
 
-                <Tooltip />
+                  <Tooltip />
 
-                <Legend />
-              </PieChart>
-            </ResponsiveContainer>
-          </div>
+                  <Legend />
+                </PieChart>
+              </ResponsiveContainer>
+            </div>
+          ) : (
+            <div className="flex h-72 items-center justify-center text-sm text-gray-500">
+              No payment data yet.
+            </div>
+          )}
         </div>
 
-        <div className="bg-white rounded-xl shadow p-6">
-          <h2 className="text-xl font-bold mb-6">Revenue Overview</h2>
+        <div className="rounded-xl border bg-white p-4 shadow-sm">
+          <h2 className="mb-4 font-semibold text-gray-800">Recent Revenue</h2>
 
-          <div
-            style={{
-              width: "100%",
-              height: 350,
-            }}
-          >
-            <ResponsiveContainer>
-              <BarChart
-                data={[
-                  {
-                    name: "Revenue",
-                    amount: totalRevenue,
-                  },
-                  {
-                    name: "Received",
-                    amount: amountReceived,
-                  },
-                  {
-                    name: "Outstanding",
-                    amount: outstanding,
-                  },
-                ]}
-              >
-                <CartesianGrid strokeDasharray="3 3" />
+          {revenueChartData.length > 0 ? (
+            <div className="h-72">
+              <ResponsiveContainer width="100%" height="100%">
+                <BarChart data={revenueChartData}>
+                  <CartesianGrid strokeDasharray="3 3" />
 
-                <XAxis dataKey="name" />
+                  <XAxis dataKey="label" />
 
-                <YAxis />
+                  <YAxis />
 
-                <Tooltip />
+                  <Tooltip formatter={(value) => formatCurrency(value)} />
 
-                <Bar dataKey="amount" radius={[8, 8, 0, 0]} />
-              </BarChart>
-            </ResponsiveContainer>
-          </div>
+                  <Legend />
+
+                  <Bar dataKey="revenue" name="Revenue" />
+
+                  <Bar dataKey="paid" name="Paid" />
+                </BarChart>
+              </ResponsiveContainer>
+            </div>
+          ) : (
+            <div className="flex h-72 items-center justify-center text-sm text-gray-500">
+              No revenue data yet.
+            </div>
+          )}
         </div>
       </div>
 
       {/* =================================================
-          SALES ENTRY FORM
+          EGG CATEGORY SUMMARY
       ================================================= */}
 
-      <div className="bg-white rounded-xl shadow p-6 mb-10">
-        <h2 className="text-2xl font-bold mb-6">
-          {editingId ? "Edit Egg Sale" : "Record Egg Sale"}
+      <div className="rounded-xl border bg-white p-4 shadow-sm">
+        <h2 className="mb-4 font-semibold text-gray-800">
+          Crates Sold by Category
         </h2>
 
-        {editingId && (
-          <div className="flex items-center justify-between bg-blue-50 border border-blue-200 text-blue-700 rounded-lg px-4 py-3 mb-6">
-            <span className="font-semibold">
-              Editing this sale — update the fields below and save.
-            </span>
+        <div className="grid grid-cols-2 gap-3 md:grid-cols-5">
+          {EGG_CATEGORIES.map((category) => (
+            <div key={category.value} className="rounded-lg bg-gray-50 p-3">
+              <p className="text-xs text-gray-500">{category.label}</p>
 
-            <button
-              type="button"
-              onClick={cancelEdit}
-              className="text-blue-700 underline hover:no-underline"
-            >
-              Cancel edit
-            </button>
-          </div>
-        )}
+              <p className="mt-1 text-lg font-bold">
+                {Number(categoryTotals[category.value] || 0).toLocaleString()}
+              </p>
 
-        <form onSubmit={handleSubmit}>
-          {/* =================================================
-              CUSTOMER SECTION
-          ================================================= */}
+              <p className="text-xs text-gray-400">crates</p>
+            </div>
+          ))}
+        </div>
+      </div>
 
-          <div className="bg-green-50 border border-green-100 rounded-xl p-5 mb-6">
-            <div className="flex flex-col md:flex-row md:items-center md:justify-between gap-3 mb-4">
-              <div>
-                <h3 className="text-lg font-bold text-green-800">Customer</h3>
+      {/* =================================================
+          SALES LIST
+      ================================================= */}
 
-                <p className="text-sm text-gray-600">
-                  Search an existing customer or add a new one.
-                </p>
-              </div>
+      <div className="rounded-2xl border bg-white shadow-sm">
+        <div className="border-b p-4">
+          <div className="flex flex-col gap-4 xl:flex-row xl:items-center xl:justify-between">
+            <div>
+              <h2 className="font-semibold text-gray-800">Egg Sales Records</h2>
+
+              <p className="text-xs text-gray-500">
+                {filteredSales.length.toLocaleString()} record
+                {filteredSales.length === 1 ? "" : "s"} found
+              </p>
+            </div>
+
+            <div className="flex flex-col gap-2 md:flex-row">
+              <input
+                type="text"
+                value={search}
+                onChange={(event) => setSearch(event.target.value)}
+                placeholder="Search invoice, customer or phone..."
+                className="rounded-lg border border-gray-300 px-4 py-2 text-sm outline-none focus:border-green-500 md:w-72"
+              />
+
+              <select
+                value={statusFilter}
+                onChange={(event) => setStatusFilter(event.target.value)}
+                className="rounded-lg border border-gray-300 bg-white px-3 py-2 text-sm outline-none focus:border-green-500"
+              >
+                <option value="All">All Statuses</option>
+
+                <option value="Paid">Paid</option>
+
+                <option value="Part Paid">Part Paid</option>
+
+                <option value="Unpaid">Unpaid</option>
+              </select>
+
+              {isSuperadmin && (
+                <button
+                  type="button"
+                  onClick={() => setShowDeleted((previous) => !previous)}
+                  className={`rounded-lg px-4 py-2 text-sm font-medium ${
+                    showDeleted
+                      ? "bg-red-600 text-white"
+                      : "border border-gray-300 bg-white text-gray-700"
+                  }`}
+                >
+                  {showDeleted ? "Showing Deleted" : "Show Deleted"}
+                </button>
+              )}
 
               <button
                 type="button"
-                onClick={() => setShowQuickAddCustomer(true)}
-                className="bg-green-600 hover:bg-green-700 text-white px-4 py-2 rounded-lg font-semibold"
+                onClick={loadSales}
+                className="rounded-lg border border-gray-300 bg-white px-4 py-2 text-sm font-medium text-gray-700 hover:bg-gray-100"
               >
-                + New Customer
+                Refresh
               </button>
             </div>
+          </div>
+        </div>
 
-            {/* Customer Search */}
+        {loading ? (
+          <div className="p-10 text-center text-sm text-gray-500">
+            Loading egg sales...
+          </div>
+        ) : paginatedSales.length === 0 ? (
+          <div className="p-10 text-center text-sm text-gray-500">
+            No egg sales found.
+          </div>
+        ) : (
+          <>
+            <div className="overflow-x-auto">
+              <table className="min-w-[1500px] w-full text-sm">
+                <thead className="bg-gray-50">
+                  <tr className="text-left text-xs uppercase text-gray-500">
+                    <th className="px-4 py-3">Date</th>
 
-            <div className="relative">
-              <div className="flex gap-2">
-                <input
-                  type="text"
-                  placeholder="Search customer by name, phone or email..."
-                  value={customerSearch}
-                  onChange={handleCustomerSearchChange}
-                  onFocus={() => setShowCustomerDropdown(true)}
-                  className="border rounded-lg p-3 flex-1 bg-white"
-                />
+                    <th className="px-4 py-3">Invoice</th>
 
-                {selectedCustomer && (
-                  <button
-                    type="button"
-                    onClick={clearSelectedCustomer}
-                    className="bg-gray-200 hover:bg-gray-300 px-4 rounded-lg text-gray-700 font-semibold"
-                  >
-                    Clear
-                  </button>
-                )}
-              </div>
+                    <th className="px-4 py-3">Customer</th>
 
-              {showCustomerDropdown && (
-                <div className="absolute z-50 left-0 right-0 mt-1 bg-white border rounded-lg shadow-xl max-h-72 overflow-y-auto">
-                  {customerLoading ? (
-                    <div className="p-4 text-gray-500">
-                      Loading customers...
-                    </div>
-                  ) : filteredCustomerOptions.length > 0 ? (
-                    filteredCustomerOptions.map((customer) => (
-                      <button
-                        key={customer._id}
-                        type="button"
-                        onClick={() => selectCustomer(customer)}
-                        className="w-full text-left px-4 py-3 hover:bg-green-50 border-b last:border-b-0"
-                      >
-                        <div className="font-semibold text-gray-800">
-                          {customer.name}
-                        </div>
+                    <th className="px-4 py-3">Phone</th>
 
-                        <div className="text-sm text-gray-500 flex flex-wrap gap-3">
-                          {customer.phone && <span>{customer.phone}</span>}
+                    <th className="px-4 py-3">Categories</th>
 
-                          {customer.email && <span>{customer.email}</span>}
+                    <th className="px-4 py-3">Total</th>
 
-                          <span className="text-green-700">
-                            {customer.customerType}
+                    <th className="px-4 py-3">Paid</th>
+
+                    <th className="px-4 py-3">Balance</th>
+
+                    <th className="px-4 py-3">Status</th>
+
+                    <th className="px-4 py-3">Method</th>
+
+                    <th className="px-4 py-3">Payment Breakdown</th>
+
+                    {isSuperadmin && (
+                      <th className="px-4 py-3">Record Status</th>
+                    )}
+
+                    <th className="px-4 py-3">Actions</th>
+                  </tr>
+                </thead>
+
+                <tbody>
+                  {paginatedSales.map((sale) => (
+                    <tr
+                      key={sale._id}
+                      className="border-t align-top hover:bg-gray-50"
+                    >
+                      <td className="px-4 py-4 whitespace-nowrap">
+                        {formatDate(sale.date)}
+                      </td>
+
+                      <td className="px-4 py-4 whitespace-nowrap font-semibold">
+                        {sale.invoiceNumber}
+                      </td>
+
+                      <td className="px-4 py-4">
+                        <div className="font-medium">{sale.customer}</div>
+                      </td>
+
+                      <td className="px-4 py-4 whitespace-nowrap">
+                        {sale.phone || "-"}
+                      </td>
+
+                      <td className="px-4 py-4">
+                        {Array.isArray(sale.lineItems) &&
+                        sale.lineItems.length > 0 ? (
+                          <div className="space-y-1">
+                            {sale.lineItems.map((item, index) => (
+                              <div key={item._id || index} className="text-xs">
+                                <span className="font-semibold">
+                                  {EGG_CATEGORIES.find(
+                                    (category) =>
+                                      category.value === item.category,
+                                  )?.label || item.category}
+                                </span>
+                                :{" "}
+                                {Number(item.cratesSold || 0).toLocaleString()}{" "}
+                                crates
+                                {Number(item.looseEggs || 0) > 0
+                                  ? ` + ${Number(
+                                      item.looseEggs,
+                                    ).toLocaleString()} loose`
+                                  : ""}
+                              </div>
+                            ))}
+                          </div>
+                        ) : (
+                          <span className="text-xs text-gray-500">
+                            Legacy sale
                           </span>
-                        </div>
-                      </button>
-                    ))
-                  ) : (
-                    <div className="p-4 text-gray-500">
-                      No matching customer found.
-                    </div>
-                  )}
-                </div>
-              )}
-            </div>
+                        )}
+                      </td>
 
-            {/* Selected Customer */}
+                      <td className="px-4 py-4 whitespace-nowrap font-semibold">
+                        {formatCurrency(sale.totalAmount)}
+                      </td>
 
-            {selectedCustomer && (
-              <div className="mt-4 bg-white rounded-lg border p-4">
-                <div className="flex flex-col lg:flex-row lg:items-start lg:justify-between gap-4">
-                  <div>
-                    <p className="text-xs uppercase tracking-wide text-gray-400">
-                      Selected Customer
-                    </p>
+                      <td className="px-4 py-4 whitespace-nowrap font-semibold text-green-700">
+                        {formatCurrency(sale.amountPaid)}
+                      </td>
 
-                    <h4 className="text-xl font-bold text-green-700 mt-1">
-                      {selectedCustomer.name}
-                    </h4>
+                      <td className="px-4 py-4 whitespace-nowrap font-semibold text-red-600">
+                        {formatCurrency(sale.balance)}
+                      </td>
 
-                    <div className="mt-2 grid sm:grid-cols-2 lg:grid-cols-4 gap-3 text-sm">
-                      <div>
-                        <span className="text-gray-400">Phone</span>
+                      <td className="px-4 py-4">
+                        <span
+                          className={`rounded-full px-2.5 py-1 text-xs font-semibold ${
+                            sale.status === "Paid"
+                              ? "bg-green-100 text-green-700"
+                              : sale.status === "Part Paid"
+                                ? "bg-yellow-100 text-yellow-700"
+                                : "bg-red-100 text-red-700"
+                          }`}
+                        >
+                          {sale.status}
+                        </span>
+                      </td>
 
-                        <p className="font-medium">
-                          {selectedCustomer.phone || "-"}
-                        </p>
-                      </div>
+                      <td className="px-4 py-4 whitespace-nowrap">
+                        <span
+                          className={`rounded-full px-2.5 py-1 text-xs font-semibold ${
+                            sale.paymentMethod === "Mixed"
+                              ? "bg-blue-100 text-blue-700"
+                              : "bg-gray-100 text-gray-700"
+                          }`}
+                        >
+                          {sale.paymentMethod || "-"}
+                        </span>
+                      </td>
 
-                      <div>
-                        <span className="text-gray-400">Email</span>
+                      <td className="px-4 py-4">
+                        {Array.isArray(sale.payments) &&
+                        sale.payments.length > 0 ? (
+                          <div className="min-w-[150px] space-y-1">
+                            {sale.payments.map((payment, index) => (
+                              <div
+                                key={payment._id || index}
+                                className="whitespace-nowrap text-xs"
+                              >
+                                <span className="font-semibold">
+                                  {payment.method}:
+                                </span>{" "}
+                                {formatCurrency(payment.amount)}
+                              </div>
+                            ))}
+                          </div>
+                        ) : (
+                          <span className="text-xs text-gray-500">
+                            {sale.paymentMethod || "-"}
+                          </span>
+                        )}
+                      </td>
 
-                        <p className="font-medium break-all">
-                          {selectedCustomer.email || "-"}
-                        </p>
-                      </div>
-
-                      <div>
-                        <span className="text-gray-400">Type</span>
-
-                        <p className="font-medium">
-                          {selectedCustomer.customerType}
-                        </p>
-                      </div>
-
-                      <div>
-                        <span className="text-gray-400">Address</span>
-
-                        <p className="font-medium">
-                          {selectedCustomer.address || "-"}
-                        </p>
-                      </div>
-                    </div>
-                  </div>
-                </div>
-              </div>
-            )}
-
-            {/* Customer Name / Phone / Sale Date */}
-
-            <div className="grid grid-cols-1 md:grid-cols-3 gap-4 mt-4">
-              <div>
-                <label className="block text-sm font-semibold text-gray-600 mb-1">
-                  Customer Name
-                </label>
-
-                <input
-                  type="text"
-                  name="customer"
-                  placeholder="Customer Name"
-                  value={formData.customer}
-                  onChange={handleChange}
-                  readOnly={!!selectedCustomer}
-                  className={`border rounded-lg p-3 w-full ${
-                    selectedCustomer
-                      ? "bg-gray-100 cursor-not-allowed text-gray-600"
-                      : "bg-white"
-                  }`}
-                  required
-                />
-              </div>
-
-              <div>
-                <label className="block text-sm font-semibold text-gray-600 mb-1">
-                  Phone Number
-                </label>
-
-                <input
-                  type="text"
-                  name="phone"
-                  placeholder="Phone Number"
-                  value={formData.phone}
-                  onChange={handleChange}
-                  readOnly={!!selectedCustomer}
-                  className={`border rounded-lg p-3 w-full ${
-                    selectedCustomer
-                      ? "bg-gray-100 cursor-not-allowed text-gray-600"
-                      : "bg-white"
-                  }`}
-                />
-              </div>
-
-              <div>
-                <label className="block text-sm font-semibold text-gray-600 mb-1">
-                  Sale Date
-                </label>
-
-                <input
-                  type="date"
-                  name="date"
-                  value={formData.date}
-                  onChange={handleChange}
-                  className="border rounded-lg p-3 w-full bg-white"
-                  required
-                />
-              </div>
-            </div>
-
-            {/* Selected customer history */}
-
-            {selectedCustomer && (
-              <div className="mt-5 bg-gray-50 rounded-xl border p-5">
-                <div className="flex flex-col md:flex-row md:items-center md:justify-between mb-4">
-                  <div>
-                    <h3 className="font-bold text-lg">
-                      Customer Purchase History
-                    </h3>
-
-                    <p className="text-sm text-gray-500">
-                      Previous egg purchases linked to this customer.
-                    </p>
-                  </div>
-
-                  {historyLoading && (
-                    <span className="text-sm text-gray-500 mt-2 md:mt-0">
-                      Loading history...
-                    </span>
-                  )}
-                </div>
-
-                {!historyLoading && customerHistory && (
-                  <>
-                    <div className="grid grid-cols-2 md:grid-cols-5 gap-3 mb-5">
-                      <div className="bg-white rounded-lg p-3">
-                        <p className="text-xs text-gray-500">Transactions</p>
-
-                        <p className="text-xl font-bold">
-                          {Number(
-                            customerHistory?.summary?.transactionCount || 0,
-                          )}
-                        </p>
-                      </div>
-
-                      <div className="bg-white rounded-lg p-3">
-                        <p className="text-xs text-gray-500">Purchases</p>
-
-                        <p className="text-xl font-bold text-green-700">
-                          ₦
-                          {Number(
-                            customerHistory?.summary?.totalPurchases || 0,
-                          ).toLocaleString()}
-                        </p>
-                      </div>
-
-                      <div className="bg-white rounded-lg p-3">
-                        <p className="text-xs text-gray-500">Paid</p>
-
-                        <p className="text-xl font-bold text-blue-700">
-                          ₦
-                          {Number(
-                            customerHistory?.summary?.totalPaid || 0,
-                          ).toLocaleString()}
-                        </p>
-                      </div>
-
-                      <div className="bg-white rounded-lg p-3">
-                        <p className="text-xs text-gray-500">Outstanding</p>
-
-                        <p className="text-xl font-bold text-red-600">
-                          ₦
-                          {Number(
-                            customerHistory?.summary?.totalOutstanding || 0,
-                          ).toLocaleString()}
-                        </p>
-                      </div>
-
-                      <div className="bg-white rounded-lg p-3">
-                        <p className="text-xs text-gray-500">Crates</p>
-
-                        <p className="text-xl font-bold text-purple-700">
-                          {Number(customerHistory?.summary?.totalCrates || 0)}
-                        </p>
-                      </div>
-                    </div>
-
-                    {Array.isArray(customerHistory.sales) &&
-                      customerHistory.sales.length > 0 && (
-                        <div className="overflow-x-auto">
-                          <table className="min-w-full text-sm">
-                            <thead>
-                              <tr className="border-b">
-                                <th className="p-2 text-left">Date</th>
-
-                                <th className="p-2 text-left">Invoice</th>
-
-                                <th className="p-2 text-right">Total</th>
-
-                                <th className="p-2 text-right">Paid</th>
-
-                                <th className="p-2 text-right">Balance</th>
-
-                                <th className="p-2 text-center">Status</th>
-                              </tr>
-                            </thead>
-
-                            <tbody>
-                              {customerHistory.sales
-                                .slice(0, 10)
-                                .map((historySale) => (
-                                  <tr
-                                    key={historySale._id}
-                                    className="border-b last:border-b-0"
-                                  >
-                                    <td className="p-2">
-                                      {historySale.date
-                                        ? new Date(
-                                            historySale.date,
-                                          ).toLocaleDateString()
-                                        : "-"}
-                                    </td>
-
-                                    <td className="p-2 font-medium">
-                                      {historySale.invoiceNumber}
-                                    </td>
-
-                                    <td className="p-2 text-right">
-                                      ₦
-                                      {Number(
-                                        historySale.totalAmount || 0,
-                                      ).toLocaleString()}
-                                    </td>
-
-                                    <td className="p-2 text-right">
-                                      ₦
-                                      {Number(
-                                        historySale.amountPaid || 0,
-                                      ).toLocaleString()}
-                                    </td>
-
-                                    <td className="p-2 text-right text-red-600">
-                                      ₦
-                                      {Number(
-                                        historySale.balance || 0,
-                                      ).toLocaleString()}
-                                    </td>
-
-                                    <td className="p-2 text-center">
-                                      <span
-                                        className={`px-2 py-1 rounded-full text-xs font-semibold ${
-                                          historySale.status === "Paid"
-                                            ? "bg-green-100 text-green-700"
-                                            : historySale.status === "Part Paid"
-                                              ? "bg-yellow-100 text-yellow-700"
-                                              : "bg-red-100 text-red-700"
-                                        }`}
-                                      >
-                                        {historySale.status}
-                                      </span>
-                                    </td>
-                                  </tr>
-                                ))}
-                            </tbody>
-                          </table>
-                        </div>
+                      {isSuperadmin && (
+                        <td className="px-4 py-4">
+                          <span
+                            className={`rounded-full px-2.5 py-1 text-xs font-semibold ${
+                              sale.isDeleted
+                                ? "bg-red-100 text-red-700"
+                                : "bg-green-100 text-green-700"
+                            }`}
+                          >
+                            {sale.isDeleted ? "Deleted" : "Active"}
+                          </span>
+                        </td>
                       )}
 
-                    {(!customerHistory.sales ||
-                      customerHistory.sales.length === 0) && (
-                      <p className="text-sm text-gray-500">
-                        No previous purchases are linked to this customer.
-                      </p>
-                    )}
-                  </>
-                )}
-              </div>
-            )}
-          </div>
+                      <td className="px-4 py-4">
+                        <div className="flex flex-wrap gap-2">
+                          <button
+                            type="button"
+                            onClick={() => handleInvoice(sale)}
+                            className="rounded-lg border border-blue-300 px-3 py-1.5 text-xs font-medium text-blue-600 hover:bg-blue-50"
+                          >
+                            Invoice
+                          </button>
 
-          {/* =================================================
-              PAYMENT / SALE FIELDS
-          ================================================= */}
+                          {!sale.isDeleted && (
+                            <>
+                              <button
+                                type="button"
+                                onClick={() => startEdit(sale)}
+                                className="rounded-lg border border-green-300 px-3 py-1.5 text-xs font-medium text-green-600 hover:bg-green-50"
+                              >
+                                Edit
+                              </button>
 
-          <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-4 gap-4 mb-6">
-            <select
-              name="paymentMethod"
-              value={formData.paymentMethod}
-              onChange={handleChange}
-              className="border rounded-lg p-3"
-            >
-              <option>Cash</option>
+                              <button
+                                type="button"
+                                onClick={() => handleDelete(sale)}
+                                className="rounded-lg border border-red-300 px-3 py-1.5 text-xs font-medium text-red-600 hover:bg-red-50"
+                              >
+                                Delete
+                              </button>
+                            </>
+                          )}
 
-              <option>Transfer</option>
-
-              <option>POS</option>
-            </select>
-          </div>
-
-          {/* =================================================
-              EGG CATEGORY LINE ITEMS
-          ================================================= */}
-
-          <div className="mb-6">
-            <div className="flex items-center justify-between mb-3">
-              <h3 className="font-semibold text-lg">Egg Categories</h3>
-
-              <button
-                type="button"
-                onClick={addLineItemRow}
-                className="bg-green-600 hover:bg-green-700 text-white px-4 py-2 rounded-lg text-sm font-semibold"
-              >
-                + Add Category
-              </button>
+                          {isSuperadmin && sale.isDeleted && (
+                            <button
+                              type="button"
+                              onClick={() => handleRestore(sale)}
+                              className="rounded-lg border border-green-300 px-3 py-1.5 text-xs font-medium text-green-600 hover:bg-green-50"
+                            >
+                              Restore
+                            </button>
+                          )}
+                        </div>
+                      </td>
+                    </tr>
+                  ))}
+                </tbody>
+              </table>
             </div>
 
-            <div className="space-y-3">
-              {lineItemsWithSubtotal.map((item, index) => (
-                <div
-                  key={index}
-                  className="grid grid-cols-1 md:grid-cols-6 gap-3 items-center bg-gray-50 rounded-lg p-3"
+            {/* =================================================
+                PAGINATION
+            ================================================= */}
+
+            <div className="flex flex-col gap-3 border-t p-4 sm:flex-row sm:items-center sm:justify-between">
+              <p className="text-sm text-gray-500">
+                Showing{" "}
+                {filteredSales.length === 0
+                  ? 0
+                  : (currentPage - 1) * PAGE_SIZE + 1}{" "}
+                to {Math.min(currentPage * PAGE_SIZE, filteredSales.length)} of{" "}
+                {filteredSales.length}
+              </p>
+
+              <div className="flex items-center gap-2">
+                <button
+                  type="button"
+                  disabled={currentPage === 1}
+                  onClick={() =>
+                    setCurrentPage((previous) => Math.max(1, previous - 1))
+                  }
+                  className="rounded-lg border border-gray-300 px-3 py-2 text-sm disabled:cursor-not-allowed disabled:opacity-40"
                 >
-                  <select
-                    value={item.category}
-                    onChange={(e) =>
-                      handleLineItemChange(index, "category", e.target.value)
-                    }
-                    className="border rounded-lg p-3"
-                  >
-                    {Object.keys(EGG_CATEGORY_PRICES).map((cat) => (
-                      <option key={cat} value={cat}>
-                        {EGG_CATEGORY_LABELS[cat]} (₦
-                        {EGG_CATEGORY_PRICES[cat].toLocaleString()}
-                        /crate)
-                      </option>
-                    ))}
-                  </select>
+                  Previous
+                </button>
 
-                  <input
-                    type="number"
-                    min="0"
-                    placeholder="Crates"
-                    value={item.cratesSold}
-                    onChange={(e) =>
-                      handleLineItemChange(index, "cratesSold", e.target.value)
-                    }
-                    className="border rounded-lg p-3"
-                  />
+                <span className="px-2 text-sm text-gray-600">
+                  Page {currentPage} of {totalPages}
+                </span>
 
-                  <input
-                    type="number"
-                    min="0"
-                    placeholder="Loose Eggs"
-                    value={item.looseEggs}
-                    onChange={(e) =>
-                      handleLineItemChange(index, "looseEggs", e.target.value)
-                    }
-                    className="border rounded-lg p-3"
-                  />
-
-                  <div className="text-sm text-gray-500">
-                    ₦{item.cratePrice.toLocaleString()}
-                    /crate · ₦{item.eggPrice}
-                    /egg
-                  </div>
-
-                  <div className="font-bold text-green-700">
-                    ₦{item.subtotal.toLocaleString()}
-                  </div>
-
-                  <button
-                    type="button"
-                    onClick={() => removeLineItemRow(index)}
-                    disabled={lineItems.length === 1}
-                    className="bg-red-100 hover:bg-red-200 disabled:opacity-40 disabled:cursor-not-allowed text-red-700 px-3 py-2 rounded-lg text-sm font-semibold"
-                  >
-                    Remove
-                  </button>
-                </div>
-              ))}
-            </div>
-          </div>
-
-          {/* =================================================
-              DISCOUNT / TRANSPORT / PAID / REMARKS
-          ================================================= */}
-
-          <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-4 gap-4 mb-6">
-            <input
-              type="number"
-              min="0"
-              name="discount"
-              placeholder="Discount"
-              value={formData.discount}
-              onChange={handleChange}
-              className="border rounded-lg p-3"
-            />
-
-            <input
-              type="number"
-              min="0"
-              name="transportCharge"
-              placeholder="Transport Charge"
-              value={formData.transportCharge}
-              onChange={handleChange}
-              className="border rounded-lg p-3"
-            />
-
-            <input
-              type="number"
-              min="0"
-              name="amountPaid"
-              placeholder="Amount Paid"
-              value={formData.amountPaid}
-              onChange={handleChange}
-              className="border rounded-lg p-3"
-            />
-
-            <textarea
-              name="remarks"
-              placeholder="Remarks"
-              value={formData.remarks}
-              onChange={handleChange}
-              className="border rounded-lg p-3"
-            />
-          </div>
-
-          {/* =================================================
-              LIVE TOTALS
-          ================================================= */}
-
-          <div className="bg-gray-50 rounded-xl p-5 mb-6">
-            <div className="grid md:grid-cols-4 gap-4">
-              <div>
-                <p className="text-gray-500">Items Total</p>
-
-                <p className="font-bold text-lg">
-                  ₦{itemsTotal.toLocaleString()}
-                </p>
-              </div>
-
-              <div>
-                <p className="text-gray-500">Grand Total</p>
-
-                <p className="font-bold text-green-700 text-lg">
-                  ₦{grandTotal.toLocaleString()}
-                </p>
-              </div>
-
-              <div>
-                <p className="text-gray-500">Balance</p>
-
-                <p className="font-bold text-red-600 text-lg">
-                  ₦{Math.max(0, balance).toLocaleString()}
-                </p>
-              </div>
-
-              <div>
-                <p className="text-gray-500">Status</p>
-
-                <p className="font-bold text-blue-700 text-lg">
-                  {paymentStatus}
-                </p>
+                <button
+                  type="button"
+                  disabled={currentPage >= totalPages}
+                  onClick={() =>
+                    setCurrentPage((previous) =>
+                      Math.min(totalPages, previous + 1),
+                    )
+                  }
+                  className="rounded-lg border border-gray-300 px-3 py-2 text-sm disabled:cursor-not-allowed disabled:opacity-40"
+                >
+                  Next
+                </button>
               </div>
             </div>
-          </div>
-
-          {/* =================================================
-              SAVE BUTTONS
-          ================================================= */}
-
-          <div className="flex gap-3">
-            <button
-              type="submit"
-              disabled={saving}
-              className="bg-green-600 hover:bg-green-700 text-white px-8 py-3 rounded-lg font-semibold disabled:opacity-60"
-            >
-              {saving
-                ? editingId
-                  ? "Updating..."
-                  : "Saving..."
-                : editingId
-                  ? "Update Sale"
-                  : "Save Sale"}
-            </button>
-
-            {editingId && (
-              <button
-                type="button"
-                onClick={cancelEdit}
-                disabled={saving}
-                className="bg-gray-200 hover:bg-gray-300 text-gray-700 px-8 py-3 rounded-lg font-semibold disabled:opacity-60"
-              >
-                Cancel
-              </button>
-            )}
-          </div>
-        </form>
+          </>
+        )}
       </div>
+
+      {/* =================================================
+          SUPERADMIN SUMMARY
+      ================================================= */}
+
+      {isSuperadmin && (
+        <div className="rounded-xl border bg-white p-4 shadow-sm">
+          <h2 className="font-semibold text-gray-800">Sales Summary</h2>
+
+          <div className="mt-4 grid grid-cols-2 gap-4 md:grid-cols-4">
+            <div className="rounded-lg bg-green-50 p-4">
+              <p className="text-xs text-green-700">Paid</p>
+
+              <p className="mt-1 text-2xl font-bold text-green-800">
+                {paidCount}
+              </p>
+            </div>
+
+            <div className="rounded-lg bg-yellow-50 p-4">
+              <p className="text-xs text-yellow-700">Part Paid</p>
+
+              <p className="mt-1 text-2xl font-bold text-yellow-800">
+                {partPaidCount}
+              </p>
+            </div>
+
+            <div className="rounded-lg bg-red-50 p-4">
+              <p className="text-xs text-red-700">Unpaid</p>
+
+              <p className="mt-1 text-2xl font-bold text-red-800">
+                {unpaidCount}
+              </p>
+            </div>
+
+            <div className="rounded-lg bg-gray-50 p-4">
+              <p className="text-xs text-gray-600">Deleted Records</p>
+
+              <p className="mt-1 text-2xl font-bold text-gray-800">
+                {sales.filter((sale) => sale.isDeleted).length}
+              </p>
+            </div>
+          </div>
+        </div>
+      )}
 
       {/* =================================================
           QUICK ADD CUSTOMER MODAL
       ================================================= */}
 
       {showQuickAddCustomer && (
-        <div className="fixed inset-0 z-[100] flex items-center justify-center bg-black/50 p-4">
-          <div className="bg-white rounded-2xl shadow-2xl w-full max-w-2xl max-h-[90vh] overflow-y-auto">
-            <div className="flex items-center justify-between px-6 py-5 border-b">
+        <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/50 p-4">
+          <div className="w-full max-w-lg rounded-2xl bg-white p-6 shadow-2xl">
+            <div className="mb-5 flex items-center justify-between">
               <div>
-                <h2 className="text-2xl font-bold text-green-700">
+                <h2 className="text-lg font-bold text-gray-800">
                   Add New Customer
                 </h2>
 
-                <p className="text-sm text-gray-500 mt-1">
-                  The new customer will automatically be selected for this sale.
+                <p className="text-sm text-gray-500">
+                  The new customer will be automatically selected for this sale.
                 </p>
               </div>
 
               <button
                 type="button"
                 onClick={() => setShowQuickAddCustomer(false)}
-                className="text-gray-500 hover:text-gray-800 text-2xl"
+                className="rounded-lg px-3 py-2 text-gray-500 hover:bg-gray-100"
               >
-                ×
+                ✕
               </button>
             </div>
 
-            <form onSubmit={handleQuickAddCustomer} className="p-6">
-              <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
-                <div>
-                  <label className="block text-sm font-semibold text-gray-600 mb-1">
-                    Customer Name *
-                  </label>
+            <form onSubmit={handleCreateCustomer} className="space-y-4">
+              <div>
+                <label className="mb-1 block text-xs font-medium text-gray-600">
+                  Name
+                </label>
 
-                  <input
-                    type="text"
-                    name="name"
-                    value={newCustomer.name}
-                    onChange={handleNewCustomerChange}
-                    className="border rounded-lg p-3 w-full"
-                    required
-                    autoFocus
-                  />
-                </div>
+                <input
+                  name="name"
+                  value={newCustomer.name}
+                  onChange={handleNewCustomerChange}
+                  required
+                  autoFocus
+                  className="w-full rounded-lg border border-gray-300 px-3 py-2 text-sm outline-none focus:border-green-500"
+                />
+              </div>
 
+              <div className="grid grid-cols-1 gap-4 md:grid-cols-2">
                 <div>
-                  <label className="block text-sm font-semibold text-gray-600 mb-1">
+                  <label className="mb-1 block text-xs font-medium text-gray-600">
                     Phone
                   </label>
 
                   <input
-                    type="text"
                     name="phone"
                     value={newCustomer.phone}
                     onChange={handleNewCustomerChange}
-                    className="border rounded-lg p-3 w-full"
+                    className="w-full rounded-lg border border-gray-300 px-3 py-2 text-sm outline-none focus:border-green-500"
                   />
                 </div>
 
                 <div>
-                  <label className="block text-sm font-semibold text-gray-600 mb-1">
-                    Customer Type
-                  </label>
-
-                  <select
-                    name="customerType"
-                    value={newCustomer.customerType}
-                    onChange={handleNewCustomerChange}
-                    className="border rounded-lg p-3 w-full"
-                  >
-                    <option>Individual</option>
-                    <option>Supermarket</option>
-                    <option>Restaurant</option>
-                    <option>Hotel</option>
-                    <option>Wholesaler</option>
-                    <option>Retailer</option>
-                    <option>Distributor</option>
-                    <option>Other</option>
-                  </select>
-                </div>
-
-                <div>
-                  <label className="block text-sm font-semibold text-gray-600 mb-1">
+                  <label className="mb-1 block text-xs font-medium text-gray-600">
                     Email
                   </label>
 
@@ -1789,45 +2491,74 @@ export default function EggSales() {
                     name="email"
                     value={newCustomer.email}
                     onChange={handleNewCustomerChange}
-                    className="border rounded-lg p-3 w-full"
-                  />
-                </div>
-
-                <div className="md:col-span-2">
-                  <label className="block text-sm font-semibold text-gray-600 mb-1">
-                    Address
-                  </label>
-
-                  <input
-                    type="text"
-                    name="address"
-                    value={newCustomer.address}
-                    onChange={handleNewCustomerChange}
-                    className="border rounded-lg p-3 w-full"
-                  />
-                </div>
-
-                <div className="md:col-span-2">
-                  <label className="block text-sm font-semibold text-gray-600 mb-1">
-                    Notes
-                  </label>
-
-                  <textarea
-                    name="notes"
-                    value={newCustomer.notes}
-                    onChange={handleNewCustomerChange}
-                    className="border rounded-lg p-3 w-full"
-                    rows="3"
+                    className="w-full rounded-lg border border-gray-300 px-3 py-2 text-sm outline-none focus:border-green-500"
                   />
                 </div>
               </div>
 
-              <div className="flex justify-end gap-3 mt-6">
+              <div>
+                <label className="mb-1 block text-xs font-medium text-gray-600">
+                  Address
+                </label>
+
+                <textarea
+                  name="address"
+                  value={newCustomer.address}
+                  onChange={handleNewCustomerChange}
+                  rows={2}
+                  className="w-full rounded-lg border border-gray-300 px-3 py-2 text-sm outline-none focus:border-green-500"
+                />
+              </div>
+
+              <div>
+                <label className="mb-1 block text-xs font-medium text-gray-600">
+                  Customer Type
+                </label>
+
+                <select
+                  name="customerType"
+                  value={newCustomer.customerType}
+                  onChange={handleNewCustomerChange}
+                  className="w-full rounded-lg border border-gray-300 bg-white px-3 py-2 text-sm outline-none focus:border-green-500"
+                >
+                  <option value="Individual">Individual</option>
+
+                  <option value="Supermarket">Supermarket</option>
+
+                  <option value="Restaurant">Restaurant</option>
+
+                  <option value="Hotel">Hotel</option>
+
+                  <option value="Wholesaler">Wholesaler</option>
+
+                  <option value="Retailer">Retailer</option>
+
+                  <option value="Distributor">Distributor</option>
+
+                  <option value="Other">Other</option>
+                </select>
+              </div>
+
+              <div>
+                <label className="mb-1 block text-xs font-medium text-gray-600">
+                  Notes
+                </label>
+
+                <textarea
+                  name="notes"
+                  value={newCustomer.notes}
+                  onChange={handleNewCustomerChange}
+                  rows={2}
+                  className="w-full rounded-lg border border-gray-300 px-3 py-2 text-sm outline-none focus:border-green-500"
+                />
+              </div>
+
+              <div className="flex justify-end gap-3 pt-2">
                 <button
                   type="button"
                   onClick={() => setShowQuickAddCustomer(false)}
                   disabled={savingCustomer}
-                  className="bg-gray-200 hover:bg-gray-300 text-gray-700 px-6 py-3 rounded-lg font-semibold"
+                  className="rounded-lg border border-gray-300 px-4 py-2 text-sm font-medium text-gray-700 hover:bg-gray-100"
                 >
                   Cancel
                 </button>
@@ -1835,9 +2566,9 @@ export default function EggSales() {
                 <button
                   type="submit"
                   disabled={savingCustomer}
-                  className="bg-green-600 hover:bg-green-700 text-white px-6 py-3 rounded-lg font-semibold disabled:opacity-60"
+                  className="rounded-lg bg-green-600 px-5 py-2 text-sm font-semibold text-white hover:bg-green-700 disabled:opacity-50"
                 >
-                  {savingCustomer ? "Saving..." : "Save & Select Customer"}
+                  {savingCustomer ? "Creating..." : "Create Customer"}
                 </button>
               </div>
             </form>
@@ -1846,252 +2577,18 @@ export default function EggSales() {
       )}
 
       {/* =================================================
-          SALES TABLE
+          INVOICE MODAL
       ================================================= */}
 
-      <div className="bg-white rounded-xl shadow p-6 mb-10">
-        <div className="flex flex-col md:flex-row md:items-center md:justify-between mb-6">
-          <h2 className="text-2xl font-bold">Sales Records</h2>
-
-          <span className="text-gray-500">
-            {filteredSales.length} Record(s)
-          </span>
-        </div>
-
-        <div className="overflow-x-auto">
-          <table className="min-w-full border-collapse">
-            <thead>
-              <tr className="bg-green-600 text-white">
-                <th className="p-3 text-left">Date</th>
-
-                <th className="p-3 text-left">Customer</th>
-
-                <th className="p-3 text-left">Phone</th>
-
-                <th className="p-3 text-left">Categories</th>
-
-                <th className="p-3 text-right">Total</th>
-
-                <th className="p-3 text-right">Paid</th>
-
-                <th className="p-3 text-right">Balance</th>
-
-                <th className="p-3 text-center">Status</th>
-
-                <th className="p-3 text-center">Method</th>
-
-                {isSuperadmin && (
-                  <th className="p-3 text-center">Record Status</th>
-                )}
-
-                <th className="p-3 text-center">Actions</th>
-              </tr>
-            </thead>
-
-            <tbody>
-              {filteredSales.length === 0 ? (
-                <tr>
-                  <td
-                    colSpan={isSuperadmin ? 11 : 10}
-                    className="text-center py-12 text-gray-500"
-                  >
-                    No sales found.
-                  </td>
-                </tr>
-              ) : (
-                filteredSales.map((sale) => (
-                  <tr
-                    key={sale._id}
-                    className={`border-b hover:bg-gray-50 ${
-                      sale.isDeleted
-                        ? "bg-red-50"
-                        : sale._id === editingId
-                          ? "bg-blue-50"
-                          : ""
-                    }`}
-                  >
-                    <td className="p-3">
-                      {sale.date
-                        ? new Date(sale.date).toLocaleDateString()
-                        : "-"}
-                    </td>
-
-                    <td className="p-3 font-medium">{sale.customer}</td>
-
-                    <td className="p-3">{sale.phone || "-"}</td>
-
-                    <td className="p-3 text-sm">
-                      {(sale.lineItems || [])
-                        .map(
-                          (item) =>
-                            `${
-                              EGG_CATEGORY_LABELS[item.category] ||
-                              item.category
-                            } (${item.cratesSold || 0}c${
-                              item.looseEggs ? ` +${item.looseEggs}` : ""
-                            })`,
-                        )
-                        .join(", ") || "-"}
-                    </td>
-
-                    <td className="p-3 text-right font-semibold text-green-700">
-                      ₦{Number(sale.totalAmount || 0).toLocaleString()}
-                    </td>
-
-                    <td className="p-3 text-right">
-                      ₦{Number(sale.amountPaid || 0).toLocaleString()}
-                    </td>
-
-                    <td className="p-3 text-right text-red-600">
-                      ₦{Number(sale.balance || 0).toLocaleString()}
-                    </td>
-
-                    <td className="p-3 text-center">
-                      <span
-                        className={`px-3 py-1 rounded-full text-xs font-semibold ${
-                          sale.status === "Paid"
-                            ? "bg-green-100 text-green-700"
-                            : sale.status === "Part Paid"
-                              ? "bg-yellow-100 text-yellow-700"
-                              : "bg-red-100 text-red-700"
-                        }`}
-                      >
-                        {sale.status}
-                      </span>
-                    </td>
-
-                    <td className="p-3 text-center">{sale.paymentMethod}</td>
-
-                    {isSuperadmin && (
-                      <td className="p-3 text-center">
-                        {sale.isDeleted ? (
-                          <div className="text-xs">
-                            <span className="inline-block bg-red-100 text-red-700 font-semibold px-2 py-1 rounded-full mb-1">
-                              Deleted
-                            </span>
-
-                            <div className="text-gray-500 capitalize">
-                              by {sale.deletedBy?.role || "Unknown"}
-                              {sale.deletedAt &&
-                                ` on ${new Date(
-                                  sale.deletedAt,
-                                ).toLocaleDateString()}`}
-                            </div>
-                          </div>
-                        ) : (
-                          <span className="inline-block bg-green-100 text-green-700 font-semibold px-2 py-1 rounded-full text-xs">
-                            Active
-                          </span>
-                        )}
-                      </td>
-                    )}
-
-                    <td className="p-3 space-x-2">
-                      {sale.isDeleted ? (
-                        isSuperadmin && (
-                          <button
-                            onClick={() => handleRestore(sale._id)}
-                            className="bg-green-600 hover:bg-green-700 text-white px-3 py-1 rounded"
-                          >
-                            Restore
-                          </button>
-                        )
-                      ) : (
-                        <>
-                          <button
-                            onClick={() => startEdit(sale)}
-                            className="bg-blue-600 hover:bg-blue-700 text-white px-3 py-1 rounded"
-                          >
-                            Edit
-                          </button>
-
-                          <button
-                            onClick={() => openInvoice(sale)}
-                            className="bg-green-600 hover:bg-green-700 text-white px-3 py-1 rounded"
-                          >
-                            Invoice
-                          </button>
-
-                          <button
-                            onClick={() => handleDelete(sale._id)}
-                            className="bg-red-600 hover:bg-red-700 text-white px-3 py-1 rounded"
-                          >
-                            Delete
-                          </button>
-                        </>
-                      )}
-                    </td>
-                  </tr>
-                ))
-              )}
-            </tbody>
-          </table>
-        </div>
-      </div>
-
-      {/* =================================================
-          SALES SUMMARY
-      ================================================= */}
-
-      {isSuperadmin && (
-        <div className="bg-white rounded-xl shadow p-6 mb-10">
-          <h2 className="text-2xl font-bold mb-6">Sales Summary</h2>
-
-          <div className="grid md:grid-cols-4 gap-6">
-            <div className="bg-green-50 rounded-lg p-5">
-              <p className="text-gray-500">Revenue</p>
-
-              <h3 className="text-2xl font-bold text-green-700 mt-2">
-                ₦{totalRevenue.toLocaleString()}
-              </h3>
-            </div>
-
-            <div className="bg-blue-50 rounded-lg p-5">
-              <p className="text-gray-500">Amount Received</p>
-
-              <h3 className="text-2xl font-bold text-blue-700 mt-2">
-                ₦{amountReceived.toLocaleString()}
-              </h3>
-            </div>
-
-            <div className="bg-yellow-50 rounded-lg p-5">
-              <p className="text-gray-500">Outstanding</p>
-
-              <h3 className="text-2xl font-bold text-yellow-600 mt-2">
-                ₦{outstanding.toLocaleString()}
-              </h3>
-            </div>
-
-            <div className="bg-purple-50 rounded-lg p-5">
-              <p className="text-gray-500">Crates Sold</p>
-
-              <h3 className="text-2xl font-bold text-purple-700 mt-2">
-                {totalCrates}
-              </h3>
-            </div>
-          </div>
-        </div>
+      {showInvoice && selectedSale && (
+        <InvoiceModal
+          sale={selectedSale}
+          onClose={() => {
+            setShowInvoice(false);
+            setSelectedSale(null);
+          }}
+        />
       )}
-
-      {/* =================================================
-          FOOTER
-      ================================================= */}
-
-      <div className="text-center text-gray-500 text-sm py-6 border-t">
-        <p>Egg Sales Management System</p>
-
-        <p className="mt-1">Built for efficient poultry farm sales tracking.</p>
-      </div>
-
-      {/* =================================================
-          INVOICE
-      ================================================= */}
-
-      <InvoiceModal
-        open={showInvoice}
-        sale={selectedSale}
-        onClose={closeInvoice}
-      />
     </div>
   );
 }
