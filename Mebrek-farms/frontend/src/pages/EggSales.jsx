@@ -40,29 +40,20 @@ const EGG_CATEGORY_PRICES = {
 };
 
 const EGG_CATEGORIES = [
-  {
-    value: "big",
-    label: "Big",
-  },
-  {
-    value: "jumbo",
-    label: "Jumbo",
-  },
-  {
-    value: "turkey",
-    label: "Turkey Egg",
-  },
-  {
-    value: "normal",
-    label: "Normal",
-  },
-  {
-    value: "small",
-    label: "Small",
-  },
+  { value: "big", label: "Big" },
+  { value: "jumbo", label: "Jumbo" },
+  { value: "turkey", label: "Turkey Egg" },
+  { value: "normal", label: "Normal" },
+  { value: "small", label: "Small" },
 ];
 
 const PAYMENT_METHODS = ["Cash", "Transfer", "POS"];
+
+const PAYMENT_STATUS_COLORS = {
+  Paid: "#22C55E",
+  "Part Paid": "#F59E0B",
+  Unpaid: "#EF4444",
+};
 
 const PAGE_SIZE = 10;
 
@@ -100,9 +91,7 @@ const formatDate = (value) => {
 
   const date = new Date(value);
 
-  if (Number.isNaN(date.getTime())) {
-    return "-";
-  }
+  if (Number.isNaN(date.getTime())) return "-";
 
   return date.toLocaleDateString("en-NG", {
     year: "numeric",
@@ -112,18 +101,12 @@ const formatDate = (value) => {
 };
 
 const getResponseArray = (response, keys = []) => {
-  if (Array.isArray(response)) {
-    return response;
-  }
+  if (Array.isArray(response)) return response;
 
-  if (Array.isArray(response?.data)) {
-    return response.data;
-  }
+  if (Array.isArray(response?.data)) return response.data;
 
   for (const key of keys) {
-    if (Array.isArray(response?.[key])) {
-      return response[key];
-    }
+    if (Array.isArray(response?.[key])) return response[key];
 
     if (Array.isArray(response?.data?.[key])) {
       return response.data[key];
@@ -146,16 +129,10 @@ const getCustomerFromSale = (sale) => {
 // =====================================================
 
 export default function EggSales() {
-  // ===================================================
   // USER
-  // ===================================================
-
   const [user, setUser] = useState(null);
 
-  // ===================================================
   // SALES
-  // ===================================================
-
   const [sales, setSales] = useState([]);
   const [loading, setLoading] = useState(true);
   const [saving, setSaving] = useState(false);
@@ -164,37 +141,22 @@ export default function EggSales() {
   const [statusFilter, setStatusFilter] = useState("All");
   const [showDeleted, setShowDeleted] = useState(false);
 
-  // ===================================================
   // PAGINATION
-  // ===================================================
-
   const [currentPage, setCurrentPage] = useState(1);
 
-  // ===================================================
   // SALE FORM
-  // ===================================================
-
   const [formData, setFormData] = useState(emptyForm());
   const [lineItems, setLineItems] = useState([emptyLineItem()]);
-
   const [payments, setPayments] = useState([emptyPayment()]);
-
   const [editingId, setEditingId] = useState(null);
 
-  // ===================================================
   // CUSTOMER
-  // ===================================================
-
   const [customers, setCustomers] = useState([]);
   const [customerSearch, setCustomerSearch] = useState("");
   const [selectedCustomer, setSelectedCustomer] = useState(null);
-
   const [showCustomerDropdown, setShowCustomerDropdown] = useState(false);
-
   const [customerLoading, setCustomerLoading] = useState(false);
-
   const [showQuickAddCustomer, setShowQuickAddCustomer] = useState(false);
-
   const [savingCustomer, setSavingCustomer] = useState(false);
 
   const [newCustomer, setNewCustomer] = useState({
@@ -206,20 +168,12 @@ export default function EggSales() {
     notes: "",
   });
 
-  // ===================================================
   // CUSTOMER HISTORY
-  // ===================================================
-
   const [customerHistory, setCustomerHistory] = useState(null);
-
   const [historyLoading, setHistoryLoading] = useState(false);
 
-  // ===================================================
   // INVOICE
-  // ===================================================
-
   const [selectedSale, setSelectedSale] = useState(null);
-
   const [showInvoice, setShowInvoice] = useState(false);
 
   // ===================================================
@@ -229,7 +183,6 @@ export default function EggSales() {
   useEffect(() => {
     try {
       const storedUser = localStorage.getItem("user");
-
       const storedRole = localStorage.getItem("role");
 
       if (storedUser) {
@@ -238,9 +191,7 @@ export default function EggSales() {
           role: storedRole || undefined,
         });
       } else {
-        setUser({
-          role: storedRole || "",
-        });
+        setUser({ role: storedRole || "" });
       }
     } catch {
       setUser({
@@ -260,7 +211,6 @@ export default function EggSales() {
       setLoading(true);
 
       const response = await fetchSales();
-
       const data = getResponseArray(response, ["sales"]);
 
       setSales(data);
@@ -286,7 +236,6 @@ export default function EggSales() {
       setCustomerLoading(true);
 
       const response = await fetchCustomers();
-
       const data = getResponseArray(response, ["customers"]);
 
       setCustomers(data);
@@ -326,16 +275,12 @@ export default function EggSales() {
   const filteredCustomers = useMemo(() => {
     const query = customerSearch.trim().toLowerCase();
 
-    if (!query) {
-      return customers.slice(0, 10);
-    }
+    if (!query) return customers.slice(0, 10);
 
     return customers
       .filter((customer) => {
         const name = String(customer?.name || "").toLowerCase();
-
         const phone = String(customer?.phone || "").toLowerCase();
-
         const email = String(customer?.email || "").toLowerCase();
 
         return (
@@ -362,7 +307,6 @@ export default function EggSales() {
     }));
 
     setCustomerSearch(customer.name || "");
-
     setShowCustomerDropdown(false);
 
     await loadCustomerHistory(customer._id || customer.id);
@@ -374,9 +318,7 @@ export default function EggSales() {
 
   const clearSelectedCustomer = () => {
     setSelectedCustomer(null);
-
     setCustomerSearch("");
-
     setCustomerHistory(null);
 
     setFormData((previous) => ({
@@ -405,7 +347,6 @@ export default function EggSales() {
       setCustomerHistory(response?.data || response || null);
     } catch (error) {
       console.error("CUSTOMER HISTORY ERROR:", error);
-
       setCustomerHistory(null);
     } finally {
       setHistoryLoading(false);
@@ -521,9 +462,7 @@ export default function EggSales() {
 
   const removeLineItem = (index) => {
     setLineItems((previous) => {
-      if (previous.length === 1) {
-        return previous;
-      }
+      if (previous.length === 1) return previous;
 
       return previous.filter((_, itemIndex) => itemIndex !== index);
     });
@@ -532,12 +471,7 @@ export default function EggSales() {
   const updateLineItem = (index, field, value) => {
     setLineItems((previous) =>
       previous.map((item, itemIndex) =>
-        itemIndex === index
-          ? {
-              ...item,
-              [field]: value,
-            }
-          : item,
+        itemIndex === index ? { ...item, [field]: value } : item,
       ),
     );
   };
@@ -548,16 +482,10 @@ export default function EggSales() {
 
   const lineItemsWithSubtotal = useMemo(() => {
     return lineItems.map((item) => {
-      const category = item.category;
-
-      const cratePrice = EGG_CATEGORY_PRICES[category] || 0;
-
+      const cratePrice = EGG_CATEGORY_PRICES[item.category] || 0;
       const eggPrice = Math.round(cratePrice / 30);
-
       const cratesSold = Number(item.cratesSold || 0);
-
       const looseEggs = Number(item.looseEggs || 0);
-
       const subtotal = cratesSold * cratePrice + looseEggs * eggPrice;
 
       return {
@@ -580,7 +508,6 @@ export default function EggSales() {
 
   const grandTotal = useMemo(() => {
     const transportCharge = Number(formData.transportCharge || 0);
-
     const discount = Number(formData.discount || 0);
 
     return Math.max(0, itemsTotal + transportCharge - discount);
@@ -593,12 +520,7 @@ export default function EggSales() {
   const handlePaymentChange = (index, field, value) => {
     setPayments((previous) =>
       previous.map((payment, paymentIndex) =>
-        paymentIndex === index
-          ? {
-              ...payment,
-              [field]: value,
-            }
-          : payment,
+        paymentIndex === index ? { ...payment, [field]: value } : payment,
       ),
     );
   };
@@ -609,9 +531,7 @@ export default function EggSales() {
 
   const removePaymentRow = (index) => {
     setPayments((previous) => {
-      if (previous.length === 1) {
-        return [emptyPayment()];
-      }
+      if (previous.length === 1) return [emptyPayment()];
 
       return previous.filter((_, paymentIndex) => paymentIndex !== index);
     });
@@ -633,14 +553,16 @@ export default function EggSales() {
     [normalizedPayments],
   );
 
-  const paymentBreakdown = useMemo(() => {
-    return PAYMENT_METHODS.map((method) => ({
-      method,
-      amount: normalizedPayments
-        .filter((payment) => payment.method === method)
-        .reduce((sum, payment) => sum + payment.amount, 0),
-    }));
-  }, [normalizedPayments]);
+  const paymentBreakdown = useMemo(
+    () =>
+      PAYMENT_METHODS.map((method) => ({
+        method,
+        amount: normalizedPayments
+          .filter((payment) => payment.method === method)
+          .reduce((sum, payment) => sum + payment.amount, 0),
+      })),
+    [normalizedPayments],
+  );
 
   const balance = Math.max(0, grandTotal - totalPayments);
 
@@ -661,7 +583,6 @@ export default function EggSales() {
     const customerRecord = getCustomerFromSale(sale);
 
     setSelectedCustomer(customerRecord);
-
     setCustomerSearch(customerRecord?.name || sale.customer || "");
 
     setFormData({
@@ -669,23 +590,15 @@ export default function EggSales() {
         sale.customerId && typeof sale.customerId === "object"
           ? sale.customerId._id || ""
           : sale.customerId || "",
-
       customer: sale.customer || customerRecord?.name || "",
-
       phone: sale.phone || customerRecord?.phone || "",
-
       date: sale.date
         ? new Date(sale.date).toISOString().split("T")[0]
         : new Date().toISOString().split("T")[0],
-
       discount: sale.discount ?? "",
-
       transportCharge: sale.transportCharge ?? "",
-
       amountPaid: sale.amountPaid ?? "",
-
       paymentMethod: sale.paymentMethod || "Cash",
-
       remarks: sale.remarks || "",
     });
 
@@ -693,9 +606,7 @@ export default function EggSales() {
       setLineItems(
         sale.lineItems.map((item) => ({
           category: item.category || "big",
-
           cratesSold: item.cratesSold ?? "",
-
           looseEggs: item.looseEggs ?? "",
         })),
       );
@@ -709,19 +620,16 @@ export default function EggSales() {
       ]);
     }
 
-    // Restore segmented payments.
     if (Array.isArray(sale.payments) && sale.payments.length > 0) {
       setPayments(
         sale.payments.map((payment) => ({
           method: PAYMENT_METHODS.includes(payment.method)
             ? payment.method
             : "Cash",
-
           amount: payment.amount ?? "",
         })),
       );
     } else if (Number(sale.amountPaid || 0) > 0) {
-      // Legacy sale compatibility.
       const legacyMethod = PAYMENT_METHODS.includes(sale.paymentMethod)
         ? sale.paymentMethod
         : "Cash";
@@ -756,13 +664,9 @@ export default function EggSales() {
 
   const cancelEdit = () => {
     setEditingId(null);
-
     setFormData(emptyForm());
-
     setLineItems([emptyLineItem()]);
-
     setPayments([emptyPayment()]);
-
     setSelectedCustomer(null);
     setCustomerSearch("");
     setCustomerHistory(null);
@@ -787,7 +691,6 @@ export default function EggSales() {
 
     for (const item of lineItems) {
       const crates = Number(item.cratesSold || 0);
-
       const loose = Number(item.looseEggs || 0);
 
       if (
@@ -831,50 +734,36 @@ export default function EggSales() {
 
       const payload = {
         customerId: formData.customerId || undefined,
-
         customer: formData.customer.trim(),
-
         phone: formData.phone.trim(),
-
         date: formData.date,
-
         lineItems: lineItems.map((item) => ({
           category: item.category,
-
           cratesSold: Number(item.cratesSold || 0),
-
           looseEggs: Number(item.looseEggs || 0),
         })),
-
         discount: Number(formData.discount || 0),
-
         transportCharge: Number(formData.transportCharge || 0),
-
         payments: normalizedPayments,
-
-        // Compatibility field.
-        // Backend recalculates it from payments.
         amountPaid: totalPayments,
-
         remarks: formData.remarks || "",
       };
 
       if (editingId) {
         await updateSale(editingId, payload);
-
         toast.success("Egg sale updated successfully.");
       } else {
         await createSale(payload);
-
         toast.success("Egg sale recorded successfully.");
       }
 
-      cancelEdit();
+      const customerId = formData.customerId;
 
+      cancelEdit();
       await loadSales();
 
-      if (formData.customerId) {
-        await loadCustomerHistory(formData.customerId);
+      if (customerId) {
+        await loadCustomerHistory(customerId);
       }
     } catch (error) {
       console.error("SAVE EGG SALE ERROR:", error);
@@ -898,15 +787,12 @@ export default function EggSales() {
       `Delete invoice ${sale.invoiceNumber || ""}?`,
     );
 
-    if (!confirmed) {
-      return;
-    }
+    if (!confirmed) return;
 
     try {
       await deleteSale(sale._id);
 
       toast.success("Egg sale deleted successfully.");
-
       await loadSales();
     } catch (error) {
       console.error("DELETE EGG SALE ERROR:", error);
@@ -928,15 +814,12 @@ export default function EggSales() {
       `Restore invoice ${sale.invoiceNumber || ""}?`,
     );
 
-    if (!confirmed) {
-      return;
-    }
+    if (!confirmed) return;
 
     try {
       await restoreSale(sale._id);
 
       toast.success("Egg sale restored successfully.");
-
       await loadSales();
     } catch (error) {
       console.error("RESTORE EGG SALE ERROR:", error);
@@ -966,26 +849,17 @@ export default function EggSales() {
     const query = search.trim().toLowerCase();
 
     return sales.filter((sale) => {
-      if (!showDeleted && sale.isDeleted) {
-        return false;
-      }
-
-      if (showDeleted && !sale.isDeleted) {
-        return false;
-      }
+      if (!showDeleted && sale.isDeleted) return false;
+      if (showDeleted && !sale.isDeleted) return false;
 
       if (statusFilter !== "All" && sale.status !== statusFilter) {
         return false;
       }
 
-      if (!query) {
-        return true;
-      }
+      if (!query) return true;
 
       const invoice = String(sale.invoiceNumber || "").toLowerCase();
-
       const customer = String(sale.customer || "").toLowerCase();
-
       const phone = String(sale.phone || "").toLowerCase();
 
       return (
@@ -1052,23 +926,28 @@ export default function EggSales() {
   ).length;
 
   // ===================================================
-  // PAYMENT CHART
+  // PAYMENT STATUS CHART
   // ===================================================
 
   const paymentStatusData = [
     {
       name: "Paid",
       value: paidCount,
+      color: PAYMENT_STATUS_COLORS.Paid,
     },
     {
       name: "Part Paid",
       value: partPaidCount,
+      color: PAYMENT_STATUS_COLORS["Part Paid"],
     },
     {
       name: "Unpaid",
       value: unpaidCount,
+      color: PAYMENT_STATUS_COLORS.Unpaid,
     },
-  ].filter((item) => item.value > 0);
+  ];
+
+  const paymentStatusTotal = paidCount + partPaidCount + unpaidCount;
 
   // ===================================================
   // REVENUE CHART
@@ -1080,9 +959,7 @@ export default function EggSales() {
     activeSales.forEach((sale) => {
       const date = new Date(sale.date || sale.createdAt);
 
-      if (Number.isNaN(date.getTime())) {
-        return;
-      }
+      if (Number.isNaN(date.getTime())) return;
 
       const key = date.toISOString().split("T")[0];
 
@@ -1095,7 +972,6 @@ export default function EggSales() {
       }
 
       grouped[key].revenue += Number(sale.totalAmount || 0);
-
       grouped[key].paid += Number(sale.amountPaid || 0);
     });
 
@@ -1149,14 +1025,11 @@ export default function EggSales() {
 
   return (
     <div className="space-y-6 p-4 md:p-6">
-      {/* =================================================
-          HEADER
-      ================================================= */}
+      {/* HEADER */}
 
       <div className="flex flex-col gap-3 lg:flex-row lg:items-center lg:justify-between">
         <div>
           <h1 className="text-2xl font-bold text-gray-800">Egg Sales</h1>
-
           <p className="mt-1 text-sm text-gray-500">
             Record egg sales, customer payments and outstanding balances.
           </p>
@@ -1169,14 +1042,11 @@ export default function EggSales() {
         )}
       </div>
 
-      {/* =================================================
-          KPI CARDS
-      ================================================= */}
+      {/* KPI CARDS */}
 
       <div className="grid grid-cols-1 gap-4 sm:grid-cols-2 xl:grid-cols-5">
         <div className="rounded-xl border bg-white p-4 shadow-sm">
           <p className="text-sm text-gray-500">Transactions</p>
-
           <p className="mt-1 text-2xl font-bold text-gray-800">
             {totalTransactions.toLocaleString()}
           </p>
@@ -1184,7 +1054,6 @@ export default function EggSales() {
 
         <div className="rounded-xl border bg-white p-4 shadow-sm">
           <p className="text-sm text-gray-500">Sales Revenue</p>
-
           <p className="mt-1 text-2xl font-bold text-green-700">
             {formatCurrency(totalRevenue)}
           </p>
@@ -1192,7 +1061,6 @@ export default function EggSales() {
 
         <div className="rounded-xl border bg-white p-4 shadow-sm">
           <p className="text-sm text-gray-500">Amount Received</p>
-
           <p className="mt-1 text-2xl font-bold text-blue-700">
             {formatCurrency(amountReceived)}
           </p>
@@ -1200,7 +1068,6 @@ export default function EggSales() {
 
         <div className="rounded-xl border bg-white p-4 shadow-sm">
           <p className="text-sm text-gray-500">Outstanding</p>
-
           <p className="mt-1 text-2xl font-bold text-red-600">
             {formatCurrency(outstandingBalance)}
           </p>
@@ -1208,16 +1075,13 @@ export default function EggSales() {
 
         <div className="rounded-xl border bg-white p-4 shadow-sm">
           <p className="text-sm text-gray-500">Paid Sales</p>
-
           <p className="mt-1 text-2xl font-bold text-green-700">
             {paidCount.toLocaleString()}
           </p>
         </div>
       </div>
 
-      {/* =================================================
-          SALES FORM
-      ================================================= */}
+      {/* SALES FORM */}
 
       <form
         onSubmit={handleSubmit}
@@ -1228,7 +1092,6 @@ export default function EggSales() {
             <h2 className="text-lg font-bold text-gray-800">
               {editingId ? "Edit Egg Sale" : "Record Egg Sale"}
             </h2>
-
             <p className="text-sm text-gray-500">
               Select a customer and enter the egg quantities.
             </p>
@@ -1245,15 +1108,12 @@ export default function EggSales() {
           )}
         </div>
 
-        {/* =================================================
-            CUSTOMER
-        ================================================= */}
+        {/* CUSTOMER */}
 
         <div className="rounded-xl border bg-white p-4">
           <div className="mb-4 flex flex-col gap-2 sm:flex-row sm:items-center sm:justify-between">
             <div>
               <h3 className="font-semibold text-gray-800">Customer</h3>
-
               <p className="text-xs text-gray-500">
                 Search an existing customer or create a new one.
               </p>
@@ -1276,7 +1136,6 @@ export default function EggSales() {
                   value={customerSearch}
                   onChange={(event) => {
                     setCustomerSearch(event.target.value);
-
                     setShowCustomerDropdown(true);
 
                     if (selectedCustomer) {
@@ -1312,7 +1171,6 @@ export default function EggSales() {
                           <div className="font-medium text-gray-800">
                             {customer.name}
                           </div>
-
                           <div className="mt-1 text-xs text-gray-500">
                             {customer.phone || "No phone"}
                             {customer.email ? ` • ${customer.email}` : ""}
@@ -1340,14 +1198,11 @@ export default function EggSales() {
             </div>
           </div>
 
-          {/* CUSTOMER DETAILS */}
-
           <div className="mt-4 grid grid-cols-1 gap-4 md:grid-cols-3">
             <div>
               <label className="mb-1 block text-xs font-medium text-gray-600">
                 Customer Name
               </label>
-
               <input
                 name="customer"
                 value={formData.customer}
@@ -1361,7 +1216,6 @@ export default function EggSales() {
               <label className="mb-1 block text-xs font-medium text-gray-600">
                 Phone
               </label>
-
               <input
                 name="phone"
                 value={formData.phone}
@@ -1374,7 +1228,6 @@ export default function EggSales() {
               <label className="mb-1 block text-xs font-medium text-gray-600">
                 Sale Date
               </label>
-
               <input
                 type="date"
                 name="date"
@@ -1398,9 +1251,7 @@ export default function EggSales() {
           )}
         </div>
 
-        {/* =================================================
-            CUSTOMER HISTORY
-        ================================================= */}
+        {/* CUSTOMER HISTORY */}
 
         {selectedCustomer && (
           <div className="rounded-xl border bg-white p-4">
@@ -1417,7 +1268,6 @@ export default function EggSales() {
                 <div className="mt-4 grid grid-cols-2 gap-3 md:grid-cols-4">
                   <div className="rounded-lg bg-gray-50 p-3">
                     <p className="text-xs text-gray-500">Transactions</p>
-
                     <p className="mt-1 font-bold">
                       {Number(
                         historySummary.transactionCount || 0,
@@ -1427,7 +1277,6 @@ export default function EggSales() {
 
                   <div className="rounded-lg bg-gray-50 p-3">
                     <p className="text-xs text-gray-500">Purchases</p>
-
                     <p className="mt-1 font-bold">
                       {formatCurrency(historySummary.totalPurchases || 0)}
                     </p>
@@ -1435,7 +1284,6 @@ export default function EggSales() {
 
                   <div className="rounded-lg bg-gray-50 p-3">
                     <p className="text-xs text-gray-500">Total Paid</p>
-
                     <p className="mt-1 font-bold text-green-700">
                       {formatCurrency(historySummary.totalPaid || 0)}
                     </p>
@@ -1443,7 +1291,6 @@ export default function EggSales() {
 
                   <div className="rounded-lg bg-gray-50 p-3">
                     <p className="text-xs text-gray-500">Outstanding</p>
-
                     <p className="mt-1 font-bold text-red-600">
                       {formatCurrency(historySummary.totalOutstanding || 0)}
                     </p>
@@ -1457,15 +1304,10 @@ export default function EggSales() {
                         <thead>
                           <tr className="border-b text-left text-xs uppercase text-gray-500">
                             <th className="px-3 py-2">Invoice</th>
-
                             <th className="px-3 py-2">Date</th>
-
                             <th className="px-3 py-2">Total</th>
-
                             <th className="px-3 py-2">Payments</th>
-
                             <th className="px-3 py-2">Balance</th>
-
                             <th className="px-3 py-2">Status</th>
                           </tr>
                         </thead>
@@ -1481,15 +1323,12 @@ export default function EggSales() {
                                 <td className="px-3 py-3 font-medium">
                                   {historySale.invoiceNumber}
                                 </td>
-
                                 <td className="px-3 py-3">
                                   {formatDate(historySale.date)}
                                 </td>
-
                                 <td className="px-3 py-3">
                                   {formatCurrency(historySale.totalAmount)}
                                 </td>
-
                                 <td className="px-3 py-3">
                                   {Array.isArray(historySale.payments) &&
                                   historySale.payments.length > 0 ? (
@@ -1514,11 +1353,9 @@ export default function EggSales() {
                                     </span>
                                   )}
                                 </td>
-
                                 <td className="px-3 py-3 font-medium text-red-600">
                                   {formatCurrency(historySale.balance)}
                                 </td>
-
                                 <td className="px-3 py-3">
                                   <span className="rounded-full bg-gray-100 px-2 py-1 text-xs font-medium">
                                     {historySale.status}
@@ -1535,15 +1372,12 @@ export default function EggSales() {
           </div>
         )}
 
-        {/* =================================================
-            EGG CATEGORIES
-        ================================================= */}
+        {/* EGG CATEGORIES */}
 
         <div className="rounded-xl border bg-white p-4">
           <div className="mb-4 flex flex-col gap-2 sm:flex-row sm:items-center sm:justify-between">
             <div>
               <h3 className="font-semibold text-gray-800">Egg Categories</h3>
-
               <p className="text-xs text-gray-500">
                 Enter crates and loose eggs for each category.
               </p>
@@ -1566,7 +1400,6 @@ export default function EggSales() {
                     <label className="mb-1 block text-xs font-medium text-gray-600">
                       Egg Category
                     </label>
-
                     <select
                       value={item.category}
                       onChange={(event) =>
@@ -1602,7 +1435,6 @@ export default function EggSales() {
                     <label className="mb-1 block text-xs font-medium text-gray-600">
                       Crates
                     </label>
-
                     <input
                       type="number"
                       min="0"
@@ -1619,7 +1451,6 @@ export default function EggSales() {
                     <label className="mb-1 block text-xs font-medium text-gray-600">
                       Loose Eggs
                     </label>
-
                     <input
                       type="number"
                       min="0"
@@ -1635,7 +1466,6 @@ export default function EggSales() {
                   <div className="flex items-end gap-2">
                     <div className="flex-1 rounded-lg bg-white px-3 py-2">
                       <p className="text-xs text-gray-500">Subtotal</p>
-
                       <p className="font-bold text-gray-800">
                         {formatCurrency(item.subtotal)}
                       </p>
@@ -1656,9 +1486,7 @@ export default function EggSales() {
           </div>
         </div>
 
-        {/* =================================================
-            EXTRA CHARGES
-        ================================================= */}
+        {/* EXTRA CHARGES */}
 
         <div className="rounded-xl border bg-white p-4">
           <h3 className="mb-4 font-semibold text-gray-800">
@@ -1670,7 +1498,6 @@ export default function EggSales() {
               <label className="mb-1 block text-xs font-medium text-gray-600">
                 Discount
               </label>
-
               <input
                 type="number"
                 min="0"
@@ -1687,7 +1514,6 @@ export default function EggSales() {
               <label className="mb-1 block text-xs font-medium text-gray-600">
                 Transport Charge
               </label>
-
               <input
                 type="number"
                 min="0"
@@ -1704,7 +1530,6 @@ export default function EggSales() {
               <label className="mb-1 block text-xs font-medium text-gray-600">
                 Remarks
               </label>
-
               <input
                 type="text"
                 name="remarks"
@@ -1717,15 +1542,12 @@ export default function EggSales() {
           </div>
         </div>
 
-        {/* =================================================
-            SEGMENTED PAYMENTS
-        ================================================= */}
+        {/* SEGMENTED PAYMENTS */}
 
         <div className="rounded-xl border bg-white p-4">
           <div className="mb-4 flex flex-col gap-3 sm:flex-row sm:items-center sm:justify-between">
             <div>
               <h3 className="font-semibold text-gray-800">Payment Breakdown</h3>
-
               <p className="mt-1 text-xs text-gray-500">
                 Customers can pay using Cash, Transfer, POS, or a combination of
                 methods.
@@ -1751,7 +1573,6 @@ export default function EggSales() {
                   <label className="mb-1 block text-xs font-medium text-gray-600">
                     Payment Method
                   </label>
-
                   <select
                     value={payment.method}
                     onChange={(event) =>
@@ -1771,7 +1592,6 @@ export default function EggSales() {
                   <label className="mb-1 block text-xs font-medium text-gray-600">
                     Amount
                   </label>
-
                   <input
                     type="number"
                     min="0"
@@ -1799,13 +1619,10 @@ export default function EggSales() {
             ))}
           </div>
 
-          {/* PAYMENT BREAKDOWN */}
-
           <div className="mt-4 grid grid-cols-2 gap-3 md:grid-cols-4">
             {paymentBreakdown.map((item) => (
               <div key={item.method} className="rounded-lg bg-gray-50 p-3">
                 <p className="text-xs text-gray-500">{item.method}</p>
-
                 <p className="mt-1 font-bold text-gray-800">
                   {formatCurrency(item.amount)}
                 </p>
@@ -1814,7 +1631,6 @@ export default function EggSales() {
 
             <div className="rounded-lg bg-green-50 p-3">
               <p className="text-xs text-green-700">Total Paid</p>
-
               <p className="mt-1 font-bold text-green-800">
                 {formatCurrency(totalPayments)}
               </p>
@@ -1829,9 +1645,7 @@ export default function EggSales() {
           )}
         </div>
 
-        {/* =================================================
-            TOTALS
-        ================================================= */}
+        {/* TOTALS */}
 
         <div className="grid grid-cols-1 gap-4 lg:grid-cols-2">
           <div className="rounded-xl border bg-white p-4">
@@ -1840,7 +1654,6 @@ export default function EggSales() {
             <div className="space-y-3">
               <div className="flex justify-between text-sm">
                 <span className="text-gray-600">Eggs Subtotal</span>
-
                 <span className="font-medium">
                   {formatCurrency(itemsTotal)}
                 </span>
@@ -1848,7 +1661,6 @@ export default function EggSales() {
 
               <div className="flex justify-between text-sm">
                 <span className="text-gray-600">Transport</span>
-
                 <span className="font-medium">
                   {formatCurrency(formData.transportCharge)}
                 </span>
@@ -1856,7 +1668,6 @@ export default function EggSales() {
 
               <div className="flex justify-between text-sm">
                 <span className="text-gray-600">Discount</span>
-
                 <span className="font-medium text-red-600">
                   -{formatCurrency(formData.discount)}
                 </span>
@@ -1865,7 +1676,6 @@ export default function EggSales() {
               <div className="border-t pt-3">
                 <div className="flex justify-between">
                   <span className="font-bold text-gray-800">Grand Total</span>
-
                   <span className="text-xl font-bold text-gray-900">
                     {formatCurrency(grandTotal)}
                   </span>
@@ -1882,7 +1692,6 @@ export default function EggSales() {
             <div className="space-y-3">
               <div className="flex justify-between text-sm">
                 <span className="text-gray-600">Total Paid</span>
-
                 <span className="font-bold text-green-700">
                   {formatCurrency(totalPayments)}
                 </span>
@@ -1890,7 +1699,6 @@ export default function EggSales() {
 
               <div className="flex justify-between text-sm">
                 <span className="text-gray-600">Balance</span>
-
                 <span
                   className={`font-bold ${
                     balance > 0 ? "text-red-600" : "text-green-600"
@@ -1902,7 +1710,6 @@ export default function EggSales() {
 
               <div className="flex justify-between border-t pt-3">
                 <span className="font-semibold">Status</span>
-
                 <span
                   className={`rounded-full px-3 py-1 text-xs font-bold ${
                     paymentStatus === "Paid"
@@ -1926,9 +1733,7 @@ export default function EggSales() {
           </div>
         </div>
 
-        {/* =================================================
-            FORM BUTTONS
-        ================================================= */}
+        {/* FORM BUTTONS */}
 
         <div className="flex flex-col gap-3 sm:flex-row sm:justify-end">
           {editingId && (
@@ -1956,16 +1761,16 @@ export default function EggSales() {
         </div>
       </form>
 
-      {/* =================================================
-          CHARTS
-      ================================================= */}
+      {/* CHARTS */}
 
       <div className="grid grid-cols-1 gap-6 xl:grid-cols-2">
+        {/* PAYMENT STATUS DONUT */}
+
         <div className="rounded-xl border bg-white p-4 shadow-sm">
           <h2 className="mb-4 font-semibold text-gray-800">Payment Status</h2>
 
-          {paymentStatusData.length > 0 ? (
-            <div className="h-72">
+          {paymentStatusTotal > 0 ? (
+            <div className="relative h-72">
               <ResponsiveContainer width="100%" height="100%">
                 <PieChart>
                   <Pie
@@ -1974,19 +1779,48 @@ export default function EggSales() {
                     nameKey="name"
                     cx="50%"
                     cy="50%"
+                    innerRadius={58}
                     outerRadius={90}
-                    label
+                    paddingAngle={2}
+                    stroke="#ffffff"
+                    strokeWidth={2}
                   >
-                    {paymentStatusData.map((entry, index) => (
-                      <Cell key={`${entry.name}-${index}`} />
+                    {paymentStatusData.map((entry) => (
+                      <Cell
+                        key={entry.name}
+                        fill={entry.color}
+                        stroke={entry.color}
+                      />
                     ))}
                   </Pie>
 
-                  <Tooltip />
+                  <Tooltip
+                    formatter={(value, name) => [
+                      Number(value).toLocaleString(),
+                      name,
+                    ]}
+                  />
 
-                  <Legend />
+                  <Legend
+                    verticalAlign="bottom"
+                    iconType="circle"
+                    formatter={(value) => (
+                      <span className="text-sm text-gray-600">{value}</span>
+                    )}
+                  />
                 </PieChart>
               </ResponsiveContainer>
+
+              <div className="pointer-events-none absolute inset-0 flex items-center justify-center pb-8">
+                <div className="text-center">
+                  <p className="text-3xl font-bold text-gray-500">
+                    {paymentStatusTotal.toLocaleString()}
+                  </p>
+                  <p className="mt-1 text-xs font-medium text-gray-400">
+                    Total
+                  </p>
+                </div>
+              </div>
             </div>
           ) : (
             <div className="flex h-72 items-center justify-center text-sm text-gray-500">
@@ -1995,26 +1829,61 @@ export default function EggSales() {
           )}
         </div>
 
+        {/* REVENUE CHART */}
+
         <div className="rounded-xl border bg-white p-4 shadow-sm">
           <h2 className="mb-4 font-semibold text-gray-800">Recent Revenue</h2>
 
           {revenueChartData.length > 0 ? (
             <div className="h-72">
               <ResponsiveContainer width="100%" height="100%">
-                <BarChart data={revenueChartData}>
-                  <CartesianGrid strokeDasharray="3 3" />
+                <BarChart
+                  data={revenueChartData}
+                  margin={{ top: 10, right: 10, left: 10, bottom: 5 }}
+                >
+                  <CartesianGrid strokeDasharray="3 3" stroke="#E5E7EB" />
 
-                  <XAxis dataKey="label" />
+                  <XAxis
+                    dataKey="label"
+                    tick={{ fill: "#6B7280", fontSize: 12 }}
+                    axisLine={{ stroke: "#D1D5DB" }}
+                    tickLine={false}
+                  />
 
-                  <YAxis />
+                  <YAxis
+                    tickFormatter={(value) => formatCurrency(value)}
+                    tick={{ fill: "#6B7280", fontSize: 12 }}
+                    axisLine={false}
+                    tickLine={false}
+                  />
 
-                  <Tooltip formatter={(value) => formatCurrency(value)} />
+                  <Tooltip
+                    formatter={(value) => formatCurrency(value)}
+                    contentStyle={{
+                      backgroundColor: "#FFFFFF",
+                      border: "1px solid #E5E7EB",
+                      borderRadius: "10px",
+                      boxShadow: "0 4px 12px rgba(0,0,0,0.08)",
+                    }}
+                  />
 
                   <Legend />
 
-                  <Bar dataKey="revenue" name="Revenue" />
+                  <Bar
+                    dataKey="revenue"
+                    name="Revenue"
+                    fill="#16A34A"
+                    radius={[6, 6, 0, 0]}
+                    maxBarSize={45}
+                  />
 
-                  <Bar dataKey="paid" name="Paid" />
+                  <Bar
+                    dataKey="paid"
+                    name="Paid"
+                    fill="#2563EB"
+                    radius={[6, 6, 0, 0]}
+                    maxBarSize={45}
+                  />
                 </BarChart>
               </ResponsiveContainer>
             </div>
@@ -2026,9 +1895,7 @@ export default function EggSales() {
         </div>
       </div>
 
-      {/* =================================================
-          EGG CATEGORY SUMMARY
-      ================================================= */}
+      {/* EGG CATEGORY SUMMARY */}
 
       <div className="rounded-xl border bg-white p-4 shadow-sm">
         <h2 className="mb-4 font-semibold text-gray-800">
@@ -2039,27 +1906,22 @@ export default function EggSales() {
           {EGG_CATEGORIES.map((category) => (
             <div key={category.value} className="rounded-lg bg-gray-50 p-3">
               <p className="text-xs text-gray-500">{category.label}</p>
-
               <p className="mt-1 text-lg font-bold">
                 {Number(categoryTotals[category.value] || 0).toLocaleString()}
               </p>
-
               <p className="text-xs text-gray-400">crates</p>
             </div>
           ))}
         </div>
       </div>
 
-      {/* =================================================
-          SALES LIST
-      ================================================= */}
+      {/* SALES LIST */}
 
       <div className="rounded-2xl border bg-white shadow-sm">
         <div className="border-b p-4">
           <div className="flex flex-col gap-4 xl:flex-row xl:items-center xl:justify-between">
             <div>
               <h2 className="font-semibold text-gray-800">Egg Sales Records</h2>
-
               <p className="text-xs text-gray-500">
                 {filteredSales.length.toLocaleString()} record
                 {filteredSales.length === 1 ? "" : "s"} found
@@ -2081,11 +1943,8 @@ export default function EggSales() {
                 className="rounded-lg border border-gray-300 bg-white px-3 py-2 text-sm outline-none focus:border-green-500"
               >
                 <option value="All">All Statuses</option>
-
                 <option value="Paid">Paid</option>
-
                 <option value="Part Paid">Part Paid</option>
-
                 <option value="Unpaid">Unpaid</option>
               </select>
 
@@ -2125,35 +1984,20 @@ export default function EggSales() {
         ) : (
           <>
             <div className="overflow-x-auto">
-              <table className="min-w-[1500px] w-full text-sm">
+              <table className="min-w-[1300px] w-full text-sm">
                 <thead className="bg-gray-50">
                   <tr className="text-left text-xs uppercase text-gray-500">
                     <th className="px-4 py-3">Date</th>
-
                     <th className="px-4 py-3">Invoice</th>
-
                     <th className="px-4 py-3">Customer</th>
-
                     <th className="px-4 py-3">Phone</th>
-
                     <th className="px-4 py-3">Categories</th>
-
                     <th className="px-4 py-3">Total</th>
-
                     <th className="px-4 py-3">Paid</th>
-
                     <th className="px-4 py-3">Balance</th>
-
                     <th className="px-4 py-3">Status</th>
-
                     <th className="px-4 py-3">Method</th>
-
                     <th className="px-4 py-3">Payment Breakdown</th>
-
-                    {isSuperadmin && (
-                      <th className="px-4 py-3">Record Status</th>
-                    )}
-
                     <th className="px-4 py-3">Actions</th>
                   </tr>
                 </thead>
@@ -2271,20 +2115,6 @@ export default function EggSales() {
                         )}
                       </td>
 
-                      {isSuperadmin && (
-                        <td className="px-4 py-4">
-                          <span
-                            className={`rounded-full px-2.5 py-1 text-xs font-semibold ${
-                              sale.isDeleted
-                                ? "bg-red-100 text-red-700"
-                                : "bg-green-100 text-green-700"
-                            }`}
-                          >
-                            {sale.isDeleted ? "Deleted" : "Active"}
-                          </span>
-                        </td>
-                      )}
-
                       <td className="px-4 py-4">
                         <div className="flex flex-wrap gap-2">
                           <button
@@ -2332,9 +2162,7 @@ export default function EggSales() {
               </table>
             </div>
 
-            {/* =================================================
-                PAGINATION
-            ================================================= */}
+            {/* PAGINATION */}
 
             <div className="flex flex-col gap-3 border-t p-4 sm:flex-row sm:items-center sm:justify-between">
               <p className="text-sm text-gray-500">
@@ -2380,9 +2208,7 @@ export default function EggSales() {
         )}
       </div>
 
-      {/* =================================================
-          SUPERADMIN SUMMARY
-      ================================================= */}
+      {/* SUPERADMIN SUMMARY */}
 
       {isSuperadmin && (
         <div className="rounded-xl border bg-white p-4 shadow-sm">
@@ -2391,7 +2217,6 @@ export default function EggSales() {
           <div className="mt-4 grid grid-cols-2 gap-4 md:grid-cols-4">
             <div className="rounded-lg bg-green-50 p-4">
               <p className="text-xs text-green-700">Paid</p>
-
               <p className="mt-1 text-2xl font-bold text-green-800">
                 {paidCount}
               </p>
@@ -2399,7 +2224,6 @@ export default function EggSales() {
 
             <div className="rounded-lg bg-yellow-50 p-4">
               <p className="text-xs text-yellow-700">Part Paid</p>
-
               <p className="mt-1 text-2xl font-bold text-yellow-800">
                 {partPaidCount}
               </p>
@@ -2407,7 +2231,6 @@ export default function EggSales() {
 
             <div className="rounded-lg bg-red-50 p-4">
               <p className="text-xs text-red-700">Unpaid</p>
-
               <p className="mt-1 text-2xl font-bold text-red-800">
                 {unpaidCount}
               </p>
@@ -2415,7 +2238,6 @@ export default function EggSales() {
 
             <div className="rounded-lg bg-gray-50 p-4">
               <p className="text-xs text-gray-600">Deleted Records</p>
-
               <p className="mt-1 text-2xl font-bold text-gray-800">
                 {sales.filter((sale) => sale.isDeleted).length}
               </p>
@@ -2424,9 +2246,7 @@ export default function EggSales() {
         </div>
       )}
 
-      {/* =================================================
-          QUICK ADD CUSTOMER MODAL
-      ================================================= */}
+      {/* QUICK ADD CUSTOMER MODAL */}
 
       {showQuickAddCustomer && (
         <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/50 p-4">
@@ -2436,7 +2256,6 @@ export default function EggSales() {
                 <h2 className="text-lg font-bold text-gray-800">
                   Add New Customer
                 </h2>
-
                 <p className="text-sm text-gray-500">
                   The new customer will be automatically selected for this sale.
                 </p>
@@ -2456,7 +2275,6 @@ export default function EggSales() {
                 <label className="mb-1 block text-xs font-medium text-gray-600">
                   Name
                 </label>
-
                 <input
                   name="name"
                   value={newCustomer.name}
@@ -2472,7 +2290,6 @@ export default function EggSales() {
                   <label className="mb-1 block text-xs font-medium text-gray-600">
                     Phone
                   </label>
-
                   <input
                     name="phone"
                     value={newCustomer.phone}
@@ -2485,7 +2302,6 @@ export default function EggSales() {
                   <label className="mb-1 block text-xs font-medium text-gray-600">
                     Email
                   </label>
-
                   <input
                     type="email"
                     name="email"
@@ -2500,7 +2316,6 @@ export default function EggSales() {
                 <label className="mb-1 block text-xs font-medium text-gray-600">
                   Address
                 </label>
-
                 <textarea
                   name="address"
                   value={newCustomer.address}
@@ -2514,7 +2329,6 @@ export default function EggSales() {
                 <label className="mb-1 block text-xs font-medium text-gray-600">
                   Customer Type
                 </label>
-
                 <select
                   name="customerType"
                   value={newCustomer.customerType}
@@ -2522,19 +2336,12 @@ export default function EggSales() {
                   className="w-full rounded-lg border border-gray-300 bg-white px-3 py-2 text-sm outline-none focus:border-green-500"
                 >
                   <option value="Individual">Individual</option>
-
                   <option value="Supermarket">Supermarket</option>
-
                   <option value="Restaurant">Restaurant</option>
-
                   <option value="Hotel">Hotel</option>
-
                   <option value="Wholesaler">Wholesaler</option>
-
                   <option value="Retailer">Retailer</option>
-
                   <option value="Distributor">Distributor</option>
-
                   <option value="Other">Other</option>
                 </select>
               </div>
@@ -2543,7 +2350,6 @@ export default function EggSales() {
                 <label className="mb-1 block text-xs font-medium text-gray-600">
                   Notes
                 </label>
-
                 <textarea
                   name="notes"
                   value={newCustomer.notes}
@@ -2576,9 +2382,7 @@ export default function EggSales() {
         </div>
       )}
 
-      {/* =================================================
-          INVOICE MODAL
-      ================================================= */}
+      {/* INVOICE MODAL */}
 
       {showInvoice && selectedSale && (
         <InvoiceModal
