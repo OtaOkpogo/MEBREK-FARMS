@@ -85,10 +85,14 @@ const getPaymentBreakdown = (sale) => {
 export default function ManureInvoiceModal({ open, onClose, sale }) {
   const [qrCode, setQrCode] = useState("");
 
+  // createdAt records the actual transaction timestamp. sale.date may be a
+  // date-only business date, so never present midnight as a fabricated sale time.
   const createdDate = useMemo(
-    () => sale?.createdAt || sale?.created_at || sale?.date || null,
+    () => sale?.createdAt || sale?.created_at || null,
     [sale],
   );
+  const receiptDate = createdDate || sale?.date || null;
+  const receiptTime = createdDate ? formatTime(createdDate) : "—";
 
   const lineItems = Array.isArray(sale?.lineItems) ? sale.lineItems : [];
   const totalAmount = safeNumber(sale?.totalAmount ?? sale?.grandTotal);
@@ -131,8 +135,8 @@ export default function ManureInvoiceModal({ open, onClose, sale }) {
       "MEBREK FARMS — MANURE SALES RECEIPT",
       `Invoice: ${sale.invoiceNumber || "—"}`,
       `Customer: ${sale.customer || sale.customerName || "Walk-in Customer"}`,
-      `Date: ${formatDate(createdDate)}`,
-      `Time: ${formatTime(createdDate)}`,
+      `Date: ${formatDate(receiptDate)}`,
+      `Time: ${receiptTime}`,
       `Total: ${money(totalAmount)}`,
       `Paid: ${money(amountPaid)}`,
       `Balance: ${money(balance)}`,
@@ -155,7 +159,16 @@ export default function ManureInvoiceModal({ open, onClose, sale }) {
     return () => {
       cancelled = true;
     };
-  }, [sale, createdDate, totalAmount, amountPaid, balance, paymentMethod]);
+  }, [
+    sale,
+    createdDate,
+    receiptDate,
+    receiptTime,
+    totalAmount,
+    amountPaid,
+    balance,
+    paymentMethod,
+  ]);
 
   if (!open || !sale) return null;
 
@@ -252,8 +265,8 @@ export default function ManureInvoiceModal({ open, onClose, sale }) {
           <div class="invoice">#${escapeHtml(sale.invoiceNumber || "—")}</div>
         </header>
         <hr class="rule">
-        <div class="row"><span><b>Date</b></span><span>${escapeHtml(formatDate(createdDate))}</span></div>
-        <div class="row"><span><b>Time</b></span><span>${escapeHtml(formatTime(createdDate))}</span></div>
+        <div class="row"><span><b>Date</b></span><span>${escapeHtml(formatDate(receiptDate))}</span></div>
+        <div class="row"><span><b>Time</b></span><span>${escapeHtml(receiptTime)}</span></div>
         <div class="section-label">Customer</div>
         <div class="customer">${escapeHtml(sale.customer || sale.customerName || "Walk-in Customer")}</div>
         ${sale.customerPhone || sale.phone ? `<div>Tel: ${escapeHtml(sale.customerPhone || sale.phone)}</div>` : ""}
@@ -296,7 +309,9 @@ export default function ManureInvoiceModal({ open, onClose, sale }) {
         <div className="flex items-center justify-between border-b p-4 sm:p-5">
           <div>
             <h2 className="text-xl font-bold">Receipt Preview</h2>
-            <p className="text-sm text-gray-500">80 mm POS thermal receipt</p>
+            <p className="text-sm text-gray-500">
+              Reprint a saved sale · 80 mm POS thermal receipt
+            </p>
           </div>
           <button
             type="button"
@@ -327,11 +342,11 @@ export default function ManureInvoiceModal({ open, onClose, sale }) {
             <div className="my-3 border-t border-dashed border-black" />
             <div className="flex justify-between gap-2">
               <b>Date</b>
-              <span>{formatDate(createdDate)}</span>
+              <span>{formatDate(receiptDate)}</span>
             </div>
             <div className="mt-1 flex justify-between gap-2">
               <b>Time</b>
-              <span>{formatTime(createdDate)}</span>
+              <span>{receiptTime}</span>
             </div>
             <p className="mt-3 font-black uppercase">Customer</p>
             <p className="text-sm font-bold">

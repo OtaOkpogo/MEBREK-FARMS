@@ -64,6 +64,27 @@ const money = (value) =>
     maximumFractionDigits: 2,
   });
 
+// Always display calendar dates explicitly as DD/MM/YYYY, independent of browser locale.
+const formatDateDMY = (value) => {
+  if (!value) return "-";
+
+  // Preserve date-only values as written (avoids UTC timezone shifts).
+  const raw = String(value);
+  const dateOnly = raw.match(/^(\d{4})-(\d{2})-(\d{2})/);
+  if (dateOnly) return `${dateOnly[3]}/${dateOnly[2]}/${dateOnly[1]}`;
+
+  const date = new Date(value);
+  if (Number.isNaN(date.getTime())) return "-";
+  return `${String(date.getDate()).padStart(2, "0")}/${String(date.getMonth() + 1).padStart(2, "0")}/${date.getFullYear()}`;
+};
+
+const formatDateTimeDMY = (value) => {
+  if (!value) return "-";
+  const date = new Date(value);
+  if (Number.isNaN(date.getTime())) return "-";
+  return `${formatDateDMY(date)} ${date.toLocaleTimeString("en-GB", { hour: "2-digit", minute: "2-digit", hour12: false })}`;
+};
+
 const getPaymentMethod = (payments) => {
   const methods = PAYMENT_METHODS.filter(
     (method) => Number(payments?.[method] || 0) > 0,
@@ -140,6 +161,7 @@ export default function ManureSales() {
   });
 
   const [formData, setFormData] = useState(emptyForm);
+  const [saleDateDisplay, setSaleDateDisplay] = useState("");
   const [payments, setPayments] = useState(emptyPayments);
   const [lineItems, setLineItems] = useState([emptyLineItem()]);
 
@@ -293,6 +315,27 @@ export default function ManureSales() {
   const handleChange = (e) => {
     const { name, value } = e.target;
 
+    if (name === "date") {
+      setSaleDateDisplay(value);
+
+      // Accept DD/MM/YYYY and store ISO YYYY-MM-DD for the backend.
+      const match = value.trim().match(/^(\d{2})\/(\d{2})\/(\d{4})$/);
+      if (match) {
+        const [, day, month, year] = match;
+        const parsed = new Date(Number(year), Number(month) - 1, Number(day));
+        if (
+          parsed.getFullYear() === Number(year) &&
+          parsed.getMonth() === Number(month) - 1 &&
+          parsed.getDate() === Number(day)
+        ) {
+          setFormData((prev) => ({ ...prev, date: `${year}-${month}-${day}` }));
+        }
+      } else if (!value.trim()) {
+        setFormData((prev) => ({ ...prev, date: "" }));
+      }
+      return;
+    }
+
     setFormData((prev) => ({
       ...prev,
       [name]: value,
@@ -381,6 +424,7 @@ export default function ManureSales() {
   const resetForm = () => {
     setEditingId(null);
     setFormData(emptyForm());
+    setSaleDateDisplay("");
     setCustomerSearch("");
     setShowCustomerResults(false);
     setPayments(emptyPayments());
@@ -395,10 +439,15 @@ export default function ManureSales() {
 
     setEditingId(sale._id);
 
+    const saleDateISO = sale.date
+      ? new Date(sale.date).toISOString().slice(0, 10)
+      : "";
+    setSaleDateDisplay(saleDateISO ? formatDateDMY(saleDateISO) : "");
+
     setFormData({
       customer: sale.customer || "",
       phone: sale.phone || "",
-      date: sale.date ? new Date(sale.date).toISOString().slice(0, 10) : "",
+      date: saleDateISO,
       discount: sale.discount ?? "",
       transportCharge: sale.transportCharge ?? "",
       remarks: sale.remarks || "",
@@ -430,6 +479,31 @@ export default function ManureSales() {
 
   const handleSubmit = async (e) => {
     e.preventDefault();
+
+    const dateMatch = saleDateDisplay
+      .trim()
+      .match(/^(\d{2})\/(\d{2})\/(\d{4})$/);
+    if (!dateMatch) {
+      alert(
+        "Enter the sale date in DD/MM/YYYY format, for example 05/10/2026.",
+      );
+      return;
+    }
+    const [, dateDay, dateMonth, dateYear] = dateMatch;
+    const checkedDate = new Date(
+      Number(dateYear),
+      Number(dateMonth) - 1,
+      Number(dateDay),
+    );
+    if (
+      checkedDate.getFullYear() !== Number(dateYear) ||
+      checkedDate.getMonth() !== Number(dateMonth) - 1 ||
+      checkedDate.getDate() !== Number(dateDay) ||
+      formData.date !== `${dateYear}-${dateMonth}-${dateDay}`
+    ) {
+      alert("Please enter a valid sale date in DD/MM/YYYY format.");
+      return;
+    }
 
     const validLineItems = lineItemsWithSubtotal.filter(
       (item) => item.bags > 0,
@@ -900,13 +974,24 @@ export default function ManureSales() {
                 Sale Date *
               </label>
               <input
-                type="date"
+                type="text"
                 name="date"
-                value={formData.date}
+                value={saleDateDisplay}
                 onChange={handleChange}
+                placeholder="DD/MM/YYYY"
+                inputMode="numeric"
+                pattern="\d{2}/\d{2}/\d{4}"
+                maxLength={10}
                 className="border rounded-lg p-3 w-full"
                 required
+                aria-describedby="sale-date-format-help"
               />
+              <p
+                id="sale-date-format-help"
+                className="mt-1 text-xs text-gray-500"
+              >
+                Enter date as DD/MM/YYYY (for example, 05/10/2026).
+              </p>
             </div>
           </div>
 
@@ -1268,9 +1353,23 @@ export default function ManureSales() {
                       }`}
                     >
                       <td className="p-3 whitespace-nowrap">
-                        {sale.date
-                          ? new Date(sale.date).toLocaleDateString()
-                          : "-"}
+                        <div>
+                          {formatDateDMY(
+                            sale.date || sale.createdAt || sale.created_at,
+                          )}
+                        </div>
+                        {(sale.createdAt || sale.created_at) && (
+                          <div className="mt-1 text-xs text-gray-500">
+                            {new Date(
+                              sale.createdAt || sale.created_at,
+                            ).toLocaleTimeString("en-NG", {
+                              hour: "numeric",
+                              minute: "2-digit",
+                              second: "2-digit",
+                              hour12: true,
+                            })}
+                          </div>
+                        )}
                       </td>
 
                       <td className="p-3 whitespace-nowrap">
@@ -1339,12 +1438,24 @@ export default function ManureSales() {
                               <span className="inline-block bg-red-100 text-red-700 font-semibold px-2 py-1 rounded-full mb-1">
                                 Deleted
                               </span>
-                              <div className="text-gray-500">
-                                by {sale.deletedBy?.role || "Unknown"}
-                                {sale.deletedAt &&
-                                  ` on ${new Date(
-                                    sale.deletedAt,
-                                  ).toLocaleDateString()}`}
+                              <div className="text-gray-600">
+                                <span className="font-medium">
+                                  Deleted by:{" "}
+                                  {sale.deletedBy?.name ||
+                                    sale.deletedBy?.fullName ||
+                                    sale.deletedByName ||
+                                    "Unknown user"}
+                                </span>
+                                {sale.deletedBy?.role && (
+                                  <span className="ml-1 text-gray-500">
+                                    ({sale.deletedBy.role})
+                                  </span>
+                                )}
+                                {sale.deletedAt && (
+                                  <div className="mt-1 text-gray-500">
+                                    on {formatDateTimeDMY(sale.deletedAt)}
+                                  </div>
+                                )}
                               </div>
                             </div>
                           ) : (
@@ -1380,9 +1491,10 @@ export default function ManureSales() {
                               <button
                                 type="button"
                                 onClick={() => openInvoice(sale)}
+                                title="Open this saved sale's POS receipt to print it again or download a PDF"
                                 className="bg-amber-700 hover:bg-amber-800 text-white px-3 py-1 rounded"
                               >
-                                Invoice
+                                Receipt / Reprint
                               </button>
 
                               <button
