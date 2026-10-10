@@ -774,7 +774,18 @@ export default function ManureSales() {
                 <XAxis dataKey="name" />
                 <YAxis />
                 <Tooltip formatter={(value) => `₦${money(value)}`} />
-                <Bar dataKey="amount" radius={[8, 8, 0, 0]} fill="#b45309" />
+                <Bar dataKey="amount" radius={[8, 8, 0, 0]}>
+                  {[
+                    { name: "Revenue", amount: totalRevenue },
+                    { name: "Received", amount: amountReceived },
+                    { name: "Outstanding", amount: outstanding },
+                  ].map((entry, index) => (
+                    <Cell
+                      key={entry.name}
+                      fill={index % 2 === 0 ? "#b45309" : "#0f766e"}
+                    />
+                  ))}
+                </Bar>
               </BarChart>
             </ResponsiveContainer>
           </div>

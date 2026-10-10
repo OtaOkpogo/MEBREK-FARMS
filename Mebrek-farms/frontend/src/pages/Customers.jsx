@@ -401,7 +401,7 @@ export default function Customers() {
           <h1 className="text-2xl font-bold text-gray-900">Customers</h1>
 
           <p className="mt-1 text-sm text-gray-500">
-            Manage your egg customers and their contact details.
+            Manage your manure and egg customers and their contact details.
           </p>
         </div>
 
