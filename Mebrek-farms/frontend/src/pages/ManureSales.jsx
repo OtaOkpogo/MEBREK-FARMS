@@ -342,6 +342,14 @@ export default function ManureSales() {
     }));
   };
 
+  const handleCalendarDateChange = (e) => {
+    const value = e.target.value;
+    if (!value) return;
+
+    setSaleDateDisplay(formatDateDMY(value));
+    setFormData((prev) => ({ ...prev, date: value }));
+  };
+
   const handlePaymentChange = (e) => {
     const { name, value } = e.target;
 
@@ -973,19 +981,34 @@ export default function ManureSales() {
               <label className="block text-sm font-medium mb-1">
                 Sale Date *
               </label>
-              <input
-                type="text"
-                name="date"
-                value={saleDateDisplay}
-                onChange={handleChange}
-                placeholder="DD/MM/YYYY"
-                inputMode="numeric"
-                pattern="\d{2}/\d{2}/\d{4}"
-                maxLength={10}
-                className="border rounded-lg p-3 w-full"
-                required
-                aria-describedby="sale-date-format-help"
-              />
+              <div className="flex w-full items-stretch gap-2">
+                <input
+                  type="text"
+                  name="date"
+                  value={saleDateDisplay}
+                  onChange={handleChange}
+                  placeholder="DD/MM/YYYY"
+                  inputMode="numeric"
+                  pattern="\d{2}/\d{2}/\d{4}"
+                  maxLength={10}
+                  className="min-w-0 flex-1 border rounded-lg p-3"
+                  required
+                  aria-describedby="sale-date-format-help"
+                />
+                <div className="relative flex w-12 shrink-0 items-center justify-center overflow-hidden rounded-lg border border-gray-300 bg-white hover:bg-gray-50">
+                  <span aria-hidden="true" className="text-xl">
+                    📅
+                  </span>
+                  <input
+                    type="date"
+                    value={formData.date || ""}
+                    onChange={handleCalendarDateChange}
+                    aria-label="Pick sale date from calendar"
+                    title="Pick sale date from calendar"
+                    className="absolute inset-0 h-full w-full cursor-pointer opacity-0"
+                  />
+                </div>
+              </div>
               <p
                 id="sale-date-format-help"
                 className="mt-1 text-xs text-gray-500"

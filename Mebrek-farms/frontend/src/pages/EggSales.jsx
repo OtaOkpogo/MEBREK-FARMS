@@ -86,19 +86,44 @@ const emptyForm = () => ({
 
 const formatCurrency = (value) => `₦${Number(value || 0).toLocaleString()}`;
 
-const formatDate = (value) => {
-  if (!value) return "-";
+// Display dates as DD/MM/YYYY while storing/sending dates as YYYY-MM-DD.
+const formatDateDMY = (value) => {
+  if (!value) return "";
+
+  const match = String(value).match(/^(\d{4})-(\d{2})-(\d{2})/);
+  if (match) return `${match[3]}/${match[2]}/${match[1]}`;
 
   const date = new Date(value);
+  if (Number.isNaN(date.getTime())) return "";
 
-  if (Number.isNaN(date.getTime())) return "-";
-
-  return date.toLocaleDateString("en-NG", {
-    year: "numeric",
-    month: "short",
-    day: "numeric",
-  });
+  return `${String(date.getDate()).padStart(2, "0")}/${String(
+    date.getMonth() + 1,
+  ).padStart(2, "0")}/${date.getFullYear()}`;
 };
+
+const parseDateDMY = (value) => {
+  const match = String(value || "")
+    .trim()
+    .match(/^(\d{2})\/(\d{2})\/(\d{4})$/);
+  if (!match) return "";
+
+  const day = Number(match[1]);
+  const month = Number(match[2]);
+  const year = Number(match[3]);
+  const date = new Date(year, month - 1, day);
+
+  if (
+    date.getFullYear() !== year ||
+    date.getMonth() !== month - 1 ||
+    date.getDate() !== day
+  ) {
+    return "";
+  }
+
+  return `${year}-${String(month).padStart(2, "0")}-${String(day).padStart(2, "0")}`;
+};
+
+const formatDate = (value) => formatDateDMY(value) || "-";
 
 const getResponseArray = (response, keys = []) => {
   if (Array.isArray(response)) return response;
@@ -146,6 +171,7 @@ export default function EggSales() {
 
   // SALE FORM
   const [formData, setFormData] = useState(emptyForm());
+  const [dateInput, setDateInput] = useState(formatDateDMY(emptyForm().date));
   const [lineItems, setLineItems] = useState([emptyLineItem()]);
   const [payments, setPayments] = useState([emptyPayment()]);
   const [editingId, setEditingId] = useState(null);
@@ -262,10 +288,27 @@ export default function EggSales() {
   const handleChange = (event) => {
     const { name, value } = event.target;
 
+    if (name === "date") {
+      setDateInput(value);
+      setFormData((previous) => ({
+        ...previous,
+        date: parseDateDMY(value),
+      }));
+      return;
+    }
+
     setFormData((previous) => ({
       ...previous,
       [name]: value,
     }));
+  };
+
+  const handleCalendarDateChange = (event) => {
+    const value = event.target.value;
+    if (!value) return;
+
+    setDateInput(formatDateDMY(value));
+    setFormData((previous) => ({ ...previous, date: value }));
   };
 
   // ===================================================
@@ -593,7 +636,7 @@ export default function EggSales() {
       customer: sale.customer || customerRecord?.name || "",
       phone: sale.phone || customerRecord?.phone || "",
       date: sale.date
-        ? new Date(sale.date).toISOString().split("T")[0]
+        ? String(sale.date).slice(0, 10)
         : new Date().toISOString().split("T")[0],
       discount: sale.discount ?? "",
       transportCharge: sale.transportCharge ?? "",
@@ -601,6 +644,9 @@ export default function EggSales() {
       paymentMethod: sale.paymentMethod || "Cash",
       remarks: sale.remarks || "",
     });
+    setDateInput(
+      formatDateDMY(sale.date || new Date().toISOString().split("T")[0]),
+    );
 
     if (Array.isArray(sale.lineItems) && sale.lineItems.length > 0) {
       setLineItems(
@@ -664,7 +710,9 @@ export default function EggSales() {
 
   const cancelEdit = () => {
     setEditingId(null);
-    setFormData(emptyForm());
+    const resetForm = emptyForm();
+    setFormData(resetForm);
+    setDateInput(formatDateDMY(resetForm.date));
     setLineItems([emptyLineItem()]);
     setPayments([emptyPayment()]);
     setSelectedCustomer(null);
@@ -681,6 +729,14 @@ export default function EggSales() {
 
     if (!formData.customer.trim()) {
       toast.error("Please select or enter a customer.");
+      return;
+    }
+
+    const parsedSaleDate = parseDateDMY(dateInput);
+    if (!parsedSaleDate) {
+      toast.error(
+        "Enter a valid sale date in DD/MM/YYYY format, for example 05/10/2026.",
+      );
       return;
     }
 
@@ -736,7 +792,7 @@ export default function EggSales() {
         customerId: formData.customerId || undefined,
         customer: formData.customer.trim(),
         phone: formData.phone.trim(),
-        date: formData.date,
+        date: parsedSaleDate,
         lineItems: lineItems.map((item) => ({
           category: item.category,
           cratesSold: Number(item.cratesSold || 0),
@@ -1228,14 +1284,34 @@ export default function EggSales() {
               <label className="mb-1 block text-xs font-medium text-gray-600">
                 Sale Date
               </label>
-              <input
-                type="date"
-                name="date"
-                value={formData.date}
-                onChange={handleChange}
-                required
-                className="w-full rounded-lg border border-gray-300 px-3 py-2 text-sm outline-none focus:border-green-500"
-              />
+              <div className="flex w-full items-stretch gap-2">
+                <input
+                  type="text"
+                  name="date"
+                  value={dateInput}
+                  onChange={handleChange}
+                  placeholder="DD/MM/YYYY"
+                  inputMode="numeric"
+                  pattern="\d{2}/\d{2}/\d{4}"
+                  title="Enter date as DD/MM/YYYY, for example 05/10/2026"
+                  autoComplete="off"
+                  required
+                  className="min-w-0 flex-1 rounded-lg border border-gray-300 px-3 py-2 text-sm outline-none focus:border-green-500"
+                />
+                <div className="relative flex w-11 shrink-0 items-center justify-center overflow-hidden rounded-lg border border-gray-300 bg-white hover:bg-gray-50">
+                  <span aria-hidden="true" className="text-lg">
+                    📅
+                  </span>
+                  <input
+                    type="date"
+                    value={parseDateDMY(dateInput) || ""}
+                    onChange={handleCalendarDateChange}
+                    aria-label="Pick sale date from calendar"
+                    title="Pick sale date from calendar"
+                    className="absolute inset-0 h-full w-full cursor-pointer opacity-0"
+                  />
+                </div>
+              </div>
             </div>
           </div>
 
