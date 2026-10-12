@@ -78,6 +78,41 @@ const formatDateDMY = (value) => {
   return `${String(date.getDate()).padStart(2, "0")}/${String(date.getMonth() + 1).padStart(2, "0")}/${date.getFullYear()}`;
 };
 
+// Sort sale records by sale date (newest first), supporting ISO and DD/MM/YYYY values.
+const getSaleDateTimestamp = (sale) => {
+  const candidates = [sale?.date, sale?.createdAt, sale?.created_at];
+
+  for (const candidate of candidates) {
+    if (!candidate) continue;
+    const value = String(candidate).trim();
+    const dmy = value.match(/^(\d{2})\/(\d{2})\/(\d{4})$/);
+    let date;
+
+    if (dmy) {
+      date = new Date(Number(dmy[3]), Number(dmy[2]) - 1, Number(dmy[1]));
+      if (
+        date.getFullYear() !== Number(dmy[3]) ||
+        date.getMonth() !== Number(dmy[2]) - 1 ||
+        date.getDate() !== Number(dmy[1])
+      )
+        continue;
+    } else {
+      const isoDateOnly = value.match(/^(\d{4})-(\d{2})-(\d{2})$/);
+      date = isoDateOnly
+        ? new Date(
+            Number(isoDateOnly[1]),
+            Number(isoDateOnly[2]) - 1,
+            Number(isoDateOnly[3]),
+          )
+        : new Date(value);
+    }
+
+    if (!Number.isNaN(date.getTime())) return date.getTime();
+  }
+
+  return 0;
+};
+
 const formatDateTimeDMY = (value) => {
   if (!value) return "-";
   const date = new Date(value);
@@ -802,18 +837,20 @@ export default function ManureSales() {
 
   const filteredSales = useMemo(
     () =>
-      sales.filter((sale) => {
-        const query = search.toLowerCase();
+      sales
+        .filter((sale) => {
+          const query = search.toLowerCase();
 
-        const matchesSearch =
-          sale.customer?.toLowerCase().includes(query) ||
-          sale.invoiceNumber?.toLowerCase().includes(query);
+          const matchesSearch =
+            sale.customer?.toLowerCase().includes(query) ||
+            sale.invoiceNumber?.toLowerCase().includes(query);
 
-        const matchesStatus =
-          statusFilter === "All" || sale.status === statusFilter;
+          const matchesStatus =
+            statusFilter === "All" || sale.status === statusFilter;
 
-        return Boolean(matchesSearch) && matchesStatus;
-      }),
+          return Boolean(matchesSearch) && matchesStatus;
+        })
+        .sort((a, b) => getSaleDateTimestamp(b) - getSaleDateTimestamp(a)),
     [sales, search, statusFilter],
   );
 

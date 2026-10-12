@@ -125,6 +125,41 @@ const parseDateDMY = (value) => {
 
 const formatDate = (value) => formatDateDMY(value) || "-";
 
+// Sort sale records by sale date (newest first), supporting ISO and DD/MM/YYYY values.
+const getSaleDateTimestamp = (sale) => {
+  const candidates = [sale?.date, sale?.createdAt, sale?.created_at];
+
+  for (const candidate of candidates) {
+    if (!candidate) continue;
+    const value = String(candidate).trim();
+    const dmy = value.match(/^(\d{2})\/(\d{2})\/(\d{4})$/);
+    let date;
+
+    if (dmy) {
+      date = new Date(Number(dmy[3]), Number(dmy[2]) - 1, Number(dmy[1]));
+      if (
+        date.getFullYear() !== Number(dmy[3]) ||
+        date.getMonth() !== Number(dmy[2]) - 1 ||
+        date.getDate() !== Number(dmy[1])
+      )
+        continue;
+    } else {
+      const isoDateOnly = value.match(/^(\d{4})-(\d{2})-(\d{2})$/);
+      date = isoDateOnly
+        ? new Date(
+            Number(isoDateOnly[1]),
+            Number(isoDateOnly[2]) - 1,
+            Number(isoDateOnly[3]),
+          )
+        : new Date(value);
+    }
+
+    if (!Number.isNaN(date.getTime())) return date.getTime();
+  }
+
+  return 0;
+};
+
 const getResponseArray = (response, keys = []) => {
   if (Array.isArray(response)) return response;
 
@@ -1045,26 +1080,28 @@ export default function EggSales() {
   const filteredSales = useMemo(() => {
     const query = search.trim().toLowerCase();
 
-    return sales.filter((sale) => {
-      if (!showDeleted && sale.isDeleted) return false;
-      if (showDeleted && !sale.isDeleted) return false;
+    return sales
+      .filter((sale) => {
+        if (!showDeleted && sale.isDeleted) return false;
+        if (showDeleted && !sale.isDeleted) return false;
 
-      if (statusFilter !== "All" && sale.status !== statusFilter) {
-        return false;
-      }
+        if (statusFilter !== "All" && sale.status !== statusFilter) {
+          return false;
+        }
 
-      if (!query) return true;
+        if (!query) return true;
 
-      const invoice = String(sale.invoiceNumber || "").toLowerCase();
-      const customer = String(sale.customer || "").toLowerCase();
-      const phone = String(sale.phone || "").toLowerCase();
+        const invoice = String(sale.invoiceNumber || "").toLowerCase();
+        const customer = String(sale.customer || "").toLowerCase();
+        const phone = String(sale.phone || "").toLowerCase();
 
-      return (
-        invoice.includes(query) ||
-        customer.includes(query) ||
-        phone.includes(query)
-      );
-    });
+        return (
+          invoice.includes(query) ||
+          customer.includes(query) ||
+          phone.includes(query)
+        );
+      })
+      .sort((a, b) => getSaleDateTimestamp(b) - getSaleDateTimestamp(a));
   }, [sales, search, statusFilter, showDeleted]);
 
   // ===================================================
