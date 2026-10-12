@@ -153,6 +153,149 @@ const getCustomerFromSale = (sale) => {
 // COMPONENT
 // =====================================================
 
+function FastDatePicker({
+  value,
+  onChange,
+  label = "Pick sale date from calendar",
+}) {
+  const [open, setOpen] = useState(false);
+  const [visibleMonth, setVisibleMonth] = useState(() => {
+    const date = value ? new Date(`${value}T12:00:00`) : new Date();
+    return new Date(date.getFullYear(), date.getMonth(), 1);
+  });
+
+  const selected = value ? new Date(`${value}T12:00:00`) : null;
+  const year = visibleMonth.getFullYear();
+  const month = visibleMonth.getMonth();
+  const firstWeekday = (new Date(year, month, 1).getDay() + 6) % 7;
+  const daysInMonth = new Date(year, month + 1, 0).getDate();
+  const cells = Array.from(
+    { length: Math.ceil((firstWeekday + daysInMonth) / 7) * 7 },
+    (_, index) => {
+      const day = index - firstWeekday + 1;
+      return day > 0 && day <= daysInMonth ? day : null;
+    },
+  );
+
+  const chooseDate = (day) => {
+    const iso = `${year}-${String(month + 1).padStart(2, "0")}-${String(day).padStart(2, "0")}`;
+    onChange(iso);
+    setOpen(false);
+  };
+
+  return (
+    <div className="relative flex w-11 shrink-0 items-center justify-center">
+      <button
+        type="button"
+        onClick={() => {
+          if (!open) {
+            const base = value ? new Date(`${value}T12:00:00`) : new Date();
+            setVisibleMonth(new Date(base.getFullYear(), base.getMonth(), 1));
+          }
+          setOpen((previous) => !previous);
+        }}
+        aria-label={label}
+        title={label}
+        aria-expanded={open}
+        className="flex h-full min-h-[42px] w-full items-center justify-center rounded-lg border border-gray-300 bg-white text-lg hover:bg-gray-50 focus:outline-none focus:ring-2 focus:ring-green-500"
+      >
+        <span aria-hidden="true">📅</span>
+      </button>
+      {open && (
+        <div
+          className="absolute right-0 top-full z-[100] mt-2 w-64 rounded-xl border border-gray-200 bg-white p-3 shadow-xl"
+          role="dialog"
+          aria-label="Choose a date"
+        >
+          <div className="mb-3 flex items-center justify-between gap-2">
+            <button
+              type="button"
+              onClick={() => setVisibleMonth(new Date(year, month - 1, 1))}
+              className="rounded-md px-2 py-1 text-lg hover:bg-gray-100"
+              aria-label="Previous month"
+            >
+              ‹
+            </button>
+            <span className="text-sm font-semibold text-gray-800">
+              {visibleMonth.toLocaleDateString("en-GB", {
+                month: "long",
+                year: "numeric",
+              })}
+            </span>
+            <button
+              type="button"
+              onClick={() => setVisibleMonth(new Date(year, month + 1, 1))}
+              className="rounded-md px-2 py-1 text-lg hover:bg-gray-100"
+              aria-label="Next month"
+            >
+              ›
+            </button>
+          </div>
+          <div className="mb-1 grid grid-cols-7 text-center text-xs font-medium text-gray-500">
+            {["Mo", "Tu", "We", "Th", "Fr", "Sa", "Su"].map((day) => (
+              <span key={day} className="py-1">
+                {day}
+              </span>
+            ))}
+          </div>
+          <div className="grid grid-cols-7 gap-1">
+            {cells.map((day, index) =>
+              day ? (
+                <button
+                  key={day}
+                  type="button"
+                  onClick={() => chooseDate(day)}
+                  className={`h-8 rounded-md text-sm hover:bg-green-100 ${selected && selected.getFullYear() === year && selected.getMonth() === month && selected.getDate() === day ? "bg-green-700 font-semibold text-white hover:bg-green-800" : "text-gray-700"}`}
+                  aria-pressed={Boolean(
+                    selected &&
+                    selected.getFullYear() === year &&
+                    selected.getMonth() === month &&
+                    selected.getDate() === day,
+                  )}
+                >
+                  {day}
+                </button>
+              ) : (
+                <span key={`blank-${index}`} className="h-8" />
+              ),
+            )}
+          </div>
+          <div className="mt-3 flex justify-between border-t pt-2">
+            <button
+              type="button"
+              onClick={() => {
+                const today = new Date();
+                setVisibleMonth(
+                  new Date(today.getFullYear(), today.getMonth(), 1),
+                );
+                chooseDateForToday();
+              }}
+              className="text-xs font-medium text-green-700 hover:underline"
+            >
+              Today
+            </button>
+            <button
+              type="button"
+              onClick={() => setOpen(false)}
+              className="text-xs text-gray-500 hover:underline"
+            >
+              Close
+            </button>
+          </div>
+        </div>
+      )}
+    </div>
+  );
+
+  function chooseDateForToday() {
+    const today = new Date();
+    onChange(
+      `${today.getFullYear()}-${String(today.getMonth() + 1).padStart(2, "0")}-${String(today.getDate()).padStart(2, "0")}`,
+    );
+    setOpen(false);
+  }
+}
+
 export default function EggSales() {
   // USER
   const [user, setUser] = useState(null);
@@ -303,10 +446,8 @@ export default function EggSales() {
     }));
   };
 
-  const handleCalendarDateChange = (event) => {
-    const value = event.target.value;
+  const handleCalendarDateChange = (value) => {
     if (!value) return;
-
     setDateInput(formatDateDMY(value));
     setFormData((previous) => ({ ...previous, date: value }));
   };
@@ -1298,19 +1439,10 @@ export default function EggSales() {
                   required
                   className="min-w-0 flex-1 rounded-lg border border-gray-300 px-3 py-2 text-sm outline-none focus:border-green-500"
                 />
-                <div className="relative flex w-11 shrink-0 items-center justify-center overflow-hidden rounded-lg border border-gray-300 bg-white hover:bg-gray-50">
-                  <span aria-hidden="true" className="text-lg">
-                    📅
-                  </span>
-                  <input
-                    type="date"
-                    value={parseDateDMY(dateInput) || ""}
-                    onChange={handleCalendarDateChange}
-                    aria-label="Pick sale date from calendar"
-                    title="Pick sale date from calendar"
-                    className="absolute inset-0 h-full w-full cursor-pointer opacity-0"
-                  />
-                </div>
+                <FastDatePicker
+                  value={parseDateDMY(dateInput) || formData.date || ""}
+                  onChange={handleCalendarDateChange}
+                />
               </div>
             </div>
           </div>
