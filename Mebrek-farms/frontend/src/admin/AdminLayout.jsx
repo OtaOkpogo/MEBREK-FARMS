@@ -1,4 +1,4 @@
-import { useEffect, useRef, useState } from "react";
+import { useCallback, useEffect, useRef, useState } from "react";
 import { Outlet, Link, useNavigate, useLocation } from "react-router-dom";
 
 import { ToastContainer, toast } from "react-toastify";
@@ -18,19 +18,25 @@ import {
   getUnreadCount,
 } from "../services/notificationService";
 
-// ============================================================
-// HELPERS
-// ============================================================
+import {
+  fetchSaleAccessRequests as fetchEggAccessRequests,
+  markSaleAccessRequestViewed as markEggRequestViewed,
+} from "../services/eggSalesService";
+
+import {
+  fetchSaleAccessRequests as fetchManureAccessRequests,
+  markSaleAccessRequestViewed as markManureRequestViewed,
+} from "../services/manureSalesService";
 
 const getId = (value) => {
   if (!value) return null;
 
   if (typeof value === "object") {
-    if (value._id) return value._id.toString();
-    if (value.id) return value.id.toString();
+    if (value._id) return String(value._id);
+    if (value.id) return String(value.id);
   }
 
-  return value.toString();
+  return String(value);
 };
 
 const isOwnSender = (senderId, userId) => {
@@ -40,43 +46,35 @@ const isOwnSender = (senderId, userId) => {
   return Boolean(sender && user && sender === user);
 };
 
-// ============================================================
-// ADMIN LAYOUT
-// ============================================================
+const normalizeRequests = (response) => {
+  if (Array.isArray(response)) return response;
+  if (Array.isArray(response?.requests)) return response.requests;
+  return [];
+};
 
 export default function AdminLayout() {
   const navigate = useNavigate();
   const location = useLocation();
-
-  // ==========================================================
-  // USER
-  // ==========================================================
 
   const user = JSON.parse(localStorage.getItem("user") || "{}");
   const role = user?.role || localStorage.getItem("role");
   const name = user?.name || localStorage.getItem("adminName");
   const currentUserId = getId(user?._id || user?.id);
 
-  // ==========================================================
-  // STATE
-  // ==========================================================
-
   const [unreadOrders, setUnreadOrders] = useState(0);
   const [unreadMessages, setUnreadMessages] = useState(0);
   const [messageNotifications, setMessageNotifications] = useState([]);
 
-  // ==========================================================
-  // REFS
-  // ==========================================================
+  // Independent persistent indicators for the two sales sections.
+  const [saleAccessBadges, setSaleAccessBadges] = useState({
+    egg: false,
+    manure: false,
+  });
 
   const orderAudioRef = useRef(null);
   const notificationAudioRef = useRef(null);
   const roleRef = useRef(role);
   const userIdRef = useRef(currentUserId);
-
-  // ==========================================================
-  // KEEP USER REFS CURRENT
-  // ==========================================================
 
   useEffect(() => {
     roleRef.current = role;
@@ -89,25 +87,18 @@ export default function AdminLayout() {
 
   useEffect(() => {
     const token = localStorage.getItem("token");
-
     if (!token) return;
 
     socket.auth = (callback) => {
-      callback({
-        token: localStorage.getItem("token"),
-      });
+      callback({ token: localStorage.getItem("token") });
     };
 
-    // Force a fresh authenticated handshake.
     socket.disconnect();
     socket.connect();
-
-    // Do not disconnect in this effect's cleanup. Other
-    // components may share the same socket connection.
   }, []);
 
   // ==========================================================
-  // INITIALIZE ORDER SOUND
+  // AUDIO
   // ==========================================================
 
   useEffect(() => {
@@ -116,16 +107,10 @@ export default function AdminLayout() {
     orderAudioRef.current.volume = 1;
 
     return () => {
-      if (orderAudioRef.current) {
-        orderAudioRef.current.pause();
-        orderAudioRef.current = null;
-      }
+      orderAudioRef.current?.pause();
+      orderAudioRef.current = null;
     };
   }, []);
-
-  // ==========================================================
-  // INITIALIZE NOTIFICATION SOUND
-  // ==========================================================
 
   useEffect(() => {
     notificationAudioRef.current = new Audio(notificationSound);
@@ -133,89 +118,181 @@ export default function AdminLayout() {
     notificationAudioRef.current.volume = 1;
 
     return () => {
-      if (notificationAudioRef.current) {
-        notificationAudioRef.current.pause();
-        notificationAudioRef.current = null;
-      }
+      notificationAudioRef.current?.pause();
+      notificationAudioRef.current = null;
     };
   }, []);
 
-  // ==========================================================
-  // PLAY NOTIFICATION SOUND
-  // ==========================================================
-
-  const playNotificationSound = () => {
+  const playNotificationSound = useCallback(() => {
     try {
-      if (!notificationAudioRef.current) return;
+      const audio = notificationAudioRef.current;
+      if (!audio) return;
 
-      notificationAudioRef.current.currentTime = 0;
+      audio.currentTime = 0;
+      const result = audio.play();
 
-      const playPromise = notificationAudioRef.current.play();
-
-      if (playPromise?.catch) {
-        playPromise.catch((err) => {
-          console.warn("Notification sound was blocked by browser:", err);
-        });
-      }
+      result?.catch?.((err) => {
+        console.warn("Notification sound was blocked:", err);
+      });
     } catch (err) {
       console.warn("Notification sound error:", err);
     }
-  };
+  }, []);
 
-  // ==========================================================
-  // PLAY ORDER SOUND
-  // ==========================================================
-
-  const playOrderSound = () => {
+  const playOrderSound = useCallback(() => {
     try {
-      if (!orderAudioRef.current) return;
+      const audio = orderAudioRef.current;
+      if (!audio) return;
 
-      orderAudioRef.current.currentTime = 0;
+      audio.currentTime = 0;
+      const result = audio.play();
 
-      const playPromise = orderAudioRef.current.play();
-
-      if (playPromise?.catch) {
-        playPromise.catch((err) => {
-          console.warn("Order sound was blocked by browser:", err);
-        });
-      }
+      result?.catch?.((err) => {
+        console.warn("Order sound was blocked:", err);
+      });
     } catch (err) {
       console.warn("Order sound error:", err);
     }
-  };
+  }, []);
 
   // ==========================================================
-  // REFRESH UNREAD NOTIFICATION COUNT
+  // EXISTING MESSAGE NOTIFICATIONS
   // ==========================================================
 
-  const refreshUnreadCount = async () => {
+  const refreshUnreadCount = useCallback(async () => {
     if (roleRef.current === "staff") {
       setUnreadMessages(0);
       return;
     }
 
     try {
-      const res = await getUnreadCount();
-      const count = res?.data?.count ?? res?.count ?? 0;
-
+      const response = await getUnreadCount();
+      const count = response?.data?.count ?? response?.count ?? 0;
       setUnreadMessages(Number(count) || 0);
     } catch (err) {
       console.error("Failed to refresh unread notification count:", err);
     }
-  };
-
-  // ==========================================================
-  // INITIAL UNREAD COUNT
-  // ==========================================================
+  }, []);
 
   useEffect(() => {
     refreshUnreadCount();
-
-    // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, []);
+  }, [refreshUnreadCount]);
 
   // ==========================================================
-  // ORDER PAGE
+  // SALE-ACCESS BADGES
+  // ==========================================================
+
+  const refreshSaleAccessBadges = useCallback(async () => {
+    if (!["superadmin", "manager"].includes(roleRef.current)) {
+      setSaleAccessBadges({ egg: false, manure: false });
+      return;
+    }
+
+    try {
+      const [eggResponse, manureResponse] = await Promise.all([
+        fetchEggAccessRequests(),
+        fetchManureAccessRequests(),
+      ]);
+
+      const hasNotification = (response) => {
+        const requests = normalizeRequests(response);
+
+        if (roleRef.current === "superadmin") {
+          return requests.some((item) => item.status === "pending");
+        }
+
+        return requests.some(
+          (item) =>
+            ["approved", "rejected"].includes(item.status) &&
+            !item.requesterViewedAt,
+        );
+      };
+
+      setSaleAccessBadges({
+        egg: hasNotification(eggResponse),
+        manure: hasNotification(manureResponse),
+      });
+    } catch (err) {
+      console.error("Failed to refresh sale-access badges:", err);
+    }
+  }, []);
+
+  useEffect(() => {
+    refreshSaleAccessBadges();
+
+    const handleListChanged = () => refreshSaleAccessBadges();
+
+    window.addEventListener("saleAccessRequestListChanged", handleListChanged);
+
+    window.addEventListener("saleAccessRequestViewed", handleListChanged);
+
+    return () => {
+      window.removeEventListener(
+        "saleAccessRequestListChanged",
+        handleListChanged,
+      );
+
+      window.removeEventListener("saleAccessRequestViewed", handleListChanged);
+    };
+  }, [refreshSaleAccessBadges, role]);
+
+  // When a manager opens one sales section, mark only that section's
+  // reviewed requests as viewed. The other section remains independent.
+  useEffect(() => {
+    if (role !== "manager") return;
+
+    const saleType = location.pathname.startsWith("/admin/egg-sales")
+      ? "egg"
+      : location.pathname.startsWith("/admin/manure-sales")
+        ? "manure"
+        : null;
+
+    if (!saleType) return;
+
+    const getRequests =
+      saleType === "egg" ? fetchEggAccessRequests : fetchManureAccessRequests;
+
+    const markViewed =
+      saleType === "egg" ? markEggRequestViewed : markManureRequestViewed;
+
+    let cancelled = false;
+
+    const markUnreadAsViewed = async () => {
+      try {
+        const response = await getRequests();
+        const requests = normalizeRequests(response);
+
+        const unread = requests.filter(
+          (item) =>
+            ["approved", "rejected"].includes(item.status) &&
+            !item.requesterViewedAt,
+        );
+
+        await Promise.all(unread.map((item) => markViewed(item._id)));
+
+        if (cancelled) return;
+
+        window.dispatchEvent(
+          new CustomEvent("saleAccessRequestViewed", {
+            detail: { saleType },
+          }),
+        );
+
+        await refreshSaleAccessBadges();
+      } catch (err) {
+        console.error("Failed to mark sale-access requests viewed:", err);
+      }
+    };
+
+    markUnreadAsViewed();
+
+    return () => {
+      cancelled = true;
+    };
+  }, [role, location.pathname, refreshSaleAccessBadges]);
+
+  // ==========================================================
+  // ORDERS
   // ==========================================================
 
   useEffect(() => {
@@ -224,14 +301,9 @@ export default function AdminLayout() {
     }
   }, [location.pathname]);
 
-  // ==========================================================
-  // NEW ORDER SOCKET
-  // ==========================================================
-
   useEffect(() => {
     const handleNewOrder = (order) => {
       setUnreadOrders((prev) => prev + 1);
-
       playOrderSound();
 
       const message = `New order received from ${order?.name || "customer"}`;
@@ -254,39 +326,38 @@ export default function AdminLayout() {
         }
       }
 
-      window.dispatchEvent(
-        new CustomEvent("orderCreated", {
-          detail: order,
-        }),
-      );
+      window.dispatchEvent(new CustomEvent("orderCreated", { detail: order }));
     };
 
     socket.on("newOrder", handleNewOrder);
 
-    return () => {
-      socket.off("newOrder", handleNewOrder);
-    };
-  }, []);
+    return () => socket.off("newOrder", handleNewOrder);
+  }, [playOrderSound]);
 
   // ==========================================================
-  // OLDER-SALE ACCESS REQUEST EVENTS
+  // SALE-ACCESS SOCKET.IO HANDLERS
   // ==========================================================
 
   useEffect(() => {
     if (!["superadmin", "manager"].includes(role)) return;
 
-    // Superadmins receive new requests from managers.
     const handleAccessRequestCreated = (request) => {
       if (roleRef.current !== "superadmin" || !request) return;
 
+      if (["egg", "manure"].includes(request.saleType)) {
+        setSaleAccessBadges((prev) => ({
+          ...prev,
+          [request.saleType]: true,
+        }));
+      }
+
       playNotificationSound();
 
-      const invoiceNumber = request.invoiceNumber || "unknown";
+      const invoice = request.invoiceNumber || "unknown";
       const requester = request.requesterName || "Manager";
-
       const message =
         request.message ||
-        `${requester} requested older-sale access for invoice ${invoiceNumber}.`;
+        `${requester} requested older-sale access for invoice ${invoice}.`;
 
       toast.info(`🔐 ${message}`, {
         position: "top-right",
@@ -295,39 +366,44 @@ export default function AdminLayout() {
         theme: "colored",
       });
 
-      if ("Notification" in window) {
-        if (Notification.permission === "granted") {
-          new Notification("Mebrek Farms — Access Request", {
-            body: message,
-            icon: "/favicon.ico",
-          });
-        }
+      if ("Notification" in window && Notification.permission === "granted") {
+        new Notification("Mebrek Farms — Access Request", {
+          body: message,
+          icon: "/favicon.ico",
+        });
       }
 
-      // Allows the request-management screen to refresh its list.
       window.dispatchEvent(
         new CustomEvent("saleAccessRequestCreated", {
           detail: request,
         }),
       );
+
+      window.dispatchEvent(
+        new CustomEvent("saleAccessRequestListChanged", {
+          detail: { saleType: request.saleType },
+        }),
+      );
     };
 
-    // Managers receive the decision for their own request.
     const handleAccessRequestReviewed = (request) => {
       if (roleRef.current !== "manager" || !request) return;
 
-      // Extra client-side check. The backend must also deliver
-      // this event only to the requester's private socket room.
-      if (getId(request.requesterId) !== userIdRef.current) {
-        return;
+      if (getId(request.requesterId) !== userIdRef.current) return;
+
+      if (!["approved", "rejected"].includes(request.status)) return;
+
+      if (["egg", "manure"].includes(request.saleType)) {
+        setSaleAccessBadges((prev) => ({
+          ...prev,
+          [request.saleType]: true,
+        }));
       }
 
       playNotificationSound();
 
-      const invoiceNumber = request.invoiceNumber || "unknown";
-      const reviewNote = request.reviewNote
-        ? ` Note: ${request.reviewNote}`
-        : "";
+      const invoice = request.invoiceNumber || "unknown";
+      const note = request.reviewNote ? ` Note: ${request.reviewNote}` : "";
 
       let message;
 
@@ -336,17 +412,10 @@ export default function AdminLayout() {
           ? new Date(request.accessExpiresAt).toLocaleTimeString()
           : null;
 
-        message = `Access approved for invoice ${invoiceNumber}. Temporary access expires in two hours.${
+        message = `Access approved for invoice ${invoice}. Temporary access expires in two hours.${
           expiry ? ` Expiry time: ${expiry}.` : ""
         }`;
-      } else if (request.status === "rejected") {
-        message = `Access rejected for invoice ${invoiceNumber}.${reviewNote}`;
-      } else {
-        // Ignore malformed or unexpected event statuses.
-        return;
-      }
 
-      if (request.status === "approved") {
         toast.success(`🔓 ${message}`, {
           position: "top-right",
           autoClose: 8000,
@@ -354,6 +423,8 @@ export default function AdminLayout() {
           theme: "colored",
         });
       } else {
+        message = `Access rejected for invoice ${invoice}.${note}`;
+
         toast.error(`🔒 ${message}`, {
           position: "top-right",
           autoClose: 8000,
@@ -367,21 +438,22 @@ export default function AdminLayout() {
           detail: request,
         }),
       );
+
+      window.dispatchEvent(
+        new CustomEvent("saleAccessRequestListChanged", {
+          detail: { saleType: request.saleType },
+        }),
+      );
     };
 
     socket.on("saleAccessRequestCreated", handleAccessRequestCreated);
-
     socket.on("saleAccessRequestReviewed", handleAccessRequestReviewed);
 
     return () => {
       socket.off("saleAccessRequestCreated", handleAccessRequestCreated);
-
       socket.off("saleAccessRequestReviewed", handleAccessRequestReviewed);
     };
-
-    // Sound helpers use refs and remain valid for these listeners.
-    // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [role]);
+  }, [role, playNotificationSound]);
 
   // ==========================================================
   // EXISTING NOTIFICATION SOCKET EVENTS
@@ -410,8 +482,8 @@ export default function AdminLayout() {
       });
 
       setMessageNotifications((prev) => {
-        const notificationId = getId(notification);
-        const index = prev.findIndex((item) => getId(item) === notificationId);
+        const id = getId(notification);
+        const index = prev.findIndex((item) => getId(item) === id);
 
         if (index === -1) return [...prev, notification];
 
@@ -452,8 +524,8 @@ export default function AdminLayout() {
       }
 
       setMessageNotifications((prev) => {
-        const notificationId = getId(notification);
-        const index = prev.findIndex((item) => getId(item) === notificationId);
+        const id = getId(notification);
+        const index = prev.findIndex((item) => getId(item) === id);
 
         if (index === -1) return [...prev, notification];
 
@@ -470,22 +542,13 @@ export default function AdminLayout() {
       socket.off("notificationCreated", handleCreated);
       socket.off("notificationUpdated", handleUpdated);
     };
-
-    // Keep popup behavior aligned with the current page.
-    // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [location.pathname]);
+  }, [location.pathname, playNotificationSound, refreshUnreadCount]);
 
   // ==========================================================
-  // CLOSE POPUP
+  // MESSAGE POPUP
   // ==========================================================
 
-  const handlePopupClose = () => {
-    setMessageNotifications([]);
-  };
-
-  // ==========================================================
-  // MARK POPUP MESSAGE READ
-  // ==========================================================
+  const handlePopupClose = () => setMessageNotifications([]);
 
   const handlePopupMarkRead = async (id) => {
     try {
@@ -495,14 +558,10 @@ export default function AdminLayout() {
       console.error("Failed to mark notification as read:", err);
     } finally {
       setMessageNotifications((prev) =>
-        prev.filter((notification) => getId(notification) !== getId(id)),
+        prev.filter((item) => getId(item) !== getId(id)),
       );
     }
   };
-
-  // ==========================================================
-  // REPLY FROM POPUP
-  // ==========================================================
 
   const handlePopupReply = async (id, message) => {
     try {
@@ -510,7 +569,7 @@ export default function AdminLayout() {
       await refreshUnreadCount();
 
       setMessageNotifications((prev) =>
-        prev.filter((notification) => getId(notification) !== getId(id)),
+        prev.filter((item) => getId(item) !== getId(id)),
       );
     } catch (err) {
       console.error("Failed to reply to notification:", err);
@@ -532,13 +591,21 @@ export default function AdminLayout() {
     navigate("/login");
   };
 
+  const RedDot = ({ label }) => (
+    <span
+      role="status"
+      aria-label={label}
+      title={label}
+      className="h-3 w-3 shrink-0 rounded-full bg-red-500 ring-2 ring-red-300 animate-pulse"
+    />
+  );
+
   // ==========================================================
   // UI
   // ==========================================================
 
   return (
     <div className="flex min-h-screen bg-gray-100">
-      {/* SIDEBAR */}
       <aside className="w-72 bg-green-800 text-white p-6 shadow-lg">
         <div className="mb-8">
           <div className="flex items-center gap-3">
@@ -606,7 +673,6 @@ export default function AdminLayout() {
             className="flex items-center justify-between hover:bg-green-700 p-3 rounded-lg transition relative"
           >
             <span>Orders 📦</span>
-
             {unreadOrders > 0 && (
               <span className="min-w-[24px] h-6 px-2 rounded-full bg-red-500 text-white text-xs font-bold flex items-center justify-center animate-pulse">
                 {unreadOrders > 99 ? "99+" : unreadOrders}
@@ -642,7 +708,6 @@ export default function AdminLayout() {
             className="flex items-center justify-between hover:bg-green-700 p-3 rounded-lg transition relative"
           >
             <span>Notifications 🔔</span>
-
             {unreadMessages > 0 && (
               <span className="min-w-[24px] h-6 px-2 rounded-full bg-red-500 text-white text-xs font-bold flex items-center justify-center animate-pulse">
                 {unreadMessages > 99 ? "99+" : unreadMessages}
@@ -713,9 +778,12 @@ export default function AdminLayout() {
 
               <Link
                 to="/admin/egg-sales"
-                className="block hover:bg-green-700 p-3 rounded-lg transition"
+                className="flex items-center justify-between hover:bg-green-700 p-3 rounded-lg transition"
               >
-                Egg Sales 🥚
+                <span>Egg Sales 🥚</span>
+                {saleAccessBadges.egg && (
+                  <RedDot label="Unread Egg Sales access notification" />
+                )}
               </Link>
 
               <Link
@@ -727,9 +795,12 @@ export default function AdminLayout() {
 
               <Link
                 to="/admin/manure-sales"
-                className="block hover:bg-green-700 p-3 rounded-lg transition"
+                className="flex items-center justify-between hover:bg-green-700 p-3 rounded-lg transition"
               >
-                Manure Sales 🌾
+                <span>Manure Sales 🌾</span>
+                {saleAccessBadges.manure && (
+                  <RedDot label="Unread Manure Sales access notification" />
+                )}
               </Link>
 
               <Link
@@ -788,7 +859,6 @@ export default function AdminLayout() {
         </nav>
       </aside>
 
-      {/* MAIN */}
       <main className="flex-1 min-w-0 bg-gray-100 overflow-y-auto">
         <div className="bg-white shadow-sm px-8 py-4 flex items-center justify-between">
           <div className="w-full max-w-xl">
@@ -815,7 +885,6 @@ export default function AdminLayout() {
         </div>
       </main>
 
-      {/* EXISTING MESSAGE POPUP */}
       <NotificationPopup
         notifications={messageNotifications}
         onClose={handlePopupClose}
