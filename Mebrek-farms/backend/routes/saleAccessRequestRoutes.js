@@ -1,12 +1,17 @@
 const express = require("express");
 const router = express.Router();
+
 const { protect, allowRoles } = require("../middleware/authMiddleware");
 const controller = require("../controllers/saleAccessRequestController");
 
 router.use(protect);
+
 router.post("/", allowRoles("manager", "superadmin"), controller.createRequest);
+
 router.get("/", allowRoles("manager", "superadmin"), controller.getRequests);
+
 router.put("/:id/review", allowRoles("superadmin"), controller.reviewRequest);
+
+router.patch("/:id/viewed", allowRoles("manager"), controller.markViewed);
+
 module.exports = router;
-
-

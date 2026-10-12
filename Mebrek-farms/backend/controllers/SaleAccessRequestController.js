@@ -1,3 +1,4 @@
+const mongoose = require("mongoose");
 const SaleAccessRequest = require("../models/SaleAccessRequest");
 const EggSale = require("../models/EggSale");
 const ManureSale = require("../models/ManureSale");
@@ -6,7 +7,6 @@ const ACCESS_WINDOW_MS = 24 * 60 * 60 * 1000;
 const ACCESS_DURATION_MS = 2 * 60 * 60 * 1000;
 
 const requesterId = (req) => req.user?.id || req.user?._id || null;
-
 const requesterName = (req) => req.user?.name || req.user?.adminName || "";
 
 const getModel = (type) =>
@@ -23,15 +23,12 @@ const emitSocketEvent = (req, room, eventName, payload) => {
   io.to(room).emit(eventName, payload);
 };
 
-// ==============================
 // CREATE OLDER-SALE ACCESS REQUEST
-// ==============================
 exports.createRequest = async (req, res) => {
   try {
     const saleType = String(req.body.saleType || "").toLowerCase();
     const invoiceNumber = String(req.body.invoiceNumber || "").trim();
     const reason = String(req.body.reason || "").trim();
-
     const Model = getModel(saleType);
 
     if (!Model || !invoiceNumber || !reason) {
@@ -54,10 +51,7 @@ exports.createRequest = async (req, res) => {
       });
     }
 
-    const sale = await Model.findOne({
-      invoiceNumber,
-      isDeleted: false,
-    });
+    const sale = await Model.findOne({ invoiceNumber, isDeleted: false });
 
     if (!sale) {
       return res.status(404).json({
@@ -107,6 +101,7 @@ exports.createRequest = async (req, res) => {
       requesterId: id,
       requesterName: requesterName(req),
       reason,
+      requesterViewedAt: null,
     });
 
     const payload = {
@@ -121,7 +116,6 @@ exports.createRequest = async (req, res) => {
       createdAt: request.createdAt,
     };
 
-    // Notify verified superadmins in real time.
     emitSocketEvent(
       req,
       "role:superadmin",
@@ -142,9 +136,7 @@ exports.createRequest = async (req, res) => {
   }
 };
 
-// ==============================
 // GET ACCESS REQUESTS
-// ==============================
 exports.getRequests = async (req, res) => {
   try {
     const filter = {};
@@ -153,16 +145,12 @@ exports.getRequests = async (req, res) => {
       const saleType = String(req.query.saleType).toLowerCase();
 
       if (!["egg", "manure"].includes(saleType)) {
-        return res.status(400).json({
-          message: "Invalid saleType.",
-        });
+        return res.status(400).json({ message: "Invalid saleType." });
       }
 
       filter.saleType = saleType;
     }
 
-    // Superadmins can review all requests.
-    // Managers can only see their own requests.
     if (req.user?.role !== "superadmin") {
       const id = requesterId(req);
 
@@ -175,10 +163,11 @@ exports.getRequests = async (req, res) => {
       filter.requesterId = id;
     }
 
-    if (
-      req.query.status &&
-      ["pending", "approved", "rejected"].includes(req.query.status)
-    ) {
+    if (req.query.status) {
+      if (!["pending", "approved", "rejected"].includes(req.query.status)) {
+        return res.status(400).json({ message: "Invalid status." });
+      }
+
       filter.status = req.query.status;
     }
 
@@ -198,9 +187,7 @@ exports.getRequests = async (req, res) => {
   }
 };
 
-// ==============================
 // SUPERADMIN REVIEWS REQUEST
-// ==============================
 exports.reviewRequest = async (req, res) => {
   try {
     const decision = String(req.body.decision || "").toLowerCase();
@@ -219,12 +206,14 @@ exports.reviewRequest = async (req, res) => {
       });
     }
 
+    if (!mongoose.isValidObjectId(req.params.id)) {
+      return res.status(400).json({ message: "Invalid request ID." });
+    }
+
     const request = await SaleAccessRequest.findById(req.params.id);
 
     if (!request) {
-      return res.status(404).json({
-        message: "Access request not found.",
-      });
+      return res.status(404).json({ message: "Access request not found." });
     }
 
     if (request.status !== "pending") {
@@ -262,6 +251,9 @@ exports.reviewRequest = async (req, res) => {
         ? new Date(Date.now() + ACCESS_DURATION_MS)
         : null;
 
+    // Each decision starts unread for the manager.
+    request.requesterViewedAt = null;
+
     await request.save();
 
     const payload = {
@@ -277,9 +269,9 @@ exports.reviewRequest = async (req, res) => {
       reviewedAt: request.reviewedAt,
       reviewNote: request.reviewNote,
       accessExpiresAt: request.accessExpiresAt,
+      requesterViewedAt: request.requesterViewedAt,
     };
 
-    // Notify only the admin who submitted this request.
     emitSocketEvent(
       req,
       `admin:${request.requesterId.toString()}`,
@@ -299,6 +291,51 @@ exports.reviewRequest = async (req, res) => {
 
     return res.status(500).json({
       message: err.message || "Failed to review access request.",
+    });
+  }
+};
+
+// MANAGER MARKS THEIR OWN DECISION AS VIEWED
+exports.markViewed = async (req, res) => {
+  try {
+    const id = requesterId(req);
+
+    if (!id) {
+      return res.status(401).json({
+        message: "Unable to identify the requesting account.",
+      });
+    }
+
+    if (!mongoose.isValidObjectId(req.params.id)) {
+      return res.status(400).json({ message: "Invalid request ID." });
+    }
+
+    const request = await SaleAccessRequest.findOne({
+      _id: req.params.id,
+      requesterId: id,
+      status: { $in: ["approved", "rejected"] },
+    });
+
+    if (!request) {
+      return res.status(404).json({
+        message: "Reviewed access request not found.",
+      });
+    }
+
+    if (!request.requesterViewedAt) {
+      request.requesterViewedAt = new Date();
+      await request.save();
+    }
+
+    return res.json({
+      message: "Access-request notification marked as viewed.",
+      request,
+    });
+  } catch (err) {
+    console.error("Mark sale access request viewed error:", err);
+
+    return res.status(500).json({
+      message: err.message || "Failed to mark notification as viewed.",
     });
   }
 };
