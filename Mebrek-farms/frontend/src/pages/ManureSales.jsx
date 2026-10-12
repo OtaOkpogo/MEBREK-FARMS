@@ -1,5 +1,6 @@
 import { useEffect, useMemo, useState } from "react";
 import ManureInvoiceModal from "../components/ManureInvoiceModal";
+import SaleAccessPanel from "../components/SaleAccessPanel";
 
 import {
   fetchSales,
@@ -913,6 +914,12 @@ export default function ManureSales() {
 
   return (
     <div className="p-6 bg-gray-100 min-h-screen">
+      <SaleAccessPanel
+        saleType="manure"
+        isSuperadmin={isSuperadmin}
+        canRequest={user?.role === "manager"}
+        onAccessChanged={loadSales}
+      />
       {/* HEADER */}
 
       <div className="flex flex-col md:flex-row md:items-center md:justify-between mb-8">

@@ -15,6 +15,7 @@ import {
 } from "recharts";
 
 import InvoiceModal from "../components/InvoiceModal";
+import SaleAccessPanel from "../components/SaleAccessPanel";
 
 import {
   fetchSales,
@@ -1259,6 +1260,12 @@ export default function EggSales() {
 
   return (
     <div className="space-y-6 p-4 md:p-6">
+      <SaleAccessPanel
+        saleType="egg"
+        isSuperadmin={isSuperadmin}
+        canRequest={user?.role === "manager"}
+        onAccessChanged={loadSales}
+      />
       {/* HEADER */}
 
       <div className="flex flex-col gap-3 lg:flex-row lg:items-center lg:justify-between">
