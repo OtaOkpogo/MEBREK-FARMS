@@ -37,9 +37,7 @@ const isOwnSender = (senderId, userId) => {
   const sender = getId(senderId);
   const user = getId(userId);
 
-  if (!sender || !user) return false;
-
-  return sender === user;
+  return Boolean(sender && user && sender === user);
 };
 
 // ============================================================
@@ -55,11 +53,8 @@ export default function AdminLayout() {
   // ==========================================================
 
   const user = JSON.parse(localStorage.getItem("user") || "{}");
-
   const role = user?.role || localStorage.getItem("role");
-
   const name = user?.name || localStorage.getItem("adminName");
-
   const currentUserId = getId(user?._id || user?.id);
 
   // ==========================================================
@@ -67,9 +62,7 @@ export default function AdminLayout() {
   // ==========================================================
 
   const [unreadOrders, setUnreadOrders] = useState(0);
-
   const [unreadMessages, setUnreadMessages] = useState(0);
-
   const [messageNotifications, setMessageNotifications] = useState([]);
 
   // ==========================================================
@@ -77,15 +70,12 @@ export default function AdminLayout() {
   // ==========================================================
 
   const orderAudioRef = useRef(null);
-
   const notificationAudioRef = useRef(null);
-
   const roleRef = useRef(role);
-
   const userIdRef = useRef(currentUserId);
 
   // ==========================================================
-  // KEEP REFS CURRENT
+  // KEEP USER REFS CURRENT
   // ==========================================================
 
   useEffect(() => {
@@ -94,14 +84,35 @@ export default function AdminLayout() {
   }, [role, currentUserId]);
 
   // ==========================================================
+  // AUTHENTICATED SOCKET CONNECTION
+  // ==========================================================
+
+  useEffect(() => {
+    const token = localStorage.getItem("token");
+
+    if (!token) return;
+
+    socket.auth = (callback) => {
+      callback({
+        token: localStorage.getItem("token"),
+      });
+    };
+
+    // Force a fresh authenticated handshake.
+    socket.disconnect();
+    socket.connect();
+
+    // Do not disconnect in this effect's cleanup. Other
+    // components may share the same socket connection.
+  }, []);
+
+  // ==========================================================
   // INITIALIZE ORDER SOUND
   // ==========================================================
 
   useEffect(() => {
     orderAudioRef.current = new Audio(orderSound);
-
     orderAudioRef.current.preload = "auto";
-
     orderAudioRef.current.volume = 1;
 
     return () => {
@@ -118,9 +129,7 @@ export default function AdminLayout() {
 
   useEffect(() => {
     notificationAudioRef.current = new Audio(notificationSound);
-
     notificationAudioRef.current.preload = "auto";
-
     notificationAudioRef.current.volume = 1;
 
     return () => {
@@ -137,9 +146,7 @@ export default function AdminLayout() {
 
   const playNotificationSound = () => {
     try {
-      if (!notificationAudioRef.current) {
-        return;
-      }
+      if (!notificationAudioRef.current) return;
 
       notificationAudioRef.current.currentTime = 0;
 
@@ -161,16 +168,16 @@ export default function AdminLayout() {
 
   const playOrderSound = () => {
     try {
-      if (!orderAudioRef.current) {
-        return;
-      }
+      if (!orderAudioRef.current) return;
 
       orderAudioRef.current.currentTime = 0;
 
       const playPromise = orderAudioRef.current.play();
 
       if (playPromise?.catch) {
-        playPromise.catch(() => {});
+        playPromise.catch((err) => {
+          console.warn("Order sound was blocked by browser:", err);
+        });
       }
     } catch (err) {
       console.warn("Order sound error:", err);
@@ -189,24 +196,6 @@ export default function AdminLayout() {
 
     try {
       const res = await getUnreadCount();
-
-      console.log("UNREAD COUNT RESPONSE:", res);
-
-      /*
-       * apiClient returns the complete Axios
-       * response.
-       *
-       * Backend returns:
-       *
-       * {
-       *   count: 3
-       * }
-       *
-       * Therefore:
-       *
-       * res.data.count
-       */
-
       const count = res?.data?.count ?? res?.count ?? 0;
 
       setUnreadMessages(Number(count) || 0);
@@ -236,27 +225,18 @@ export default function AdminLayout() {
   }, [location.pathname]);
 
   // ==========================================================
-  // IMPORTANT:
-  //
-  // DO NOT CLEAR unreadMessages just because
-  // the Notifications page was opened.
-  //
-  // The backend controls read/unread state.
-  // ==========================================================
-
-  // ==========================================================
   // NEW ORDER SOCKET
   // ==========================================================
 
   useEffect(() => {
     const handleNewOrder = (order) => {
-      console.log("🔥 New Order Received", order);
-
       setUnreadOrders((prev) => prev + 1);
 
       playOrderSound();
 
-      toast.success(`🛒 New order received from ${order?.name || "customer"}`, {
+      const message = `New order received from ${order?.name || "customer"}`;
+
+      toast.success(`🛒 ${message}`, {
         position: "top-right",
         autoClose: 5000,
         pauseOnHover: true,
@@ -266,11 +246,11 @@ export default function AdminLayout() {
       if ("Notification" in window) {
         if (Notification.permission === "granted") {
           new Notification("Mebrek Farms", {
-            body: `New order received from ${order?.name || "customer"}`,
+            body: message,
             icon: "/favicon.ico",
           });
         } else if (Notification.permission !== "denied") {
-          Notification.requestPermission();
+          Notification.requestPermission().catch(() => {});
         }
       }
 
@@ -289,63 +269,139 @@ export default function AdminLayout() {
   }, []);
 
   // ==========================================================
-  // NOTIFICATION SOCKET EVENTS
+  // OLDER-SALE ACCESS REQUEST EVENTS
   // ==========================================================
 
   useEffect(() => {
-    if (roleRef.current === "staff") {
-      return;
-    }
+    if (!["superadmin", "manager"].includes(role)) return;
 
-    // ========================================================
-    // NEW NOTIFICATION
-    // ========================================================
+    // Superadmins receive new requests from managers.
+    const handleAccessRequestCreated = (request) => {
+      if (roleRef.current !== "superadmin" || !request) return;
 
-    const handleCreated = async (notification) => {
-      console.log("🔔 notificationCreated:", notification);
-
-      if (!notification) {
-        return;
-      }
-
-      const isOwnMessage = isOwnSender(
-        notification.senderId,
-        userIdRef.current,
-      );
-
-      /*
-       * Always refresh the backend count.
-       *
-       * This is important because unread state is
-       * stored in readBy on the server.
-       */
-      await refreshUnreadCount();
-
-      /*
-       * Do not notify the sender about their
-       * own message.
-       */
-      if (isOwnMessage) {
-        return;
-      }
-
-      /*
-       * Play sound for incoming messages.
-       *
-       * This happens even if the user is already
-       * on the Notifications page.
-       */
       playNotificationSound();
 
-      /*
-       * If user is currently on Notifications,
-       * don't show the floating popup.
-       *
-       * The unread count still comes from backend.
-       */
-      if (location.pathname === "/admin/notifications") {
+      const invoiceNumber = request.invoiceNumber || "unknown";
+      const requester = request.requesterName || "Manager";
+
+      const message =
+        request.message ||
+        `${requester} requested older-sale access for invoice ${invoiceNumber}.`;
+
+      toast.info(`🔐 ${message}`, {
+        position: "top-right",
+        autoClose: 8000,
+        pauseOnHover: true,
+        theme: "colored",
+      });
+
+      if ("Notification" in window) {
+        if (Notification.permission === "granted") {
+          new Notification("Mebrek Farms — Access Request", {
+            body: message,
+            icon: "/favicon.ico",
+          });
+        }
+      }
+
+      // Allows the request-management screen to refresh its list.
+      window.dispatchEvent(
+        new CustomEvent("saleAccessRequestCreated", {
+          detail: request,
+        }),
+      );
+    };
+
+    // Managers receive the decision for their own request.
+    const handleAccessRequestReviewed = (request) => {
+      if (roleRef.current !== "manager" || !request) return;
+
+      // Extra client-side check. The backend must also deliver
+      // this event only to the requester's private socket room.
+      if (getId(request.requesterId) !== userIdRef.current) {
         return;
       }
+
+      playNotificationSound();
+
+      const invoiceNumber = request.invoiceNumber || "unknown";
+      const reviewNote = request.reviewNote
+        ? ` Note: ${request.reviewNote}`
+        : "";
+
+      let message;
+
+      if (request.status === "approved") {
+        const expiry = request.accessExpiresAt
+          ? new Date(request.accessExpiresAt).toLocaleTimeString()
+          : null;
+
+        message = `Access approved for invoice ${invoiceNumber}. Temporary access expires in two hours.${
+          expiry ? ` Expiry time: ${expiry}.` : ""
+        }`;
+      } else if (request.status === "rejected") {
+        message = `Access rejected for invoice ${invoiceNumber}.${reviewNote}`;
+      } else {
+        // Ignore malformed or unexpected event statuses.
+        return;
+      }
+
+      if (request.status === "approved") {
+        toast.success(`🔓 ${message}`, {
+          position: "top-right",
+          autoClose: 8000,
+          pauseOnHover: true,
+          theme: "colored",
+        });
+      } else {
+        toast.error(`🔒 ${message}`, {
+          position: "top-right",
+          autoClose: 8000,
+          pauseOnHover: true,
+          theme: "colored",
+        });
+      }
+
+      window.dispatchEvent(
+        new CustomEvent("saleAccessRequestReviewed", {
+          detail: request,
+        }),
+      );
+    };
+
+    socket.on("saleAccessRequestCreated", handleAccessRequestCreated);
+
+    socket.on("saleAccessRequestReviewed", handleAccessRequestReviewed);
+
+    return () => {
+      socket.off("saleAccessRequestCreated", handleAccessRequestCreated);
+
+      socket.off("saleAccessRequestReviewed", handleAccessRequestReviewed);
+    };
+
+    // Sound helpers use refs and remain valid for these listeners.
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [role]);
+
+  // ==========================================================
+  // EXISTING NOTIFICATION SOCKET EVENTS
+  // ==========================================================
+
+  useEffect(() => {
+    if (roleRef.current === "staff") return;
+
+    const handleCreated = async (notification) => {
+      if (!notification) return;
+
+      const ownMessage = isOwnSender(notification.senderId, userIdRef.current);
+
+      await refreshUnreadCount();
+
+      if (ownMessage) return;
+
+      playNotificationSound();
+
+      if (location.pathname === "/admin/notifications") return;
 
       toast.info(`🔔 New message from ${notification.senderName || "User"}`, {
         position: "top-right",
@@ -355,58 +411,28 @@ export default function AdminLayout() {
 
       setMessageNotifications((prev) => {
         const notificationId = getId(notification);
-
         const index = prev.findIndex((item) => getId(item) === notificationId);
 
-        if (index === -1) {
-          return [...prev, notification];
-        }
+        if (index === -1) return [...prev, notification];
 
         const next = [...prev];
-
         next[index] = notification;
-
         return next;
       });
     };
 
-    // ========================================================
-    // UPDATED NOTIFICATION
-    // ========================================================
-
     const handleUpdated = async (notification) => {
-      console.log("🔔 notificationUpdated:", notification);
+      if (!notification) return;
 
-      if (!notification) {
-        return;
-      }
-
-      const isOwnMessage = isOwnSender(
-        notification.senderId,
-        userIdRef.current,
-      );
+      const ownMessage = isOwnSender(notification.senderId, userIdRef.current);
 
       await refreshUnreadCount();
 
-      /*
-       * For a superadmin, an update may be caused
-       * by the superadmin's own reply.
-       *
-       * Do not play a sound for your own action.
-       */
-      if (isOwnMessage) {
-        return;
-      }
+      if (ownMessage) return;
 
-      /*
-       * Incoming update = new message from
-       * the other participant.
-       */
       playNotificationSound();
 
-      if (location.pathname === "/admin/notifications") {
-        return;
-      }
+      if (location.pathname === "/admin/notifications") return;
 
       if (roleRef.current === "superadmin") {
         toast.info(
@@ -427,33 +453,25 @@ export default function AdminLayout() {
 
       setMessageNotifications((prev) => {
         const notificationId = getId(notification);
-
         const index = prev.findIndex((item) => getId(item) === notificationId);
 
-        if (index === -1) {
-          return [...prev, notification];
-        }
+        if (index === -1) return [...prev, notification];
 
         const next = [...prev];
-
         next[index] = notification;
-
         return next;
       });
     };
 
     socket.on("notificationCreated", handleCreated);
-
     socket.on("notificationUpdated", handleUpdated);
 
     return () => {
       socket.off("notificationCreated", handleCreated);
-
       socket.off("notificationUpdated", handleUpdated);
     };
 
-    // location.pathname is intentionally included
-    // so popup behavior follows the current page.
+    // Keep popup behavior aligned with the current page.
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [location.pathname]);
 
@@ -472,7 +490,6 @@ export default function AdminLayout() {
   const handlePopupMarkRead = async (id) => {
     try {
       await markNotificationRead(id);
-
       await refreshUnreadCount();
     } catch (err) {
       console.error("Failed to mark notification as read:", err);
@@ -489,10 +506,7 @@ export default function AdminLayout() {
 
   const handlePopupReply = async (id, message) => {
     try {
-      await replyNotification(id, {
-        message,
-      });
-
+      await replyNotification(id, { message });
       await refreshUnreadCount();
 
       setMessageNotifications((prev) =>
@@ -508,9 +522,7 @@ export default function AdminLayout() {
   // ==========================================================
 
   const handleLogout = () => {
-    socket.off("newOrder");
-    socket.off("notificationCreated");
-    socket.off("notificationUpdated");
+    socket.disconnect();
 
     localStorage.removeItem("token");
     localStorage.removeItem("role");
@@ -526,10 +538,7 @@ export default function AdminLayout() {
 
   return (
     <div className="flex min-h-screen bg-gray-100">
-      {/* ================================================== */}
       {/* SIDEBAR */}
-      {/* ================================================== */}
-
       <aside className="w-72 bg-green-800 text-white p-6 shadow-lg">
         <div className="mb-8">
           <div className="flex items-center gap-3">
@@ -541,26 +550,16 @@ export default function AdminLayout() {
 
             <div>
               <h2 className="text-2xl font-bold">Mebrek Farms</h2>
-
               <p className="text-green-200 text-sm">Farm Management System</p>
 
               <div
-                className={`
-                  mt-3
-                  inline-block
-                  px-3
-                  py-1
-                  rounded-full
-                  text-sm
-                  font-semibold
-                  ${
-                    role === "superadmin"
-                      ? "bg-red-500"
-                      : role === "manager"
-                        ? "bg-blue-500"
-                        : "bg-green-500"
-                  }
-                `}
+                className={`mt-3 inline-block px-3 py-1 rounded-full text-sm font-semibold ${
+                  role === "superadmin"
+                    ? "bg-red-500"
+                    : role === "manager"
+                      ? "bg-blue-500"
+                      : "bg-green-500"
+                }`}
               >
                 {role?.toUpperCase()}
               </div>
@@ -570,7 +569,6 @@ export default function AdminLayout() {
 
         <div className="bg-green-700 rounded-lg p-4 mb-6">
           <p className="font-semibold text-lg">{name || "User"}</p>
-
           <p className="text-green-200 text-sm">
             Logged in as {role || "staff"}
           </p>
@@ -578,33 +576,14 @@ export default function AdminLayout() {
 
         <button
           onClick={() => navigate("/")}
-          className="
-            w-full
-            bg-white
-            text-green-800
-            font-semibold
-            py-3
-            rounded-lg
-            mb-4
-            hover:bg-gray-200
-            transition
-          "
+          className="w-full bg-white text-green-800 font-semibold py-3 rounded-lg mb-4 hover:bg-gray-200 transition"
         >
           ← Back to Farm Website
         </button>
 
         <button
           onClick={handleLogout}
-          className="
-            w-full
-            bg-red-500
-            text-white
-            py-3
-            rounded-lg
-            mb-8
-            hover:bg-red-600
-            transition
-          "
+          className="w-full bg-red-500 text-white py-3 rounded-lg mb-8 hover:bg-red-600 transition"
         >
           Logout
         </button>
@@ -624,36 +603,12 @@ export default function AdminLayout() {
           <Link
             to="/admin/orders"
             onClick={() => setUnreadOrders(0)}
-            className="
-              flex
-              items-center
-              justify-between
-              hover:bg-green-700
-              p-3
-              rounded-lg
-              transition
-              relative
-            "
+            className="flex items-center justify-between hover:bg-green-700 p-3 rounded-lg transition relative"
           >
             <span>Orders 📦</span>
 
             {unreadOrders > 0 && (
-              <span
-                className="
-                  min-w-[24px]
-                  h-6
-                  px-2
-                  rounded-full
-                  bg-red-500
-                  text-white
-                  text-xs
-                  font-bold
-                  flex
-                  items-center
-                  justify-center
-                  animate-pulse
-                "
-              >
+              <span className="min-w-[24px] h-6 px-2 rounded-full bg-red-500 text-white text-xs font-bold flex items-center justify-center animate-pulse">
                 {unreadOrders > 99 ? "99+" : unreadOrders}
               </span>
             )}
@@ -682,42 +637,14 @@ export default function AdminLayout() {
             Attendance 📅
           </Link>
 
-          {/* ================================================= */}
-          {/* NOTIFICATIONS */}
-          {/* ================================================= */}
-
           <Link
             to="/admin/notifications"
-            className="
-              flex
-              items-center
-              justify-between
-              hover:bg-green-700
-              p-3
-              rounded-lg
-              transition
-              relative
-            "
+            className="flex items-center justify-between hover:bg-green-700 p-3 rounded-lg transition relative"
           >
             <span>Notifications 🔔</span>
 
             {unreadMessages > 0 && (
-              <span
-                className="
-                  min-w-[24px]
-                  h-6
-                  px-2
-                  rounded-full
-                  bg-red-500
-                  text-white
-                  text-xs
-                  font-bold
-                  flex
-                  items-center
-                  justify-center
-                  animate-pulse
-                "
-              >
+              <span className="min-w-[24px] h-6 px-2 rounded-full bg-red-500 text-white text-xs font-bold flex items-center justify-center animate-pulse">
                 {unreadMessages > 99 ? "99+" : unreadMessages}
               </span>
             )}
@@ -861,10 +788,7 @@ export default function AdminLayout() {
         </nav>
       </aside>
 
-      {/* ================================================== */}
       {/* MAIN */}
-      {/* ================================================== */}
-
       <main className="flex-1 min-w-0 bg-gray-100 overflow-y-auto">
         <div className="bg-white shadow-sm px-8 py-4 flex items-center justify-between">
           <div className="w-full max-w-xl">
@@ -874,24 +798,12 @@ export default function AdminLayout() {
           <div className="flex items-center gap-3 ml-6">
             <div className="text-right">
               <p className="font-semibold">{name || "User"}</p>
-
               <p className="text-sm text-gray-500">{role || "staff"}</p>
             </div>
 
             <button
               onClick={() => navigate("/admin/profile")}
-              className="
-                w-10
-                h-10
-                rounded-full
-                bg-green-700
-                text-white
-                flex
-                items-center
-                justify-center
-                hover:bg-green-800
-                transition
-              "
+              className="w-10 h-10 rounded-full bg-green-700 text-white flex items-center justify-center hover:bg-green-800 transition"
             >
               👤
             </button>
@@ -903,10 +815,7 @@ export default function AdminLayout() {
         </div>
       </main>
 
-      {/* ================================================== */}
-      {/* NOTIFICATION POPUP */}
-      {/* ================================================== */}
-
+      {/* EXISTING MESSAGE POPUP */}
       <NotificationPopup
         notifications={messageNotifications}
         onClose={handlePopupClose}
