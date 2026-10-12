@@ -1,5 +1,41 @@
 const ManureSale = require("../models/ManureSale");
 const { MANURE_CATEGORY_PRICES } = require("../models/ManureSale");
+const SaleAccessRequest = require("../models/SaleAccessRequest");
+const ACCESS_WINDOW_MS = 24 * 60 * 60 * 1000;
+
+const getRequesterId = (req) => req.user?.id || req.user?._id || null;
+const isWithinRecentWindow = (sale) =>
+  !!sale?.createdAt &&
+  new Date(sale.createdAt).getTime() >= Date.now() - ACCESS_WINDOW_MS;
+
+async function hasTemporarySaleAccess(req, saleType, sale) {
+  if (req.user?.role === "superadmin") return true;
+  const requesterId = getRequesterId(req);
+  if (!requesterId || !sale || sale.isDeleted) return false;
+  if (isWithinRecentWindow(sale)) return true;
+  return !!(await SaleAccessRequest.exists({
+    saleType,
+    saleId: sale._id,
+    requesterId,
+    status: "approved",
+    accessExpiresAt: { $gt: new Date() },
+  }));
+}
+
+async function getGrantedSaleIds(req, saleType) {
+  if (req.user?.role === "superadmin") return null;
+  const requesterId = getRequesterId(req);
+  if (!requesterId) return [];
+  const rows = await SaleAccessRequest.find({
+    saleType,
+    requesterId,
+    status: "approved",
+    accessExpiresAt: { $gt: new Date() },
+  })
+    .select("saleId")
+    .lean();
+  return rows.map((row) => row.saleId);
+}
 
 // =========================
 // PAYMENT HELPERS
@@ -94,22 +130,18 @@ const resolveStatus = (totalAmount, amountPaid) => {
 exports.getSales = async (req, res) => {
   try {
     const isSuperadmin = req.user?.role === "superadmin";
-
     let filter = {};
-
     if (!isSuperadmin) {
-      const cutoff = new Date(Date.now() - 24 * 60 * 60 * 1000);
-
+      const cutoff = new Date(Date.now() - ACCESS_WINDOW_MS);
+      const grantedIds = await getGrantedSaleIds(req, "manure");
       filter = {
         isDeleted: false,
-        createdAt: { $gte: cutoff },
+        $or: [{ createdAt: { $gte: cutoff } }, { _id: { $in: grantedIds } }],
       };
     }
-
     const sales = await ManureSale.find(filter)
       .sort({ createdAt: -1 })
       .populate("deletedBy", "role name");
-
     res.json(sales);
   } catch (err) {
     res.status(500).json({ message: err.message });
@@ -124,12 +156,17 @@ exports.getSale = async (req, res) => {
   try {
     const sale = await ManureSale.findById(req.params.id);
 
-    if (!sale) {
-      return res.status(404).json({
-        message: "Sale not found",
-      });
+    if (!sale || (req.user?.role !== "superadmin" && sale.isDeleted)) {
+      return res.status(404).json({ message: "Sale not found" });
     }
-
+    if (!(await hasTemporarySaleAccess(req, "manure", sale))) {
+      return res
+        .status(403)
+        .json({
+          message:
+            "This sale is older than 24 hours. Request temporary access from a superadmin.",
+        });
+    }
     res.json(sale);
   } catch (err) {
     res.status(500).json({ message: err.message });
@@ -333,10 +370,16 @@ exports.updateSale = async (req, res) => {
   try {
     const sale = await ManureSale.findById(req.params.id);
 
-    if (!sale) {
-      return res.status(404).json({
-        message: "Sale not found",
-      });
+    if (!sale || (req.user?.role !== "superadmin" && sale.isDeleted)) {
+      return res.status(404).json({ message: "Sale not found" });
+    }
+    if (!(await hasTemporarySaleAccess(req, "manure", sale))) {
+      return res
+        .status(403)
+        .json({
+          message:
+            "This sale is older than 24 hours. Request temporary access from a superadmin.",
+        });
     }
 
     const {
@@ -459,9 +502,15 @@ exports.deleteSale = async (req, res) => {
     });
 
     if (!sale) {
-      return res.status(404).json({
-        message: "Sale not found",
-      });
+      return res.status(404).json({ message: "Sale not found" });
+    }
+    if (req.user?.role !== "superadmin" && !isWithinRecentWindow(sale)) {
+      return res
+        .status(403)
+        .json({
+          message:
+            "Temporary access does not grant permission to delete older sales.",
+        });
     }
 
     sale.isDeleted = true;

@@ -17,23 +17,11 @@ dotenv.config();
 const app = express();
 const server = http.createServer(app);
 
-// Disable ETag
 app.disable("etag");
 
 // ==============================
 // SERVE UPLOADED FILES
 // ==============================
-//
-// Notification images and voice notes are stored in:
-//
-// backend/uploads/notifications/
-//
-// They will be accessible through:
-//
-// /uploads/notifications/<filename>
-//
-// ==============================
-
 app.use("/uploads", express.static(path.join(__dirname, "uploads")));
 
 // ==============================
@@ -52,20 +40,14 @@ const searchRoutes = require("./routes/search");
 const reportRoutes = require("./routes/reportRoutes");
 const customerRoutes = require("./routes/customerRoutes");
 
+// Older-sale access requests
+const saleAccessRequestRoutes = require("./routes/saleAccessRequestRoutes");
+
 // ==============================
 // ENVIRONMENT VARIABLES
 // ==============================
-
 const PORT = process.env.PORT || 5000;
 const NODE_ENV = process.env.NODE_ENV || "development";
-
-// Frontend URL(s)
-//
-// Development:
-// http://localhost:5173
-//
-// Production:
-// https://your-frontend-domain.com
 
 const allowedOrigins = ["http://localhost:5173", process.env.CLIENT_URL].filter(
   Boolean,
@@ -74,11 +56,9 @@ const allowedOrigins = ["http://localhost:5173", process.env.CLIENT_URL].filter(
 // ==============================
 // CORS
 // ==============================
-
 const corsOptions = {
   origin: function (origin, callback) {
-    // Allow requests without an origin
-    // (Postman, server-to-server requests, etc.)
+    // Allow requests without an origin (e.g. Postman)
     if (!origin) {
       return callback(null, true);
     }
@@ -88,22 +68,18 @@ const corsOptions = {
     }
 
     console.warn(`CORS blocked request from: ${origin}`);
-
     return callback(new Error("Not allowed by CORS"));
   },
 
   methods: ["GET", "POST", "PUT", "DELETE", "PATCH", "OPTIONS"],
-
   credentials: true,
 };
 
-// Express CORS
 app.use(cors(corsOptions));
 
 // ==============================
 // SOCKET.IO
 // ==============================
-
 const io = new Server(server, {
   cors: {
     origin: function (origin, callback) {
@@ -116,7 +92,6 @@ const io = new Server(server, {
       }
 
       console.warn(`Socket.IO CORS blocked request from: ${origin}`);
-
       return callback(new Error("Not allowed by CORS"));
     },
 
@@ -130,7 +105,6 @@ app.set("io", io);
 // ==============================
 // SOCKET CONNECTION
 // ==============================
-
 io.on("connection", (socket) => {
   console.log("Socket Connected:", socket.id);
 
@@ -142,13 +116,6 @@ io.on("connection", (socket) => {
 // ==============================
 // BODY PARSER
 // ==============================
-//
-// Keep these limits because the existing application uses
-// JSON payloads. Notification file uploads are handled by
-// Multer separately and are NOT processed by express.json().
-//
-// ==============================
-
 app.use(
   express.json({
     limit: "10mb",
@@ -165,10 +132,8 @@ app.use(
 // ==============================
 // HEALTH CHECK
 // ==============================
-
 app.get("/health", (req, res) => {
   const mongoState = mongoose.connection.readyState;
-
   const mongoStatus = mongoState === 1 ? "connected" : "disconnected";
 
   res.status(200).json({
@@ -183,7 +148,6 @@ app.get("/health", (req, res) => {
 // ==============================
 // MALFORMED JSON HANDLER
 // ==============================
-
 app.use((err, req, res, next) => {
   if (
     err &&
@@ -203,7 +167,6 @@ app.use((err, req, res, next) => {
 // ==============================
 // MONGODB CONNECTION
 // ==============================
-
 mongoose
   .connect(process.env.MONGO_URI, {
     serverSelectionTimeoutMS: 15000,
@@ -218,14 +181,12 @@ mongoose
   })
   .catch((err) => {
     console.error("MongoDB connection failed:", err.message);
-
     process.exit(1);
   });
 
 // ==============================
 // API ROUTES
 // ==============================
-
 app.use("/api/workers", require("./routes/workers"));
 
 app.use("/api/expenses", require("./routes/expenseRoutes"));
@@ -247,6 +208,9 @@ app.use("/api/feeds", require("./routes/feedRoutes"));
 app.use("/api/egg-sales", eggSaleRoutes);
 
 app.use("/api/manure-sales", manureSaleRoutes);
+
+// NEW: Older-sale access requests
+app.use("/api/sale-access-requests", saleAccessRequestRoutes);
 
 app.use("/api/orders", require("./routes/orders"));
 
@@ -277,7 +241,6 @@ app.use("/api/backup", require("./routes/backup"));
 // ==============================
 // API 404 HANDLER
 // ==============================
-
 app.use((req, res) => {
   res.status(404).json({
     success: false,
@@ -288,7 +251,6 @@ app.use((req, res) => {
 // ==============================
 // GLOBAL ERROR HANDLER
 // ==============================
-
 app.use((err, req, res, next) => {
   console.error("SERVER ERROR:", err);
 
@@ -306,7 +268,6 @@ app.use((err, req, res, next) => {
 // ==============================
 // START SERVER
 // ==============================
-
 server.listen(PORT, "0.0.0.0", () => {
   console.log(`Server running on port ${PORT} in ${NODE_ENV} mode`);
 });
@@ -314,7 +275,6 @@ server.listen(PORT, "0.0.0.0", () => {
 // ==============================
 // GRACEFUL SHUTDOWN
 // ==============================
-
 const shutdown = async (signal) => {
   console.log(`${signal} received. Shutting down server...`);
 
@@ -327,7 +287,6 @@ const shutdown = async (signal) => {
     });
   } catch (error) {
     console.error("Shutdown error:", error);
-
     process.exit(1);
   }
 };

@@ -1,6 +1,42 @@
 const EggSale = require("../models/EggSale");
 const Customer = require("../models/Customer");
 const { EGG_CATEGORY_PRICES } = require("../models/EggSale");
+const SaleAccessRequest = require("../models/SaleAccessRequest");
+const ACCESS_WINDOW_MS = 24 * 60 * 60 * 1000;
+
+const getRequesterId = (req) => req.user?.id || req.user?._id || null;
+const isWithinRecentWindow = (sale) =>
+  !!sale?.createdAt &&
+  new Date(sale.createdAt).getTime() >= Date.now() - ACCESS_WINDOW_MS;
+
+async function hasTemporarySaleAccess(req, saleType, sale) {
+  if (req.user?.role === "superadmin") return true;
+  const requesterId = getRequesterId(req);
+  if (!requesterId || !sale || sale.isDeleted) return false;
+  if (isWithinRecentWindow(sale)) return true;
+  return !!(await SaleAccessRequest.exists({
+    saleType,
+    saleId: sale._id,
+    requesterId,
+    status: "approved",
+    accessExpiresAt: { $gt: new Date() },
+  }));
+}
+
+async function getGrantedSaleIds(req, saleType) {
+  if (req.user?.role === "superadmin") return null;
+  const requesterId = getRequesterId(req);
+  if (!requesterId) return [];
+  const rows = await SaleAccessRequest.find({
+    saleType,
+    requesterId,
+    status: "approved",
+    accessExpiresAt: { $gt: new Date() },
+  })
+    .select("saleId")
+    .lean();
+  return rows.map((row) => row.saleId);
+}
 
 // =====================================================
 // CONSTANTS
@@ -366,38 +402,24 @@ const resolveCustomer = async ({ customerId, customer, phone }) => {
 exports.getSales = async (req, res) => {
   try {
     const isSuperadmin = req.user?.role === "superadmin";
-
-    let filter;
-
-    if (isSuperadmin) {
-      filter = {};
-    } else {
-      const cutoff = new Date(Date.now() - 24 * 60 * 60 * 1000);
-
+    let filter = {};
+    if (!isSuperadmin) {
+      const cutoff = new Date(Date.now() - ACCESS_WINDOW_MS);
+      const grantedIds = await getGrantedSaleIds(req, "egg");
       filter = {
         isDeleted: false,
-        createdAt: {
-          $gte: cutoff,
-        },
+        $or: [{ createdAt: { $gte: cutoff } }, { _id: { $in: grantedIds } }],
       };
     }
-
     const sales = await EggSale.find(filter)
-      .sort({
-        date: -1,
-        createdAt: -1,
-      })
+      .sort({ date: -1, createdAt: -1 })
       .populate("customerId", "name phone email address customerType isActive")
       .populate("deletedBy", "role name")
       .populate("soldBy", "role name");
-
     res.json(sales);
   } catch (err) {
     console.error("GET SALES ERROR:", err);
-
-    res.status(500).json({
-      message: err.message,
-    });
+    res.status(500).json({ message: err.message });
   }
 };
 
@@ -412,12 +434,17 @@ exports.getSale = async (req, res) => {
       .populate("deletedBy", "role name")
       .populate("soldBy", "role name");
 
-    if (!sale) {
-      return res.status(404).json({
-        message: "Sale not found",
-      });
+    if (!sale || (req.user?.role !== "superadmin" && sale.isDeleted)) {
+      return res.status(404).json({ message: "Sale not found" });
     }
-
+    if (!(await hasTemporarySaleAccess(req, "egg", sale))) {
+      return res
+        .status(403)
+        .json({
+          message:
+            "This sale is older than 24 hours. Request temporary access from a superadmin.",
+        });
+    }
     res.json(sale);
   } catch (err) {
     console.error("GET SINGLE SALE ERROR:", err);
@@ -590,10 +617,16 @@ exports.updateSale = async (req, res) => {
   try {
     const sale = await EggSale.findById(req.params.id);
 
-    if (!sale) {
-      return res.status(404).json({
-        message: "Sale not found",
-      });
+    if (!sale || (req.user?.role !== "superadmin" && sale.isDeleted)) {
+      return res.status(404).json({ message: "Sale not found" });
+    }
+    if (!(await hasTemporarySaleAccess(req, "egg", sale))) {
+      return res
+        .status(403)
+        .json({
+          message:
+            "This sale is older than 24 hours. Request temporary access from a superadmin.",
+        });
     }
 
     const {
@@ -906,9 +939,15 @@ exports.deleteSale = async (req, res) => {
     });
 
     if (!sale) {
-      return res.status(404).json({
-        message: "Sale not found",
-      });
+      return res.status(404).json({ message: "Sale not found" });
+    }
+    if (req.user?.role !== "superadmin" && !isWithinRecentWindow(sale)) {
+      return res
+        .status(403)
+        .json({
+          message:
+            "Temporary access does not grant permission to delete older sales.",
+        });
     }
 
     sale.isDeleted = true;
@@ -1030,10 +1069,16 @@ exports.getSalesByCustomer = async (req, res) => {
       });
     }
 
-    const sales = await EggSale.find({
-      customerId,
-      isDeleted: false,
-    })
+    const customerSaleFilter = { customerId, isDeleted: false };
+    if (req.user?.role !== "superadmin") {
+      const cutoff = new Date(Date.now() - ACCESS_WINDOW_MS);
+      const grantedIds = await getGrantedSaleIds(req, "egg");
+      customerSaleFilter.$or = [
+        { createdAt: { $gte: cutoff } },
+        { _id: { $in: grantedIds } },
+      ];
+    }
+    const sales = await EggSale.find(customerSaleFilter)
       .sort({
         date: -1,
         createdAt: -1,
