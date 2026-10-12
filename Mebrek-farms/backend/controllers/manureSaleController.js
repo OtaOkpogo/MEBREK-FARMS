@@ -2,6 +2,92 @@ const ManureSale = require("../models/ManureSale");
 const { MANURE_CATEGORY_PRICES } = require("../models/ManureSale");
 
 // =========================
+// PAYMENT HELPERS
+// =========================
+
+const PAYMENT_KEYS = ["cash", "transfer", "pos"];
+
+const toValidAmount = (value, label) => {
+  const amount = Number(value ?? 0);
+
+  if (!Number.isFinite(amount) || amount < 0) {
+    throw new Error(`${label} must be a valid non-negative amount.`);
+  }
+
+  return amount;
+};
+
+const normalizePayments = (
+  payments,
+  amountPaid = 0,
+  paymentMethod = "Cash",
+) => {
+  // New frontend: use the individual payment amounts.
+  if (
+    payments &&
+    typeof payments === "object" &&
+    !Array.isArray(payments) &&
+    PAYMENT_KEYS.some((key) => payments[key] !== undefined)
+  ) {
+    return {
+      cash: toValidAmount(payments.cash, "Cash payment"),
+      transfer: toValidAmount(payments.transfer, "Transfer payment"),
+      pos: toValidAmount(payments.pos, "POS payment"),
+    };
+  }
+
+  // Old frontend / existing record: use its single payment method.
+  const legacyAmount = toValidAmount(amountPaid, "Amount paid");
+  const method = paymentMethod || "Cash";
+
+  if (!["Cash", "Transfer", "POS", "Mixed"].includes(method)) {
+    throw new Error("Invalid payment method.");
+  }
+
+  if (method === "Mixed" && legacyAmount > 0) {
+    throw new Error(
+      "A Mixed payment must include a cash, transfer, and/or POS breakdown.",
+    );
+  }
+
+  return {
+    cash: method === "Cash" ? legacyAmount : 0,
+    transfer: method === "Transfer" ? legacyAmount : 0,
+    pos: method === "POS" ? legacyAmount : 0,
+  };
+};
+
+const getTotalPaid = (payments) =>
+  PAYMENT_KEYS.reduce((total, key) => total + Number(payments[key] || 0), 0);
+
+const getPaymentMethod = (payments) => {
+  const methods = [];
+
+  if (payments.cash > 0) methods.push("Cash");
+  if (payments.transfer > 0) methods.push("Transfer");
+  if (payments.pos > 0) methods.push("POS");
+
+  if (methods.length > 1) return "Mixed";
+  if (methods.length === 1) return methods[0];
+
+  return "Cash";
+};
+
+const resolveStatus = (totalAmount, amountPaid) => {
+  const balance = Math.max(0, totalAmount - amountPaid);
+
+  let status = "Unpaid";
+
+  if (balance === 0) {
+    status = "Paid";
+  } else if (amountPaid > 0) {
+    status = "Part Paid";
+  }
+
+  return { balance, status };
+};
+
+// =========================
 // GET ALL SALES
 // =========================
 
@@ -12,13 +98,13 @@ exports.getSales = async (req, res) => {
     let filter = {};
 
     if (!isSuperadmin) {
-      // Non-superadmin roles only see active sales entered in the
-      // last 24 hours. Deleted records are never visible to them.
       const cutoff = new Date(Date.now() - 24 * 60 * 60 * 1000);
-      filter = { isDeleted: false, createdAt: { $gte: cutoff } };
+
+      filter = {
+        isDeleted: false,
+        createdAt: { $gte: cutoff },
+      };
     }
-    // Superadmin: no filter at all — sees every sale, active or
-    // deleted, regardless of age.
 
     const sales = await ManureSale.find(filter)
       .sort({ createdAt: -1 })
@@ -26,9 +112,7 @@ exports.getSales = async (req, res) => {
 
     res.json(sales);
   } catch (err) {
-    res.status(500).json({
-      message: err.message,
-    });
+    res.status(500).json({ message: err.message });
   }
 };
 
@@ -48,22 +132,13 @@ exports.getSale = async (req, res) => {
 
     res.json(sale);
   } catch (err) {
-    res.status(500).json({
-      message: err.message,
-    });
+    res.status(500).json({ message: err.message });
   }
 };
 
 // =========================
 // INVOICE NUMBER GENERATION
 // =========================
-// Derives the next invoice number from the highest one actually issued
-// this year, instead of a document count (which drops whenever a sale
-// is deleted and causes collisions). Invoice numbers are zero-padded
-// to a fixed width, so string sort order matches numeric order.
-// Prefix is MNR- to keep manure invoices distinct from egg invoices
-// (INV-) even though both live in the same "Invoice #" mental space
-// for whoever is reconciling paperwork.
 
 const generateInvoiceNumber = async (year) => {
   const prefix = `MNR-${year}-`;
@@ -88,11 +163,8 @@ const generateInvoiceNumber = async (year) => {
 };
 
 // =========================
-// LINE ITEM VALIDATION + CALCULATION
+// LINE ITEM VALIDATION
 // =========================
-// Never trusts prices sent from the frontend. Each line item's
-// pricePerBag is forced to match MANURE_CATEGORY_PRICES for its
-// category, so a tampered request body can't undercharge a customer.
 
 const buildValidatedLineItems = (lineItems) => {
   if (!Array.isArray(lineItems) || lineItems.length === 0) {
@@ -103,30 +175,57 @@ const buildValidatedLineItems = (lineItems) => {
     const category = item.category;
     const officialPrice = MANURE_CATEGORY_PRICES[category];
 
-    if (!officialPrice) {
+    if (officialPrice === undefined) {
       throw new Error(`Unknown manure category: ${category}`);
     }
 
-    const bags = Number(item.bags || 0);
+    const bags = Number(item.bags);
+
+    if (!Number.isFinite(bags) || bags <= 0) {
+      throw new Error(
+        `The number of bags for ${category} must be greater than zero.`,
+      );
+    }
+
     const pricePerBag = officialPrice;
     const subtotal = bags * pricePerBag;
 
-    return { category, bags, pricePerBag, subtotal };
+    return {
+      category,
+      bags,
+      pricePerBag,
+      subtotal,
+    };
   });
 };
 
-const calculateTotals = (validatedLineItems, transportCharge = 0, discount = 0) => {
-  const itemsTotal = validatedLineItems.reduce((sum, item) => sum + item.subtotal, 0);
-  const totalAmount = itemsTotal + Number(transportCharge || 0) - Number(discount || 0);
-  return totalAmount;
-};
+// =========================
+// TOTAL CALCULATION
+// =========================
 
-const resolveStatus = (totalAmount, amountPaid) => {
-  const balance = totalAmount - Number(amountPaid || 0);
-  let status = "Unpaid";
-  if (balance <= 0) status = "Paid";
-  else if (amountPaid > 0) status = "Part Paid";
-  return { balance, status };
+const calculateTotals = (
+  validatedLineItems,
+  transportCharge = 0,
+  discount = 0,
+) => {
+  const itemsTotal = validatedLineItems.reduce(
+    (sum, item) => sum + item.subtotal,
+    0,
+  );
+
+  const transport = toValidAmount(transportCharge, "Transport charge");
+
+  const discountAmount = toValidAmount(discount, "Discount");
+
+  const totalAmount = itemsTotal + transport - discountAmount;
+
+  if (totalAmount < 0) {
+    throw new Error(
+      "Discount cannot exceed the total of manure and transport charges.",
+    );
+  }
+
+  return totalAmount;
 };
 
 // =========================
@@ -144,18 +243,44 @@ exports.createSale = async (req, res) => {
       transportCharge,
       amountPaid,
       paymentMethod,
+      payments,
       remarks,
     } = req.body;
 
+    if (!customer || !String(customer).trim()) {
+      return res.status(400).json({
+        message: "Customer name is required.",
+      });
+    }
+
     const validatedLineItems = buildValidatedLineItems(lineItems);
-    const totalAmount = calculateTotals(validatedLineItems, transportCharge, discount);
-    const { balance, status } = resolveStatus(totalAmount, amountPaid);
+
+    const totalAmount = calculateTotals(
+      validatedLineItems,
+      transportCharge,
+      discount,
+    );
+
+    const normalizedPayments = normalizePayments(
+      payments,
+      amountPaid,
+      paymentMethod || "Cash",
+    );
+
+    const totalPaid = getTotalPaid(normalizedPayments);
+
+    if (totalPaid > totalAmount) {
+      return res.status(400).json({
+        message: "Total payment cannot exceed the sale total.",
+      });
+    }
+
+    const { balance, status } = resolveStatus(totalAmount, totalPaid);
+
+    const resolvedPaymentMethod = getPaymentMethod(normalizedPayments);
 
     const year = new Date().getFullYear();
 
-    // Retry loop: if two requests race and both grab the same invoice
-    // number, the unique index rejects the second insert (E11000).
-    // Regenerate and try again rather than failing the request.
     let sale;
     let attempts = 0;
     const maxAttempts = 5;
@@ -168,32 +293,33 @@ exports.createSale = async (req, res) => {
       try {
         sale = await ManureSale.create({
           invoiceNumber,
-          customer,
-          phone,
-          date,
+          customer: String(customer).trim(),
+          phone: phone || "",
+          date: date || Date.now(),
           lineItems: validatedLineItems,
-          discount,
-          transportCharge,
+          discount: Number(discount || 0),
+          transportCharge: Number(transportCharge || 0),
           totalAmount,
-          amountPaid,
+          payments: normalizedPayments,
+          amountPaid: totalPaid,
           balance,
-          paymentMethod,
+          paymentMethod: resolvedPaymentMethod,
           status,
-          remarks,
+          remarks: remarks || "",
           soldBy: req.user?.id,
         });
       } catch (err) {
         if (err.code === 11000 && attempts < maxAttempts) {
-          // Someone else took this invoice number first — retry.
           continue;
         }
+
         throw err;
       }
     }
 
-    res.status(201).json(sale);
+    return res.status(201).json(sale);
   } catch (err) {
-    res.status(400).json({
+    return res.status(400).json({
       message: err.message,
     });
   }
@@ -222,52 +348,107 @@ exports.updateSale = async (req, res) => {
       transportCharge,
       amountPaid,
       paymentMethod,
+      payments,
       remarks,
     } = req.body;
 
-    // Only re-validate/recalculate line items if the caller actually
-    // sent new ones; otherwise keep the sale's existing items.
-    const validatedLineItems = lineItems
-      ? buildValidatedLineItems(lineItems)
-      : sale.lineItems;
+    const validatedLineItems =
+      lineItems !== undefined
+        ? buildValidatedLineItems(lineItems)
+        : sale.lineItems;
 
-    sale.customer = customer ?? sale.customer;
+    const nextDiscount =
+      discount !== undefined
+        ? toValidAmount(discount, "Discount")
+        : Number(sale.discount || 0);
+
+    const nextTransport =
+      transportCharge !== undefined
+        ? toValidAmount(transportCharge, "Transport charge")
+        : Number(sale.transportCharge || 0);
+
+    const nextTotalAmount = calculateTotals(
+      validatedLineItems,
+      nextTransport,
+      nextDiscount,
+    );
+
+    let normalizedPayments;
+
+    if (payments !== undefined) {
+      normalizedPayments = normalizePayments(payments);
+    } else if (amountPaid !== undefined || paymentMethod !== undefined) {
+      // Preserve compatibility with the previous frontend.
+      normalizedPayments = normalizePayments(
+        undefined,
+        amountPaid ?? sale.amountPaid,
+        paymentMethod ?? sale.paymentMethod,
+      );
+    } else {
+      const savedPayments = sale.payments?.toObject
+        ? sale.payments.toObject()
+        : sale.payments;
+
+      const hasSavedBreakdown =
+        savedPayments &&
+        PAYMENT_KEYS.some((key) => Number(savedPayments[key] || 0) > 0);
+
+      normalizedPayments = hasSavedBreakdown
+        ? normalizePayments(savedPayments)
+        : normalizePayments(undefined, sale.amountPaid, sale.paymentMethod);
+    }
+
+    const totalPaid = getTotalPaid(normalizedPayments);
+
+    if (totalPaid > nextTotalAmount) {
+      return res.status(400).json({
+        message: "Total payment cannot exceed the sale total.",
+      });
+    }
+
+    if (customer !== undefined && !String(customer).trim()) {
+      return res.status(400).json({
+        message: "Customer name is required.",
+      });
+    }
+
+    sale.customer =
+      customer !== undefined ? String(customer).trim() : sale.customer;
+
     sale.phone = phone ?? sale.phone;
     sale.date = date ?? sale.date;
     sale.lineItems = validatedLineItems;
-    sale.discount = discount ?? sale.discount;
-    sale.transportCharge = transportCharge ?? sale.transportCharge;
-    sale.amountPaid = amountPaid ?? sale.amountPaid;
-    sale.paymentMethod = paymentMethod ?? sale.paymentMethod;
+    sale.discount = nextDiscount;
+    sale.transportCharge = nextTransport;
+    sale.totalAmount = nextTotalAmount;
+    sale.payments = normalizedPayments;
+    sale.amountPaid = totalPaid;
+    sale.paymentMethod = getPaymentMethod(normalizedPayments);
     sale.remarks = remarks ?? sale.remarks;
 
-    sale.totalAmount = calculateTotals(
-      validatedLineItems,
-      sale.transportCharge,
-      sale.discount,
-    );
+    const { balance, status } = resolveStatus(sale.totalAmount, totalPaid);
 
-    const { balance, status } = resolveStatus(sale.totalAmount, sale.amountPaid);
     sale.balance = balance;
     sale.status = status;
 
-    // Legacy-record safety net (mirrors eggSaleController) — should
-    // never actually trigger here since ManureSale always requires
-    // lineItems from creation, but kept for consistency in case this
-    // model's validation rules loosen in the future.
-    const skipValidation = !lineItems && (!sale.lineItems || sale.lineItems.length === 0);
-    await sale.save({ validateBeforeSave: !skipValidation });
+    const skipValidation =
+      lineItems === undefined &&
+      (!sale.lineItems || sale.lineItems.length === 0);
 
-    res.json(sale);
+    await sale.save({
+      validateBeforeSave: !skipValidation,
+    });
+
+    return res.json(sale);
   } catch (err) {
-    res.status(400).json({
+    return res.status(400).json({
       message: err.message,
     });
   }
 };
 
 // =========================
-// DELETE SALE (soft delete)
+// DELETE SALE (SOFT DELETE)
 // =========================
 
 exports.deleteSale = async (req, res) => {
@@ -289,18 +470,19 @@ exports.deleteSale = async (req, res) => {
 
     await sale.save({ validateBeforeSave: false });
 
-    res.json({
+    return res.json({
       message: "Sale deleted successfully",
     });
   } catch (err) {
-    res.status(500).json({
+    return res.status(500).json({
       message: err.message,
     });
   }
 };
 
 // =========================
-// GET DELETED SALES (superadmin only — gated in route)
+// GET DELETED SALES
+// SUPERADMIN ONLY — GATED IN ROUTE
 // =========================
 
 exports.getDeletedSales = async (req, res) => {
@@ -309,16 +491,17 @@ exports.getDeletedSales = async (req, res) => {
       .sort({ deletedAt: -1 })
       .populate("deletedBy", "role name");
 
-    res.json(sales);
+    return res.json(sales);
   } catch (err) {
-    res.status(500).json({
+    return res.status(500).json({
       message: err.message,
     });
   }
 };
 
 // =========================
-// RESTORE SALE (superadmin only — gated in route)
+// RESTORE SALE
+// SUPERADMIN ONLY — GATED IN ROUTE
 // =========================
 
 exports.restoreSale = async (req, res) => {
@@ -340,9 +523,9 @@ exports.restoreSale = async (req, res) => {
 
     await sale.save({ validateBeforeSave: false });
 
-    res.json(sale);
+    return res.json(sale);
   } catch (err) {
-    res.status(500).json({
+    return res.status(500).json({
       message: err.message,
     });
   }
