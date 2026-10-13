@@ -7,12 +7,14 @@ import {
   requestOlderSaleAccess as requestEggAccess,
   fetchSaleAccessRequests as fetchEggRequests,
   reviewSaleAccessRequest as reviewEggRequest,
+  deleteSaleAccessRequest as deleteEggAccessRequest,
 } from "../services/eggSalesService";
 
 import {
   requestOlderSaleAccess as requestManureAccess,
   fetchSaleAccessRequests as fetchManureRequests,
   reviewSaleAccessRequest as reviewManureRequest,
+  deleteSaleAccessRequest as deleteManureAccessRequest,
 } from "../services/manureSalesService";
 
 export default function SaleAccessPanel({
@@ -26,6 +28,9 @@ export default function SaleAccessPanel({
   const requestAccess = isManure ? requestManureAccess : requestEggAccess;
   const getRequests = isManure ? fetchManureRequests : fetchEggRequests;
   const reviewRequest = isManure ? reviewManureRequest : reviewEggRequest;
+  const deleteRequest = isManure
+    ? deleteManureAccessRequest
+    : deleteEggAccessRequest;
 
   const [identifierType, setIdentifierType] = useState("invoiceNumber");
   const [identifier, setIdentifier] = useState("");
@@ -36,7 +41,7 @@ export default function SaleAccessPanel({
   const [submitting, setSubmitting] = useState(false);
   const [busyId, setBusyId] = useState("");
 
-  // Keeps the expiry countdown current without refreshing the page.
+  // Keeps access expiry countdowns current.
   const [clockNow, setClockNow] = useState(() => Date.now());
 
   const [customerSuggestions, setCustomerSuggestions] = useState([]);
@@ -52,7 +57,6 @@ export default function SaleAccessPanel({
   const searchSequence = useRef(0);
   const customerInputRef = useRef(null);
 
-  // Update the clock every second so countdowns change automatically.
   useEffect(() => {
     const timer = window.setInterval(() => {
       setClockNow(Date.now());
@@ -90,6 +94,7 @@ export default function SaleAccessPanel({
         err?.response?.data?.message ||
           "Unable to load older-sale access requests.",
       );
+
       return [];
     } finally {
       setLoading(false);
@@ -116,6 +121,7 @@ export default function SaleAccessPanel({
     }
 
     searchSequence.current += 1;
+
     setCustomerSuggestions([]);
     setSearchingCustomers(false);
     setCustomerSearchError("");
@@ -353,6 +359,40 @@ export default function SaleAccessPanel({
     }
   };
 
+  // Confirm deletion before calling the backend.
+  // The backend remains responsible for enforcing the user's permissions.
+  const handleDeleteRequest = async (item) => {
+    const isPending = item.status === "pending";
+
+    const message = isSuperadmin
+      ? `Delete the access request for invoice "${item.invoiceNumber || "Unknown invoice"}"? This cannot be undone.`
+      : `Cancel your pending access request for invoice "${item.invoiceNumber || "Unknown invoice"}"?`;
+
+    if (!window.confirm(message)) return;
+
+    setBusyId(item._id);
+
+    try {
+      const result = await deleteRequest(item._id);
+
+      toast.success(result?.message || "Access request deleted.");
+
+      await loadRequests();
+      notifySidebar();
+
+      // Refresh the sales view if the deleted request was an approval.
+      if (!isPending && onAccessChanged) {
+        await onAccessChanged();
+      }
+    } catch (err) {
+      toast.error(
+        err?.response?.data?.message || "Unable to delete this access request.",
+      );
+    } finally {
+      setBusyId("");
+    }
+  };
+
   const title = isManure ? "Manure sales" : "Egg sales";
 
   const identifierOptions = [
@@ -436,6 +476,8 @@ export default function SaleAccessPanel({
     };
   };
 
+  const showActionsColumn = isSuperadmin || canRequest;
+
   return (
     <section className="mb-6 rounded-xl border border-amber-200 bg-white p-4 shadow-sm">
       <div className="flex flex-wrap items-center justify-between gap-2">
@@ -445,7 +487,7 @@ export default function SaleAccessPanel({
           <p className="mt-1 text-sm text-gray-500">
             Request access to older sales by invoice number, customer phone, or
             customer name. Approved access lasts two hours and does not allow
-            deletion.
+            deletion of the underlying sale.
           </p>
         </div>
 
@@ -512,6 +554,7 @@ export default function SaleAccessPanel({
                     ) : customerSearchError ? (
                       <div className="px-3 py-3 text-sm text-red-600">
                         <p>{customerSearchError}</p>
+
                         <button
                           type="button"
                           className="mt-2 font-medium underline"
@@ -618,6 +661,7 @@ export default function SaleAccessPanel({
                         <span className="block font-medium text-gray-800">
                           Invoice: {sale.invoiceNumber || "No invoice number"}
                         </span>
+
                         <span className="block text-xs text-gray-500">
                           {sale.customer || "Customer unavailable"} ·{" "}
                           {formatDate(sale.date || sale.createdAt)}
@@ -667,7 +711,7 @@ export default function SaleAccessPanel({
             No access requests for this section yet.
           </p>
         ) : (
-          <table className="w-full min-w-[850px] text-left text-sm">
+          <table className="w-full min-w-[950px] text-left text-sm">
             <thead>
               <tr className="border-b text-gray-500">
                 <th className="py-2 pr-3">Invoice</th>
@@ -675,16 +719,25 @@ export default function SaleAccessPanel({
                 <th className="py-2 pr-3">Request and review reasons</th>
                 <th className="py-2 pr-3">Status</th>
                 <th className="py-2 pr-3">Access expiry and countdown</th>
-                {isSuperadmin && <th className="py-2">Review</th>}
+                {isSuperadmin && <th className="py-2 pr-3">Review</th>}
+                {showActionsColumn && <th className="py-2">Actions</th>}
               </tr>
             </thead>
 
             <tbody>
               {requests.map((item) => {
                 const expiry = getExpiryDetails(item);
+
                 const displayedStatus = expiry.expired
                   ? "Expired"
                   : item.status;
+
+                const isBusy = busyId === item._id;
+
+                // Managers can only cancel pending requests.
+                // Superadmins can delete requests in any status.
+                const canDeleteRequest =
+                  isSuperadmin || (canRequest && item.status === "pending");
 
                 return (
                   <tr key={item._id} className="border-b last:border-0">
@@ -702,6 +755,7 @@ export default function SaleAccessPanel({
                       <p className="font-medium text-gray-800">
                         Request reason:
                       </p>
+
                       <p className="text-gray-700">
                         {item.reason || "No reason provided"}
                       </p>
@@ -711,6 +765,7 @@ export default function SaleAccessPanel({
                           <p className="text-sm font-semibold text-red-700">
                             Superadmin's rejection reason
                           </p>
+
                           <p className="mt-1 text-sm text-red-800">
                             {item.reviewNote?.trim() ||
                               "No rejection reason was recorded."}
@@ -724,6 +779,7 @@ export default function SaleAccessPanel({
                             <p className="text-sm font-semibold text-green-700">
                               Superadmin's note
                             </p>
+
                             <p className="mt-1 text-sm text-green-800">
                               {item.reviewNote}
                             </p>
@@ -767,24 +823,22 @@ export default function SaleAccessPanel({
                     </td>
 
                     {isSuperadmin && (
-                      <td className="py-3">
-                        <div className="flex gap-2">
+                      <td className="py-3 pr-3">
+                        <div className="flex flex-wrap gap-2">
                           {item.status === "pending" ? (
                             <>
                               <button
                                 type="button"
-                                disabled={busyId === item._id}
+                                disabled={isBusy}
                                 onClick={() => review(item, "approved")}
                                 className="rounded bg-green-700 px-2 py-1 text-white disabled:opacity-50"
                               >
-                                {busyId === item._id
-                                  ? "Processing..."
-                                  : "Approve"}
+                                {isBusy ? "Processing..." : "Approve"}
                               </button>
 
                               <button
                                 type="button"
-                                disabled={busyId === item._id}
+                                disabled={isBusy}
                                 onClick={() => review(item, "rejected")}
                                 className="rounded bg-red-700 px-2 py-1 text-white disabled:opacity-50"
                               >
@@ -795,6 +849,32 @@ export default function SaleAccessPanel({
                             <span className="text-gray-400">Reviewed</span>
                           )}
                         </div>
+                      </td>
+                    )}
+
+                    {showActionsColumn && (
+                      <td className="py-3">
+                        {canDeleteRequest ? (
+                          <button
+                            type="button"
+                            disabled={isBusy}
+                            onClick={() => handleDeleteRequest(item)}
+                            title={
+                              isSuperadmin
+                                ? "Delete this access request"
+                                : "Cancel your pending access request"
+                            }
+                            className="whitespace-nowrap rounded bg-red-700 px-3 py-1.5 font-medium text-white hover:bg-red-800 disabled:cursor-not-allowed disabled:opacity-50"
+                          >
+                            {isBusy
+                              ? "Processing..."
+                              : isSuperadmin
+                                ? "Delete"
+                                : "Cancel request"}
+                          </button>
+                        ) : (
+                          <span className="text-gray-400">—</span>
+                        )}
                       </td>
                     )}
                   </tr>

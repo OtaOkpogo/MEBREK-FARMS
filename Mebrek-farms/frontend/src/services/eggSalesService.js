@@ -40,6 +40,7 @@ export const restoreSale = async (id) => {
   return res.data;
 };
 
+// Older-sale access requests
 export const requestOlderSaleAccess = async (payload) => {
   const res = await api.post("/sale-access-requests", {
     ...payload,
@@ -71,5 +72,13 @@ export const reviewSaleAccessRequest = async (
 
 export const markSaleAccessRequestViewed = async (id) => {
   const res = await api.patch(`/sale-access-requests/${id}/viewed`);
+  return res.data;
+};
+
+// Managers may delete their own pending requests.
+// Superadmins may delete requests in any status.
+// The backend enforces these permissions.
+export const deleteSaleAccessRequest = async (id) => {
+  const res = await api.delete(`/sale-access-requests/${id}`);
   return res.data;
 };
