@@ -30,11 +30,10 @@ export const restoreSale = async (id) => {
   return res.data;
 };
 
-export const requestOlderSaleAccess = async ({ invoiceNumber, reason }) => {
+export const requestOlderSaleAccess = async (payload) => {
   const res = await api.post("/sale-access-requests", {
+    ...payload,
     saleType: "manure",
-    invoiceNumber: String(invoiceNumber || "").trim(),
-    reason: String(reason || "").trim(),
   });
 
   return res.data;
