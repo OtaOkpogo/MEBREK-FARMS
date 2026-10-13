@@ -653,3 +653,91 @@ exports.markViewed = async (req, res) => {
     });
   }
 };
+
+/* ============================================================
+   DELETE SALE-ACCESS REQUEST
+
+   Managers: delete their own pending requests only.
+   Superadmins: delete requests in any status.
+============================================================ */
+
+exports.deleteRequest = async (req, res) => {
+  try {
+    const id = requesterId(req);
+
+    if (!id || !mongoose.isValidObjectId(id)) {
+      return res.status(401).json({
+        message: "Unable to identify the requesting account.",
+      });
+    }
+
+    if (!mongoose.isValidObjectId(req.params.id)) {
+      return res.status(400).json({
+        message: "Invalid access-request ID.",
+      });
+    }
+
+    const isSuperadmin = req.user?.role === "superadmin";
+
+    // Managers can only target their own pending requests.
+    const filter = {
+      _id: req.params.id,
+    };
+
+    if (!isSuperadmin) {
+      filter.requesterId = id;
+      filter.status = "pending";
+    }
+
+    // Atomic deletion ensures the ownership and status restrictions
+    // are applied as part of the database operation.
+    const deletedRequest = await SaleAccessRequest.findOneAndDelete(filter);
+
+    if (!deletedRequest) {
+      // Avoid revealing whether another manager's request exists.
+      return res.status(404).json({
+        message: isSuperadmin
+          ? "Access request not found."
+          : "Pending access request not found, or you do not have permission to delete it.",
+      });
+    }
+
+    const payload = {
+      _id: deletedRequest._id.toString(),
+      saleType: deletedRequest.saleType,
+      saleId: deletedRequest.saleId.toString(),
+      invoiceNumber: deletedRequest.invoiceNumber || "",
+      requesterId: deletedRequest.requesterId.toString(),
+      status: deletedRequest.status,
+      deletedBy: id.toString(),
+      deletedAt: new Date(),
+    };
+
+    // Notify the requester and superadmins so their request lists
+    // can be refreshed by clients listening to these events.
+    emitSocketEvent(
+      req,
+      `admin:${deletedRequest.requesterId.toString()}`,
+      "saleAccessRequestDeleted",
+      payload,
+    );
+
+    emitSocketEvent(
+      req,
+      "role:superadmin",
+      "saleAccessRequestDeleted",
+      payload,
+    );
+
+    return res.json({
+      message: "Sale-access request deleted successfully.",
+      deletedRequest: payload,
+    });
+  } catch (err) {
+    console.error("Delete sale access request error:", err);
+
+    return res.status(500).json({
+      message: err.message || "Failed to delete access request.",
+    });
+  }
+};
