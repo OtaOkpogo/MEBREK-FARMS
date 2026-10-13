@@ -1,16 +1,124 @@
 const mongoose = require("mongoose");
+
 const SaleAccessRequest = require("../models/SaleAccessRequest");
 const EggSale = require("../models/EggSale");
 const ManureSale = require("../models/ManureSale");
+const Customer = require("../models/Customer");
 
 const ACCESS_WINDOW_MS = 24 * 60 * 60 * 1000;
 const ACCESS_DURATION_MS = 2 * 60 * 60 * 1000;
 
+// ============================================================
+// HELPERS
+// ============================================================
+
 const requesterId = (req) => req.user?.id || req.user?._id || null;
+
 const requesterName = (req) => req.user?.name || req.user?.adminName || "";
 
-const getModel = (type) =>
-  type === "egg" ? EggSale : type === "manure" ? ManureSale : null;
+const getModel = (type) => {
+  if (type === "egg") return EggSale;
+  if (type === "manure") return ManureSale;
+  return null;
+};
+
+const escapeRegex = (value) =>
+  String(value).replace(/[.*+?^${}()|[\]\\]/g, "\\$&");
+
+const getIdentifierType = (value) => {
+  const type = String(value || "").trim();
+
+  return ["invoiceNumber", "phone", "customerName"].includes(type)
+    ? type
+    : null;
+};
+
+const normalizePhone = (value) => String(value || "").replace(/\D/g, "");
+
+const buildPhonePattern = (phone) => {
+  const digits = normalizePhone(phone);
+
+  if (!digits) return null;
+
+  return {
+    $regex: digits.split("").map(escapeRegex).join("\\D*"),
+  };
+};
+
+/**
+ * Builds a search using the actual EggSale and ManureSale schemas.
+ *
+ * EggSale:
+ *   customerId, customer, phone
+ *
+ * ManureSale:
+ *   customer, phone
+ *
+ * Legacy sales without customerId can still be matched using
+ * their saved customer name or phone.
+ */
+const buildSaleSearch = ({
+  identifierType,
+  identifier,
+  saleType,
+  customerId,
+  customerPhone,
+}) => {
+  if (identifierType === "invoiceNumber") {
+    return {
+      invoiceNumber: {
+        $regex: `^${escapeRegex(identifier)}$`,
+        $options: "i",
+      },
+    };
+  }
+
+  if (identifierType === "customerName") {
+    const namePattern = {
+      $regex: `^${escapeRegex(identifier)}$`,
+      $options: "i",
+    };
+
+    const phonePattern = buildPhonePattern(customerPhone);
+
+    const legacyCustomerMatch = [
+      { customer: namePattern },
+      ...(phonePattern ? [{ phone: phonePattern }] : []),
+    ];
+
+    if (saleType === "egg" && customerId) {
+      return {
+        $or: [
+          { customerId },
+          {
+            $and: [
+              {
+                $or: [{ customerId: null }, { customerId: { $exists: false } }],
+              },
+              { $or: legacyCustomerMatch },
+            ],
+          },
+        ],
+      };
+    }
+
+    return {
+      $or: legacyCustomerMatch,
+    };
+  }
+
+  if (identifierType === "phone") {
+    const phonePattern = buildPhonePattern(identifier);
+
+    if (!phonePattern) return null;
+
+    return {
+      phone: phonePattern,
+    };
+  }
+
+  return null;
+};
 
 const emitSocketEvent = (req, room, eventName, payload) => {
   const io = req.app.get("io");
@@ -23,17 +131,55 @@ const emitSocketEvent = (req, room, eventName, payload) => {
   io.to(room).emit(eventName, payload);
 };
 
+const saleSummary = (sale) => ({
+  _id: sale._id,
+  invoiceNumber: sale.invoiceNumber || "",
+  customer: sale.customer || "",
+  phone: sale.phone || "",
+  createdAt: sale.createdAt || null,
+  date: sale.date || null,
+});
+
+/**
+ * The 24-hour access restriction is based on createdAt,
+ * consistent with the existing access-request workflow.
+ */
+const isOlderThanAccessWindow = (sale) => {
+  if (!sale?.createdAt) return false;
+
+  return new Date(sale.createdAt).getTime() < Date.now() - ACCESS_WINDOW_MS;
+};
+
+// ============================================================
 // CREATE OLDER-SALE ACCESS REQUEST
+// ============================================================
+
 exports.createRequest = async (req, res) => {
   try {
     const saleType = String(req.body.saleType || "").toLowerCase();
-    const invoiceNumber = String(req.body.invoiceNumber || "").trim();
-    const reason = String(req.body.reason || "").trim();
     const Model = getModel(saleType);
 
-    if (!Model || !invoiceNumber || !reason) {
+    const identifierType = getIdentifierType(
+      req.body.identifierType ||
+        (req.body.invoiceNumber ? "invoiceNumber" : ""),
+    );
+
+    const identifier = String(
+      req.body.identifier ?? req.body.invoiceNumber ?? "",
+    ).trim();
+
+    const reason = String(req.body.reason || "").trim();
+
+    if (!Model) {
       return res.status(400).json({
-        message: "saleType, invoiceNumber and reason are required.",
+        message: "A valid saleType (egg or manure) is required.",
+      });
+    }
+
+    if (!identifierType || !identifier || !reason) {
+      return res.status(400).json({
+        message:
+          "Choose an identifier type, enter its value, and provide a reason.",
       });
     }
 
@@ -43,27 +189,161 @@ exports.createRequest = async (req, res) => {
       });
     }
 
+    if (identifierType === "phone" && !normalizePhone(identifier)) {
+      return res.status(400).json({
+        message: "Enter a valid customer phone number.",
+      });
+    }
+
     const id = requesterId(req);
 
-    if (!id) {
+    if (!id || !mongoose.isValidObjectId(id)) {
       return res.status(401).json({
         message: "Unable to identify the requesting account.",
       });
     }
 
-    const sale = await Model.findOne({ invoiceNumber, isDeleted: false });
+    // --------------------------------------------------------
+    // VALIDATE THE SELECTED CUSTOMER
+    // --------------------------------------------------------
 
-    if (!sale) {
-      return res.status(404).json({
-        message: "An active sale with that invoice number was not found.",
-      });
+    let selectedCustomer = null;
+    let searchIdentifier = identifier;
+    let customerPhone = String(req.body.customerPhone || "").trim();
+    let customerId = null;
+
+    if (identifierType === "customerName" && req.body.customerId) {
+      if (!mongoose.isValidObjectId(req.body.customerId)) {
+        return res.status(400).json({
+          message: "The selected customer ID is invalid.",
+        });
+      }
+
+      selectedCustomer = await Customer.findOne({
+        _id: req.body.customerId,
+        isDeleted: false,
+        isActive: true,
+      }).lean();
+
+      if (!selectedCustomer) {
+        return res.status(404).json({
+          message:
+            "The selected customer was not found or is no longer active. Search for the customer again.",
+        });
+      }
+
+      // Use the authoritative customer record, not an untrusted
+      // name or phone supplied by the browser.
+      if (
+        selectedCustomer.name.trim().toLowerCase() !== identifier.toLowerCase()
+      ) {
+        return res.status(400).json({
+          message:
+            "The selected customer does not match the entered name. Select the customer again.",
+        });
+      }
+
+      searchIdentifier = selectedCustomer.name.trim();
+      customerPhone = selectedCustomer.phone || "";
+      customerId = selectedCustomer._id;
     }
 
-    if (new Date(sale.createdAt).getTime() >= Date.now() - ACCESS_WINDOW_MS) {
+    if (
+      identifierType === "customerName" &&
+      !selectedCustomer &&
+      !searchIdentifier
+    ) {
       return res.status(400).json({
-        message: "This sale is still within the normal 24-hour access window.",
+        message: "Select a valid customer.",
       });
     }
+
+    // --------------------------------------------------------
+    // FIND THE SALE OR VERIFY THE SELECTED INVOICE
+    // --------------------------------------------------------
+
+    const search = buildSaleSearch({
+      identifierType,
+      identifier: searchIdentifier,
+      saleType,
+      customerId,
+      customerPhone,
+    });
+
+    if (!search) {
+      return res.status(400).json({
+        message: "The supplied search identifier is invalid.",
+      });
+    }
+
+    let sale;
+
+    // The frontend sends saleId after the manager chooses one
+    // from the multiple-matching-invoices list.
+    if (req.body.saleId) {
+      if (!mongoose.isValidObjectId(req.body.saleId)) {
+        return res.status(400).json({
+          message: "The selected sale ID is invalid.",
+        });
+      }
+
+      sale = await Model.findOne({
+        _id: req.body.saleId,
+        isDeleted: false,
+        ...search,
+      }).lean();
+
+      if (!sale) {
+        return res.status(404).json({
+          message:
+            "The selected invoice does not match the search details or no longer exists. Search again and select a valid invoice.",
+        });
+      }
+
+      if (!isOlderThanAccessWindow(sale)) {
+        return res.status(400).json({
+          message: "Only sales older than 24 hours require an access request.",
+        });
+      }
+    } else {
+      const matchingSales = await Model.find({
+        ...search,
+        isDeleted: false,
+      })
+        .sort({ createdAt: -1 })
+        .lean();
+
+      if (!matchingSales.length) {
+        return res.status(404).json({
+          message:
+            "No active sale matched those details. Check the details and try again.",
+        });
+      }
+
+      const olderSales = matchingSales.filter(isOlderThanAccessWindow);
+
+      if (!olderSales.length) {
+        return res.status(400).json({
+          message:
+            "The matching sale is still within the normal 24-hour access window.",
+        });
+      }
+
+      if (olderSales.length > 1) {
+        return res.status(409).json({
+          code: "MULTIPLE_SALES_MATCHED",
+          message:
+            "Multiple older sales match those details. Select the correct invoice before requesting access.",
+          matches: olderSales.map(saleSummary),
+        });
+      }
+
+      sale = olderSales[0];
+    }
+
+    // --------------------------------------------------------
+    // CHECK FOR EXISTING ACTIVE ACCESS
+    // --------------------------------------------------------
 
     const existingGrant = await SaleAccessRequest.findOne({
       saleType,
@@ -80,6 +360,10 @@ exports.createRequest = async (req, res) => {
       });
     }
 
+    // --------------------------------------------------------
+    // CHECK FOR AN EXISTING PENDING REQUEST
+    // --------------------------------------------------------
+
     const pending = await SaleAccessRequest.findOne({
       saleType,
       saleId: sale._id,
@@ -94,10 +378,14 @@ exports.createRequest = async (req, res) => {
       });
     }
 
+    // --------------------------------------------------------
+    // CREATE THE REQUEST
+    // --------------------------------------------------------
+
     const request = await SaleAccessRequest.create({
       saleType,
       saleId: sale._id,
-      invoiceNumber: sale.invoiceNumber,
+      invoiceNumber: sale.invoiceNumber || "",
       requesterId: id,
       requesterName: requesterName(req),
       reason,
@@ -136,7 +424,10 @@ exports.createRequest = async (req, res) => {
   }
 };
 
+// ============================================================
 // GET ACCESS REQUESTS
+// ============================================================
+
 exports.getRequests = async (req, res) => {
   try {
     const filter = {};
@@ -145,7 +436,9 @@ exports.getRequests = async (req, res) => {
       const saleType = String(req.query.saleType).toLowerCase();
 
       if (!["egg", "manure"].includes(saleType)) {
-        return res.status(400).json({ message: "Invalid saleType." });
+        return res.status(400).json({
+          message: "Invalid saleType.",
+        });
       }
 
       filter.saleType = saleType;
@@ -165,7 +458,9 @@ exports.getRequests = async (req, res) => {
 
     if (req.query.status) {
       if (!["pending", "approved", "rejected"].includes(req.query.status)) {
-        return res.status(400).json({ message: "Invalid status." });
+        return res.status(400).json({
+          message: "Invalid status.",
+        });
       }
 
       filter.status = req.query.status;
@@ -187,9 +482,19 @@ exports.getRequests = async (req, res) => {
   }
 };
 
+// ============================================================
 // SUPERADMIN REVIEWS REQUEST
+// ============================================================
+
 exports.reviewRequest = async (req, res) => {
   try {
+    // Keep a controller-level role check as well as route protection.
+    if (req.user?.role !== "superadmin") {
+      return res.status(403).json({
+        message: "Only a superadmin can review access requests.",
+      });
+    }
+
     const decision = String(req.body.decision || "").toLowerCase();
 
     if (!["approved", "rejected"].includes(decision)) {
@@ -207,13 +512,17 @@ exports.reviewRequest = async (req, res) => {
     }
 
     if (!mongoose.isValidObjectId(req.params.id)) {
-      return res.status(400).json({ message: "Invalid request ID." });
+      return res.status(400).json({
+        message: "Invalid request ID.",
+      });
     }
 
     const request = await SaleAccessRequest.findById(req.params.id);
 
     if (!request) {
-      return res.status(404).json({ message: "Access request not found." });
+      return res.status(404).json({
+        message: "Access request not found.",
+      });
     }
 
     if (request.status !== "pending") {
@@ -242,6 +551,7 @@ exports.reviewRequest = async (req, res) => {
     request.reviewedBy = reviewerId;
     request.reviewedByName = requesterName(req);
     request.reviewedAt = new Date();
+
     request.reviewNote = String(req.body.reviewNote || "")
       .trim()
       .slice(0, 1000);
@@ -251,7 +561,6 @@ exports.reviewRequest = async (req, res) => {
         ? new Date(Date.now() + ACCESS_DURATION_MS)
         : null;
 
-    // Each decision starts unread for the manager.
     request.requesterViewedAt = null;
 
     await request.save();
@@ -295,7 +604,10 @@ exports.reviewRequest = async (req, res) => {
   }
 };
 
+// ============================================================
 // MANAGER MARKS THEIR OWN DECISION AS VIEWED
+// ============================================================
+
 exports.markViewed = async (req, res) => {
   try {
     const id = requesterId(req);
@@ -307,7 +619,9 @@ exports.markViewed = async (req, res) => {
     }
 
     if (!mongoose.isValidObjectId(req.params.id)) {
-      return res.status(400).json({ message: "Invalid request ID." });
+      return res.status(400).json({
+        message: "Invalid request ID.",
+      });
     }
 
     const request = await SaleAccessRequest.findOne({
