@@ -164,6 +164,7 @@ exports.deleteMedication = async (req, res) => {
       await softDeleteLinkedBirdHealth({
         sourceRecord: medication,
         sourceLinkField: "birdHealthRecord",
+        healthLinkField: "medicationRecord",
         req,
       });
     } catch (syncError) {
@@ -215,6 +216,7 @@ exports.restoreMedication = async (req, res) => {
       await restoreLinkedBirdHealth({
         sourceRecord: medication,
         sourceLinkField: "birdHealthRecord",
+        healthLinkField: "medicationRecord",
         req,
       });
     } catch (syncError) {

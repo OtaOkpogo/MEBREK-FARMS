@@ -1,12 +1,25 @@
-
 const BirdHealth = require("../models/BirdHealth");
 
-/**
- * Synchronize one source record with its Bird Health entry.
- *
- * sourceLinkField: field on the source model, e.g. birdHealthRecord
- * healthLinkField: field on BirdHealth, e.g. medicationRecord
- */
+const findLinkedHealthRecord = async ({
+  sourceRecord,
+  sourceLinkField,
+  healthLinkField,
+}) => {
+  let healthRecord = null;
+
+  if (sourceRecord?.[sourceLinkField]) {
+    healthRecord = await BirdHealth.findById(sourceRecord[sourceLinkField]);
+  }
+
+  if (!healthRecord && healthLinkField && sourceRecord?._id) {
+    healthRecord = await BirdHealth.findOne({
+      [healthLinkField]: sourceRecord._id,
+    });
+  }
+
+  return healthRecord;
+};
+
 exports.syncLinkedBirdHealth = async ({
   sourceRecord,
   sourceLinkField,
@@ -14,21 +27,11 @@ exports.syncLinkedBirdHealth = async ({
   payload,
   req,
 }) => {
-  let healthRecord = null;
-
-  if (sourceRecord[sourceLinkField]) {
-    healthRecord = await BirdHealth.findById(
-      sourceRecord[sourceLinkField],
-    );
-  }
-
-  // Recover a link if an earlier version created the health entry
-  // but failed to save its ID on the source record.
-  if (!healthRecord) {
-    healthRecord = await BirdHealth.findOne({
-      [healthLinkField]: sourceRecord._id,
-    });
-  }
+  let healthRecord = await findLinkedHealthRecord({
+    sourceRecord,
+    sourceLinkField,
+    healthLinkField,
+  });
 
   const wasCreated = !healthRecord;
 
@@ -36,15 +39,15 @@ exports.syncLinkedBirdHealth = async ({
     healthRecord = new BirdHealth({
       ...payload,
       [healthLinkField]: sourceRecord._id,
-      recordedBy: req?.user?.id || sourceRecord.administeredBy?.id ||
-        sourceRecord.administeredBy || undefined,
+      recordedBy:
+        req?.user?.id ||
+        sourceRecord.administeredBy?.id ||
+        sourceRecord.administeredBy ||
+        undefined,
     });
   } else {
     Object.assign(healthRecord, payload);
     healthRecord[healthLinkField] = sourceRecord._id;
-
-    // A source update should not silently restore a health entry
-    // that someone explicitly deleted in Bird Health.
   }
 
   await healthRecord.save();
@@ -53,6 +56,7 @@ exports.syncLinkedBirdHealth = async ({
   await sourceRecord.save({ validateModifiedOnly: true });
 
   const io = req?.app?.get("io");
+
   if (io) {
     io.emit(
       wasCreated ? "birdHealthCreated" : "birdHealthUpdated",
@@ -66,15 +70,14 @@ exports.syncLinkedBirdHealth = async ({
 exports.softDeleteLinkedBirdHealth = async ({
   sourceRecord,
   sourceLinkField,
+  healthLinkField,
   req,
 }) => {
-  let healthRecord = null;
-
-  if (sourceRecord[sourceLinkField]) {
-    healthRecord = await BirdHealth.findById(
-      sourceRecord[sourceLinkField],
-    );
-  }
+  const healthRecord = await findLinkedHealthRecord({
+    sourceRecord,
+    sourceLinkField,
+    healthLinkField,
+  });
 
   if (!healthRecord) return null;
 
@@ -84,10 +87,14 @@ exports.softDeleteLinkedBirdHealth = async ({
     healthRecord.deletedBy = req?.user?.id || null;
     healthRecord.deletedByName = req?.user?.name || "";
     healthRecord.deletedByRole = req?.user?.role || "";
+
     await healthRecord.save({ validateModifiedOnly: true });
 
     const io = req?.app?.get("io");
-    if (io) io.emit("birdHealthDeleted", healthRecord);
+
+    if (io) {
+      io.emit("birdHealthDeleted", healthRecord);
+    }
   }
 
   return healthRecord;
@@ -96,15 +103,14 @@ exports.softDeleteLinkedBirdHealth = async ({
 exports.restoreLinkedBirdHealth = async ({
   sourceRecord,
   sourceLinkField,
+  healthLinkField,
   req,
 }) => {
-  let healthRecord = null;
-
-  if (sourceRecord[sourceLinkField]) {
-    healthRecord = await BirdHealth.findById(
-      sourceRecord[sourceLinkField],
-    );
-  }
+  const healthRecord = await findLinkedHealthRecord({
+    sourceRecord,
+    sourceLinkField,
+    healthLinkField,
+  });
 
   if (!healthRecord) return null;
 
@@ -114,12 +120,15 @@ exports.restoreLinkedBirdHealth = async ({
     healthRecord.deletedBy = undefined;
     healthRecord.deletedByName = "";
     healthRecord.deletedByRole = "";
+
     await healthRecord.save({ validateModifiedOnly: true });
 
     const io = req?.app?.get("io");
-    if (io) io.emit("birdHealthRestored", healthRecord);
+
+    if (io) {
+      io.emit("birdHealthRestored", healthRecord);
+    }
   }
 
   return healthRecord;
 };
-

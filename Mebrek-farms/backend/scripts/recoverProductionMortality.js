@@ -1,12 +1,11 @@
-
-require("dotenv").config();
+require("dotenv").config({
+  path: require("path").resolve(__dirname, "../.env"),
+});
 
 const mongoose = require("mongoose");
 const Production = require("../models/Production");
 const Mortality = require("../models/Mortality");
-const {
-  syncLinkedBirdHealth,
-} = require("../services/healthSyncService");
+const { syncLinkedBirdHealth } = require("../services/healthSyncService");
 
 const APPLY = process.argv.includes("--apply");
 
@@ -83,8 +82,7 @@ async function main() {
           numberDead: production.mortality,
           cause: "Production mortality",
           date: production.date || production.createdAt || new Date(),
-          notes:
-            `Recovered from historical Production record ${production._id}`,
+          notes: `Recovered from historical Production record ${production._id}`,
         });
 
         createdMortality++;
@@ -109,7 +107,6 @@ async function main() {
       });
 
       createdOrUpdatedHealth++;
-
     } catch (error) {
       failed++;
       console.error(
@@ -128,7 +125,10 @@ async function main() {
 
   if (APPLY) {
     console.log("Mortality records created:", createdMortality);
-    console.log("Bird Health records created or updated:", createdOrUpdatedHealth);
+    console.log(
+      "Bird Health records created or updated:",
+      createdOrUpdatedHealth,
+    );
     console.log("Failed:", failed);
   } else {
     console.log("DRY RUN ONLY — no database records were changed.");

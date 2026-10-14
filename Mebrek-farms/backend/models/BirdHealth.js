@@ -41,6 +41,7 @@ const birdHealthSchema = new mongoose.Schema(
         "Deep Litter Pen 5",
         "Sick Bay",
         "Pen 150",
+        "Brooding House",
       ],
     },
     healthIssue: {

@@ -65,8 +65,6 @@ exports.updateMortality = async (req, res) => {
       });
     }
 
-    // Production-generated mortality must be edited in Production.
-    // That keeps the stock calculation and mortality entry consistent.
     if (record.productionRecord) {
       return res.status(409).json({
         message:
@@ -131,10 +129,16 @@ exports.deleteMortality = async (req, res) => {
       await softDeleteLinkedBirdHealth({
         sourceRecord: record,
         sourceLinkField: "birdHealthRecord",
+        healthLinkField: "mortalityRecord",
         req,
       });
     } catch (syncError) {
       console.error("Mortality deletion sync error:", syncError);
+
+      return res.status(500).json({
+        message:
+          "Could not synchronize the linked Bird Health record. Mortality was not deleted.",
+      });
     }
 
     await Mortality.findByIdAndDelete(record._id);

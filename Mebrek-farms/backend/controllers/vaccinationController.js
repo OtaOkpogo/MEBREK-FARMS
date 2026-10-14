@@ -59,7 +59,7 @@ const UPDATABLE_FIELDS = [
 
 exports.getVaccinations = async (req, res) => {
   try {
-    const filter = req.user.role === "superadmin" ? {} : { isDeleted: false };
+    const filter = req.user?.role === "superadmin" ? {} : { isDeleted: false };
 
     const vaccinations = await Vaccination.find(filter)
       .sort({ vaccinationDate: -1 })
@@ -116,6 +116,12 @@ exports.updateVaccination = async (req, res) => {
     const vaccination = await Vaccination.findById(req.params.id);
 
     if (!vaccination) {
+      return res.status(404).json({
+        error: "Vaccination record not found",
+      });
+    }
+
+    if (vaccination.isDeleted) {
       return res.status(404).json({
         error: "Vaccination record not found",
       });
@@ -179,6 +185,7 @@ exports.deleteVaccination = async (req, res) => {
       await softDeleteLinkedBirdHealth({
         sourceRecord: vaccination,
         sourceLinkField: "birdHealthRecord",
+        healthLinkField: "vaccinationRecord",
         req,
       });
     } catch (syncError) {
@@ -212,8 +219,8 @@ exports.restoreVaccination = async (req, res) => {
     vaccination.isDeleted = false;
     vaccination.deletedAt = null;
     vaccination.deletedBy = null;
-    vaccination.deletedByName = null;
-    vaccination.deletedByRole = null;
+    vaccination.deletedByName = "";
+    vaccination.deletedByRole = "";
 
     await vaccination.save({ validateModifiedOnly: true });
 
@@ -221,6 +228,7 @@ exports.restoreVaccination = async (req, res) => {
       await restoreLinkedBirdHealth({
         sourceRecord: vaccination,
         sourceLinkField: "birdHealthRecord",
+        healthLinkField: "vaccinationRecord",
         req,
       });
     } catch (syncError) {

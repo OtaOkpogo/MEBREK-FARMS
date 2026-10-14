@@ -126,24 +126,21 @@ const removeLinkedMortality = async (production, req) => {
     return;
   }
 
-  try {
-    await softDeleteLinkedBirdHealth({
-      sourceRecord: mortality,
-      sourceLinkField: "birdHealthRecord",
-      req,
-    });
-  } catch (err) {
-    console.error("Production mortality health cleanup error:", err);
-  }
+  await softDeleteLinkedBirdHealth({
+    sourceRecord: mortality,
+    sourceLinkField: "birdHealthRecord",
+    healthLinkField: "mortalityRecord",
+    req,
+  });
 
   await Mortality.findByIdAndDelete(mortality._id);
+
   production.mortalityRecord = null;
 };
 
 const syncProductionMortality = async (production, req) => {
   const numberDead = Number(production.mortality || 0);
 
-  // Zero mortality means there should be no active linked Mortality entry.
   if (numberDead <= 0) {
     await removeLinkedMortality(production, req);
     return;
@@ -178,20 +175,13 @@ const syncProductionMortality = async (production, req) => {
   production.mortalityRecord = mortality._id;
   await production.save({ validateModifiedOnly: true });
 
-  try {
-    await syncLinkedBirdHealth({
-      sourceRecord: mortality,
-      sourceLinkField: "birdHealthRecord",
-      healthLinkField: "mortalityRecord",
-      payload: buildMortalityHealthPayload(mortality),
-      req,
-    });
-  } catch (err) {
-    // The production and mortality records are saved. Report the health
-    // synchronization failure so it can be repaired without duplicating
-    // the production or mortality record.
-    console.error("Production → Bird Health sync error:", err);
-  }
+  await syncLinkedBirdHealth({
+    sourceRecord: mortality,
+    sourceLinkField: "birdHealthRecord",
+    healthLinkField: "mortalityRecord",
+    payload: buildMortalityHealthPayload(mortality),
+    req,
+  });
 };
 
 const populateProduction = (query) =>
@@ -304,8 +294,6 @@ exports.updateProduction = async (req, res) => {
       });
     }
 
-    // Do not allow a request to manipulate internal links or soft-delete
-    // metadata directly.
     const protectedFields = [
       "_id",
       "flock",
@@ -381,6 +369,7 @@ exports.deleteProduction = async (req, res) => {
       await removeLinkedMortality(production, req);
     } catch (syncError) {
       console.error("Production mortality cleanup error:", syncError);
+
       return res.status(500).json({
         message:
           "Could not safely remove the linked mortality record. Production was not deleted.",

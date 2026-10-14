@@ -1,4 +1,3 @@
-
 const mongoose = require("mongoose");
 const path = require("path");
 require("dotenv").config({
@@ -20,20 +19,21 @@ async function backfillMortalityBirdHealth() {
   if (!mongoUri) {
     throw new Error(
       "MongoDB connection string not found. " +
-        "Use the same environment variable as backend/server.js."
+        "Use the same environment variable as backend/server.js.",
     );
   }
 
   await mongoose.connect(mongoUri);
+  console.log("Connected database:", mongoose.connection.name);
+  console.log("Mortality collection:", Mortality.collection.name);
+  console.log("Mortality document count:", await Mortality.countDocuments({}));
 
   console.log("\nMortality → Bird Health backfill");
   console.log(
-    `Mode: ${APPLY_CHANGES ? "APPLY CHANGES" : "DRY RUN (no changes)"}`
+    `Mode: ${APPLY_CHANGES ? "APPLY CHANGES" : "DRY RUN (no changes)"}`,
   );
 
-  const allowedPens = BirdHealth.schema
-    .path("pen")
-    .enumValues;
+  const allowedPens = BirdHealth.schema.path("pen").enumValues;
 
   const mortalities = await Mortality.find({}).lean();
 
@@ -61,7 +61,7 @@ async function backfillMortalityBirdHealth() {
         !directHealth._id.equals(reverseHealth._id)
       ) {
         console.log(
-          `CONFLICT: Mortality ${mortality._id} has two different Bird Health links.`
+          `CONFLICT: Mortality ${mortality._id} has two different Bird Health links.`,
         );
         skipped++;
         continue;
@@ -72,12 +72,9 @@ async function backfillMortalityBirdHealth() {
       if (existingHealth) {
         const existingMortalityId = existingHealth.mortalityRecord;
 
-        if (
-          existingMortalityId &&
-          !existingMortalityId.equals(mortality._id)
-        ) {
+        if (existingMortalityId && !existingMortalityId.equals(mortality._id)) {
           console.log(
-            `CONFLICT: Bird Health ${existingHealth._id} links to another mortality.`
+            `CONFLICT: Bird Health ${existingHealth._id} links to another mortality.`,
           );
           skipped++;
           continue;
@@ -94,7 +91,7 @@ async function backfillMortalityBirdHealth() {
         }
 
         console.log(
-          `REPAIR LINK: Mortality ${mortality._id} → Bird Health ${existingHealth._id}`
+          `REPAIR LINK: Mortality ${mortality._id} → Bird Health ${existingHealth._id}`,
         );
 
         if (APPLY_CHANGES) {
@@ -106,7 +103,7 @@ async function backfillMortalityBirdHealth() {
           if (needsDirectLink) {
             await Mortality.updateOne(
               { _id: mortality._id },
-              { $set: { birdHealthRecord: existingHealth._id } }
+              { $set: { birdHealthRecord: existingHealth._id } },
             );
           }
         }
@@ -119,16 +116,13 @@ async function backfillMortalityBirdHealth() {
 
       if (!allowedPens.includes(pen)) {
         console.log(
-          `SKIP: Mortality ${mortality._id} has unsupported pen "${pen}".`
+          `SKIP: Mortality ${mortality._id} has unsupported pen "${pen}".`,
         );
         skipped++;
         continue;
       }
 
-      const numberDead = Math.max(
-        0,
-        Number(mortality.numberDead) || 0
-      );
+      const numberDead = Math.max(0, Number(mortality.numberDead) || 0);
 
       const healthData = {
         date: mortality.date || mortality.createdAt || new Date(),
@@ -148,7 +142,7 @@ async function backfillMortalityBirdHealth() {
       };
 
       console.log(
-        `MISSING: Mortality ${mortality._id} | Pen: ${pen} | Dead: ${numberDead}`
+        `MISSING: Mortality ${mortality._id} | Pen: ${pen} | Dead: ${numberDead}`,
       );
 
       if (APPLY_CHANGES) {
@@ -156,7 +150,7 @@ async function backfillMortalityBirdHealth() {
 
         await Mortality.updateOne(
           { _id: mortality._id },
-          { $set: { birdHealthRecord: health._id } }
+          { $set: { birdHealthRecord: health._id } },
         );
 
         console.log(`CREATED: Bird Health ${health._id}`);
@@ -165,9 +159,7 @@ async function backfillMortalityBirdHealth() {
       created++;
     } catch (error) {
       failed++;
-      console.error(
-        `FAILED: Mortality ${mortality._id}: ${error.message}`
-      );
+      console.error(`FAILED: Mortality ${mortality._id}: ${error.message}`);
     }
   }
 
@@ -180,12 +172,8 @@ async function backfillMortalityBirdHealth() {
   console.log(`Failed: ${failed}`);
 
   if (!APPLY_CHANGES) {
-    console.log(
-      "\nPreview only. No database changes were made."
-    );
-    console.log(
-      "Review the output, then rerun with --apply to make changes."
-    );
+    console.log("\nPreview only. No database changes were made.");
+    console.log("Review the output, then rerun with --apply to make changes.");
   }
 }
 
@@ -197,4 +185,3 @@ backfillMortalityBirdHealth()
   .finally(async () => {
     await mongoose.disconnect();
   });
-
