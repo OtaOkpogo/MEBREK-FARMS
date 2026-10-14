@@ -70,6 +70,7 @@ const emptyPayment = () => ({
 const emptyLineItem = () => ({
   category: "big",
   cratesSold: "",
+  halfCratesSold: "",
   looseEggs: "",
 });
 
@@ -675,6 +676,7 @@ export default function EggSales() {
       {
         category: nextCategory,
         cratesSold: "",
+        halfCratesSold: "",
         looseEggs: "",
       },
     ]);
@@ -705,12 +707,18 @@ export default function EggSales() {
       const cratePrice = EGG_CATEGORY_PRICES[item.category] || 0;
       const eggPrice = Math.round(cratePrice / 30);
       const cratesSold = Number(item.cratesSold || 0);
+      const halfCratesSold = Number(item.halfCratesSold || 0);
       const looseEggs = Number(item.looseEggs || 0);
-      const subtotal = cratesSold * cratePrice + looseEggs * eggPrice;
+      const halfCratePrice = cratePrice / 2;
+      const subtotal =
+        cratesSold * cratePrice +
+        halfCratesSold * halfCratePrice +
+        looseEggs * eggPrice;
 
       return {
         ...item,
         cratePrice,
+        halfCratePrice,
         eggPrice,
         subtotal,
       };
@@ -830,6 +838,7 @@ export default function EggSales() {
         sale.lineItems.map((item) => ({
           category: item.category || "big",
           cratesSold: item.cratesSold ?? "",
+          halfCratesSold: item.halfCratesSold ?? "",
           looseEggs: item.looseEggs ?? "",
         })),
       );
@@ -838,6 +847,7 @@ export default function EggSales() {
         {
           category: "big",
           cratesSold: sale.cratesSold ?? "",
+          halfCratesSold: sale.halfCratesSold ?? "",
           looseEggs: sale.looseEggs ?? "",
         },
       ]);
@@ -924,21 +934,24 @@ export default function EggSales() {
 
     for (const item of lineItems) {
       const crates = Number(item.cratesSold || 0);
+      const halfCrates = Number(item.halfCratesSold || 0);
       const loose = Number(item.looseEggs || 0);
 
       if (
         !Number.isFinite(crates) ||
+        !Number.isFinite(halfCrates) ||
         !Number.isFinite(loose) ||
         crates < 0 ||
+        halfCrates < 0 ||
         loose < 0
       ) {
         toast.error("Egg quantities must be valid non-negative numbers.");
         return;
       }
 
-      if (crates === 0 && loose === 0) {
+      if (crates === 0 && halfCrates === 0 && loose === 0) {
         toast.error(
-          "Each selected egg category must contain at least one crate or loose egg.",
+          "Each selected egg category must contain at least one full crate, half crate, or loose egg.",
         );
         return;
       }
@@ -973,6 +986,7 @@ export default function EggSales() {
         lineItems: lineItems.map((item) => ({
           category: item.category,
           cratesSold: Number(item.cratesSold || 0),
+          halfCratesSold: Number(item.halfCratesSold || 0),
           looseEggs: Number(item.looseEggs || 0),
         })),
         discount: Number(formData.discount || 0),
@@ -1239,7 +1253,9 @@ export default function EggSales() {
       if (Array.isArray(sale.lineItems)) {
         sale.lineItems.forEach((item) => {
           if (totals[item.category] !== undefined) {
-            totals[item.category] += Number(item.cratesSold || 0);
+            totals[item.category] +=
+              Number(item.cratesSold || 0) +
+              Number(item.halfCratesSold || 0) / 2;
           }
         });
       }
@@ -1631,7 +1647,8 @@ export default function EggSales() {
             <div>
               <h3 className="font-semibold text-gray-800">Egg Categories</h3>
               <p className="text-xs text-gray-500">
-                Enter crates and loose eggs for each category.
+                Enter full crates, half crates (15 eggs each), and loose eggs
+                for each category.
               </p>
             </div>
 
@@ -1647,7 +1664,7 @@ export default function EggSales() {
           <div className="space-y-3">
             {lineItemsWithSubtotal.map((item, index) => (
               <div key={index} className="rounded-xl border bg-gray-50 p-3">
-                <div className="grid grid-cols-1 gap-3 md:grid-cols-4">
+                <div className="grid grid-cols-1 gap-3 md:grid-cols-5">
                   <div>
                     <label className="mb-1 block text-xs font-medium text-gray-600">
                       Egg Category
@@ -1697,6 +1714,29 @@ export default function EggSales() {
                       }
                       className="w-full rounded-lg border border-gray-300 bg-white px-3 py-2 text-sm outline-none focus:border-green-500"
                     />
+                  </div>
+
+                  <div>
+                    <label className="mb-1 block text-xs font-medium text-gray-600">
+                      Half Crates (15 eggs)
+                    </label>
+                    <input
+                      type="number"
+                      min="0"
+                      step="1"
+                      value={item.halfCratesSold ?? ""}
+                      onChange={(event) =>
+                        updateLineItem(
+                          index,
+                          "halfCratesSold",
+                          event.target.value,
+                        )
+                      }
+                      className="w-full rounded-lg border border-gray-300 bg-white px-3 py-2 text-sm outline-none focus:border-green-500"
+                    />
+                    <p className="mt-1 text-xs text-gray-500">
+                      {formatCurrency(item.halfCratePrice)} each
+                    </p>
                   </div>
 
                   <div>
@@ -2291,6 +2331,11 @@ export default function EggSales() {
                                 :{" "}
                                 {Number(item.cratesSold || 0).toLocaleString()}{" "}
                                 crates
+                                {Number(item.halfCratesSold || 0) > 0
+                                  ? ` + ${Number(
+                                      item.halfCratesSold,
+                                    ).toLocaleString()} half-crates`
+                                  : ""}
                                 {Number(item.looseEggs || 0) > 0
                                   ? ` + ${Number(
                                       item.looseEggs,
