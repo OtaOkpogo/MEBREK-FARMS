@@ -28,7 +28,7 @@ import {
 
 import socket from "../services/socket";
 
-// Includes both manually entered health categories and records
+// Includes manually entered health categories and records
 // synchronized from Medication, Vaccination, and Mortality.
 const CATEGORIES = [
   "Respiratory",
@@ -79,11 +79,8 @@ const CATEGORY_COLORS = {
 
 const getApiRecords = (response) => {
   if (Array.isArray(response)) return response;
-
   if (Array.isArray(response?.data)) return response.data;
-
   if (Array.isArray(response?.records)) return response.records;
-
   return null;
 };
 
@@ -138,7 +135,6 @@ export default function BirdHealth() {
 
       if (!data) {
         console.error("Unexpected Bird Health API response format:", response);
-
         toast.error("Unexpected response from Bird Health API.");
         return;
       }
@@ -146,7 +142,6 @@ export default function BirdHealth() {
       setRecords(data);
     } catch (err) {
       console.error("FAILED TO LOAD BIRD HEALTH:", err?.response?.data || err);
-
       toast.error("Failed to load bird health records.");
     } finally {
       if (showLoader) setLoading(false);
@@ -188,7 +183,10 @@ export default function BirdHealth() {
       }
 
       setEditingId(null);
-      setForm({ ...emptyForm, date: new Date().toISOString().slice(0, 10) });
+      setForm({
+        ...emptyForm,
+        date: new Date().toISOString().slice(0, 10),
+      });
 
       await loadRecords(false);
     } catch (err) {
@@ -329,14 +327,20 @@ export default function BirdHealth() {
   const stats = useMemo(
     () => ({
       total: records.length,
+
       active: records.filter(
         (r) => r.status === "Active" || r.status === "Under Treatment",
       ).length,
+
       recovering: records.filter((r) => r.status === "Recovering").length,
+
       recovered: records.filter((r) => r.status === "Recovered").length,
-      critical: records.filter(
-        (r) => r.severity === "Critical" || r.status === "Dead",
-      ).length,
+
+      // FIX: Sum the number of birds, not the number of records.
+      // Counts birds from records marked Critical or Dead.
+      critical: records
+        .filter((r) => r.status === "Dead" || r.severity === "Critical")
+        .reduce((total, r) => total + Number(r.birdsAffected || 0), 0),
     }),
     [records],
   );
@@ -370,6 +374,7 @@ export default function BirdHealth() {
       socket.off("birdHealthDeleted", refreshRecords);
       socket.off("birdHealthRestored", refreshRecords);
     };
+
     // Initial load and socket subscription are intentionally mounted once.
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, []);
@@ -433,9 +438,11 @@ export default function BirdHealth() {
           <h1 className="text-3xl font-bold text-gray-800">
             Bird Health Management
           </h1>
+
           <p className="text-gray-500">
             Monitor health issues, treatments, vaccinations, and mortality.
           </p>
+
           <p className="text-sm text-gray-500 mt-1">
             {stats.total} total record{stats.total === 1 ? "" : "s"}
           </p>
@@ -522,6 +529,7 @@ export default function BirdHealth() {
               <XAxis dataKey="name" />
               <YAxis allowDecimals={false} />
               <Tooltip />
+
               <Bar dataKey="value">
                 {chartData.map((entry, index) => (
                   <Cell
@@ -541,6 +549,7 @@ export default function BirdHealth() {
         <div className="grid md:grid-cols-5 gap-4">
           <div className="relative">
             <Search className="absolute left-3 top-3 text-gray-400" size={18} />
+
             <input
               type="text"
               placeholder="Search issue, pen, category..."
@@ -826,6 +835,7 @@ export default function BirdHealth() {
       ) : filteredRecords.length === 0 ? (
         <div className="bg-white rounded-xl shadow p-10 text-center">
           <p className="text-gray-500">No bird health records found.</p>
+
           {records.length > 0 && (
             <p className="text-sm text-gray-400 mt-2">
               Try clearing the filters to see all records.
