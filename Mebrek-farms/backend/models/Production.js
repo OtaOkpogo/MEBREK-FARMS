@@ -77,6 +77,12 @@ const productionSchema = new mongoose.Schema(
       min: [0, "mortality cannot be negative"],
     },
 
+    mortalityRecord: {
+      type: mongoose.Schema.Types.ObjectId,
+      ref: "Mortality",
+      default: null,
+    },
+
     closingStock: {
       type: Number,
       default: 0,

@@ -143,6 +143,11 @@ const vaccinationSchema = new mongoose.Schema(
       default: 0,
       min: [0, "cost cannot be negative"],
     },
+    birdHealthRecord: {
+      type: mongoose.Schema.Types.ObjectId,
+      ref: "BirdHealth",
+      default: null,
+    },
 
     // Reflects the status of nextDueDate (Upcoming / Due Today / Overdue).
     // If there is no nextDueDate, the record is simply Completed.

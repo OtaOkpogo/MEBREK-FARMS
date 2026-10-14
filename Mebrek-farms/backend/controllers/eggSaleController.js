@@ -1,45 +1,69 @@
 const EggSale = require("../models/EggSale");
+
 const Customer = require("../models/Customer");
+
 const { EGG_CATEGORY_PRICES } = require("../models/EggSale");
+
 const SaleAccessRequest = require("../models/SaleAccessRequest");
+
 const ACCESS_WINDOW_MS = 24 * 60 * 60 * 1000;
 
 const getRequesterId = (req) => req.user?.id || req.user?._id || null;
+
 const isWithinRecentWindow = (sale) =>
   !!sale?.createdAt &&
   new Date(sale.createdAt).getTime() >= Date.now() - ACCESS_WINDOW_MS;
 
 async function hasTemporarySaleAccess(req, saleType, sale) {
   if (req.user?.role === "superadmin") return true;
+
   const requesterId = getRequesterId(req);
+
   if (!requesterId || !sale || sale.isDeleted) return false;
+
   if (isWithinRecentWindow(sale)) return true;
+
   return !!(await SaleAccessRequest.exists({
     saleType,
+
     saleId: sale._id,
+
     requesterId,
+
     status: "approved",
+
     accessExpiresAt: { $gt: new Date() },
   }));
 }
 
 async function getGrantedSaleIds(req, saleType) {
   if (req.user?.role === "superadmin") return null;
+
   const requesterId = getRequesterId(req);
+
   if (!requesterId) return [];
+
   const rows = await SaleAccessRequest.find({
     saleType,
+
     requesterId,
+
     status: "approved",
+
     accessExpiresAt: { $gt: new Date() },
   })
+
     .select("saleId")
+
     .lean();
+
   return rows.map((row) => row.saleId);
 }
 
 // =====================================================
+
 // CONSTANTS
+
 // =====================================================
 
 const EGGS_PER_CRATE = 30;
@@ -47,7 +71,9 @@ const EGGS_PER_CRATE = 30;
 const VALID_PAYMENT_METHODS = ["Cash", "Transfer", "POS"];
 
 // =====================================================
+
 // EGG CATEGORY VALIDATION
+
 // =====================================================
 
 const buildValidatedLineItems = (lineItems) => {
@@ -75,25 +101,34 @@ const buildValidatedLineItems = (lineItems) => {
     seenCategories.add(category);
 
     const cratesSold = Number(item?.cratesSold || 0);
+    const halfCratesSold = Number(item?.halfCratesSold || 0);
     const looseEggs = Number(item?.looseEggs || 0);
 
-    if (!Number.isFinite(cratesSold) || !Number.isFinite(looseEggs)) {
+    if (
+      !Number.isFinite(cratesSold) ||
+      !Number.isFinite(halfCratesSold) ||
+      !Number.isFinite(looseEggs)
+    ) {
       throw new Error("Egg quantities must be valid numbers.");
     }
 
-    if (cratesSold < 0 || looseEggs < 0) {
+    if (cratesSold < 0 || halfCratesSold < 0 || looseEggs < 0) {
       throw new Error("Egg quantities cannot be negative.");
     }
 
     const cratePrice = Number(EGG_CATEGORY_PRICES[category]);
-
+    const halfCratePrice = cratePrice / 2;
     const eggPrice = Math.round(cratePrice / EGGS_PER_CRATE);
 
-    const subtotal = cratesSold * cratePrice + looseEggs * eggPrice;
+    const subtotal =
+      cratesSold * cratePrice +
+      halfCratesSold * halfCratePrice +
+      looseEggs * eggPrice;
 
     return {
       category,
       cratesSold,
+      halfCratesSold,
       looseEggs,
       cratePrice,
       eggPrice,
@@ -102,31 +137,36 @@ const buildValidatedLineItems = (lineItems) => {
   });
 };
 
-// =====================================================
 // LEGACY SALE CALCULATION
+
 // =====================================================
 
 const getLegacySaleTotal = (sale) => {
-  const cratesTotal =
-    Number(sale.cratesSold || 0) * Number(sale.cratePrice || 0);
+  const cratePrice = Number(sale.cratePrice || 0);
 
+  const cratesTotal = Number(sale.cratesSold || 0) * cratePrice;
+  const halfCratesTotal = Number(sale.halfCratesSold || 0) * (cratePrice / 2);
   const looseEggTotal =
     Number(sale.looseEggs || 0) * Number(sale.eggPrice || 0);
 
-  return cratesTotal + looseEggTotal;
+  return cratesTotal + halfCratesTotal + looseEggTotal;
 };
 
 // =====================================================
+
 // CALCULATE SALE TOTAL
+
 // =====================================================
 
 const calculateTotal = (lineItems, transportCharge = 0, discount = 0) => {
   const itemsTotal = lineItems.reduce(
     (sum, item) => sum + Number(item.subtotal || 0),
+
     0,
   );
 
   const transport = Number(transportCharge || 0);
+
   const discountAmount = Number(discount || 0);
 
   if (!Number.isFinite(transport)) {
@@ -141,21 +181,37 @@ const calculateTotal = (lineItems, transportCharge = 0, discount = 0) => {
 };
 
 // =====================================================
+
 // NORMALIZE PAYMENT SEGMENTS
+
 // =====================================================
+
 //
+
 // IMPORTANT:
+
 // This function does NOT combine payment rows.
+
 //
+
 // For example:
+
 //
+
 // [
+
 //   { method: "Cash", amount: 10000 },
+
 //   { method: "Cash", amount: 5000 },
+
 //   { method: "Transfer", amount: 2000 }
+
 // ]
+
 //
+
 // remains three separate payment records.
+
 //
 
 const normalizePayments = (payments) => {
@@ -164,6 +220,7 @@ const normalizePayments = (payments) => {
   }
 
   return payments
+
     .map((payment) => {
       if (!payment) {
         return null;
@@ -174,6 +231,7 @@ const normalizePayments = (payments) => {
       const amount = Number(payment.amount || 0);
 
       // Empty frontend row.
+
       if (!method && amount <= 0) {
         return null;
       }
@@ -189,6 +247,7 @@ const normalizePayments = (payments) => {
       }
 
       // Ignore zero-value rows.
+
       if (amount === 0) {
         return null;
       }
@@ -205,15 +264,20 @@ const normalizePayments = (payments) => {
 
       return {
         method,
+
         amount,
+
         paidAt,
       };
     })
+
     .filter(Boolean);
 };
 
 // =====================================================
+
 // PAYMENT CALCULATION
+
 // =====================================================
 
 const calculatePayment = (totalAmount, payments = []) => {
@@ -221,6 +285,7 @@ const calculatePayment = (totalAmount, payments = []) => {
 
   const paid = normalizedPayments.reduce(
     (sum, payment) => sum + Number(payment.amount || 0),
+
     0,
   );
 
@@ -247,6 +312,7 @@ const calculatePayment = (totalAmount, payments = []) => {
   }
 
   // Determine payment method from ALL payment rows.
+
   const methods = [
     ...new Set(normalizedPayments.map((payment) => payment.method)),
   ];
@@ -261,34 +327,52 @@ const calculatePayment = (totalAmount, payments = []) => {
 
   return {
     amountPaid: paid,
+
     balance,
+
     status,
+
     paymentMethod,
   };
 };
 
 // =====================================================
+
 // RESOLVE PAYMENTS
+
 // =====================================================
+
 //
+
 // New API:
+
 // payments: [
+
 //   { method: "Cash", amount: 16000 },
+
 //   { method: "Transfer", amount: 1400 }
+
 // ]
+
 //
+
 // Legacy API:
+
 // amountPaid: 17400
+
 // paymentMethod: "Transfer"
+
 //
 
 const resolvePayments = ({ payments, amountPaid, paymentMethod }) => {
   // New segmented-payment request.
+
   if (Array.isArray(payments)) {
     return normalizePayments(payments);
   }
 
   // Legacy payment request.
+
   const legacyAmount = Number(amountPaid || 0);
 
   if (!Number.isFinite(legacyAmount) || legacyAmount < 0) {
@@ -310,14 +394,18 @@ const resolvePayments = ({ payments, amountPaid, paymentMethod }) => {
   return [
     {
       method: legacyMethod,
+
       amount: legacyAmount,
+
       paidAt: new Date(),
     },
   ];
 };
 
 // =====================================================
+
 // INVOICE NUMBER
+
 // =====================================================
 
 const generateInvoiceNumber = async (year) => {
@@ -328,9 +416,11 @@ const generateInvoiceNumber = async (year) => {
       $regex: `^${prefix}`,
     },
   })
+
     .sort({
       invoiceNumber: -1,
     })
+
     .select("invoiceNumber");
 
   let nextSequence = 1;
@@ -338,6 +428,7 @@ const generateInvoiceNumber = async (year) => {
   if (lastSale?.invoiceNumber) {
     const lastSequence = parseInt(
       lastSale.invoiceNumber.replace(prefix, ""),
+
       10,
     );
 
@@ -350,7 +441,9 @@ const generateInvoiceNumber = async (year) => {
 };
 
 // =====================================================
+
 // RESOLVE CUSTOMER
+
 // =====================================================
 
 const resolveCustomer = async ({ customerId, customer, phone }) => {
@@ -363,7 +456,9 @@ const resolveCustomer = async ({ customerId, customer, phone }) => {
 
     return {
       customerId: null,
+
       customer: customerName,
+
       phone: String(phone || "").trim(),
     };
   }
@@ -373,7 +468,9 @@ const resolveCustomer = async ({ customerId, customer, phone }) => {
   try {
     customerRecord = await Customer.findOne({
       _id: customerId,
+
       isDeleted: false,
+
       isActive: true,
     });
   } catch (err) {
@@ -390,61 +487,86 @@ const resolveCustomer = async ({ customerId, customer, phone }) => {
 
   return {
     customerId: customerRecord._id,
+
     customer: customerRecord.name,
+
     phone: customerRecord.phone || "",
   };
 };
 
 // =====================================================
+
 // GET ALL SALES
+
 // =====================================================
 
 exports.getSales = async (req, res) => {
   try {
     const isSuperadmin = req.user?.role === "superadmin";
+
     let filter = {};
+
     if (!isSuperadmin) {
       const cutoff = new Date(Date.now() - ACCESS_WINDOW_MS);
+
       const grantedIds = await getGrantedSaleIds(req, "egg");
+
       filter = {
         isDeleted: false,
+
         $or: [{ createdAt: { $gte: cutoff } }, { _id: { $in: grantedIds } }],
       };
     }
+
     const sales = await EggSale.find(filter)
+
       .sort({ date: -1, createdAt: -1 })
+
       .populate("customerId", "name phone email address customerType isActive")
+
       .populate("deletedBy", "role name")
+
       .populate("soldBy", "role name");
+
     res.json(sales);
   } catch (err) {
     console.error("GET SALES ERROR:", err);
+
     res.status(500).json({ message: err.message });
   }
 };
 
 // =====================================================
+
 // GET SINGLE SALE
+
 // =====================================================
 
 exports.getSale = async (req, res) => {
   try {
     const sale = await EggSale.findById(req.params.id)
+
       .populate("customerId", "name phone email address customerType isActive")
+
       .populate("deletedBy", "role name")
+
       .populate("soldBy", "role name");
 
     if (!sale || (req.user?.role !== "superadmin" && sale.isDeleted)) {
       return res.status(404).json({ message: "Sale not found" });
     }
+
     if (!(await hasTemporarySaleAccess(req, "egg", sale))) {
       return res
+
         .status(403)
+
         .json({
           message:
             "This sale is older than 24 hours. Request temporary access from a superadmin.",
         });
     }
+
     res.json(sale);
   } catch (err) {
     console.error("GET SINGLE SALE ERROR:", err);
@@ -456,37 +578,55 @@ exports.getSale = async (req, res) => {
 };
 
 // =====================================================
+
 // CREATE SALE
+
 // =====================================================
 
 exports.createSale = async (req, res) => {
   try {
     const {
       customerId,
+
       customer,
+
       phone,
+
       date,
+
       lineItems,
+
       discount,
+
       transportCharge,
+
       amountPaid,
+
       paymentMethod,
+
       payments,
+
       remarks,
     } = req.body;
 
     // ---------------------------------------------------
+
     // CUSTOMER
+
     // ---------------------------------------------------
 
     const resolvedCustomer = await resolveCustomer({
       customerId,
+
       customer,
+
       phone,
     });
 
     // ---------------------------------------------------
+
     // DATE
+
     // ---------------------------------------------------
 
     const saleDate = date ? new Date(`${date}T12:00:00`) : new Date();
@@ -498,35 +638,47 @@ exports.createSale = async (req, res) => {
     }
 
     // ---------------------------------------------------
+
     // LINE ITEMS
+
     // ---------------------------------------------------
 
     const validatedLineItems = buildValidatedLineItems(lineItems);
 
     // ---------------------------------------------------
+
     // TOTAL
+
     // ---------------------------------------------------
 
     const totalAmount = calculateTotal(
       validatedLineItems,
+
       transportCharge,
+
       discount,
     );
 
     // ---------------------------------------------------
+
     // PAYMENTS
+
     // ---------------------------------------------------
 
     const resolvedPayments = resolvePayments({
       payments,
+
       amountPaid,
+
       paymentMethod,
     });
 
     const paymentSummary = calculatePayment(totalAmount, resolvedPayments);
 
     // ---------------------------------------------------
+
     // INVOICE
+
     // ---------------------------------------------------
 
     const year = saleDate.getFullYear();
@@ -563,10 +715,13 @@ exports.createSale = async (req, res) => {
           totalAmount,
 
           // IMPORTANT:
+
           // Store every individual payment row.
+
           payments: resolvedPayments,
 
           // Compatibility total.
+
           amountPaid: paymentSummary.amountPaid,
 
           balance: paymentSummary.balance,
@@ -594,6 +749,7 @@ exports.createSale = async (req, res) => {
 
     await sale.populate(
       "customerId",
+
       "name phone email address customerType isActive",
     );
 
@@ -610,7 +766,9 @@ exports.createSale = async (req, res) => {
 };
 
 // =====================================================
+
 // UPDATE SALE
+
 // =====================================================
 
 exports.updateSale = async (req, res) => {
@@ -620,9 +778,12 @@ exports.updateSale = async (req, res) => {
     if (!sale || (req.user?.role !== "superadmin" && sale.isDeleted)) {
       return res.status(404).json({ message: "Sale not found" });
     }
+
     if (!(await hasTemporarySaleAccess(req, "egg", sale))) {
       return res
+
         .status(403)
+
         .json({
           message:
             "This sale is older than 24 hours. Request temporary access from a superadmin.",
@@ -631,20 +792,32 @@ exports.updateSale = async (req, res) => {
 
     const {
       customerId,
+
       customer,
+
       phone,
+
       date,
+
       lineItems,
+
       discount,
+
       transportCharge,
+
       amountPaid,
+
       paymentMethod,
+
       payments,
+
       remarks,
     } = req.body;
 
     // ---------------------------------------------------
+
     // CUSTOMER
+
     // ---------------------------------------------------
 
     if (customerId !== undefined) {
@@ -658,12 +831,16 @@ exports.updateSale = async (req, res) => {
         }
 
         sale.customerId = null;
+
         sale.customer = manualName;
+
         sale.phone = String(phone || "").trim();
       } else {
         const resolvedCustomer = await resolveCustomer({
           customerId,
+
           customer,
+
           phone,
         });
 
@@ -692,7 +869,9 @@ exports.updateSale = async (req, res) => {
     }
 
     // ---------------------------------------------------
+
     // DATE
+
     // ---------------------------------------------------
 
     if (date !== undefined) {
@@ -708,7 +887,9 @@ exports.updateSale = async (req, res) => {
     }
 
     // ---------------------------------------------------
+
     // LINE ITEMS
+
     // ---------------------------------------------------
 
     if (lineItems !== undefined) {
@@ -716,7 +897,9 @@ exports.updateSale = async (req, res) => {
     }
 
     // ---------------------------------------------------
+
     // DISCOUNT
+
     // ---------------------------------------------------
 
     if (discount !== undefined) {
@@ -732,7 +915,9 @@ exports.updateSale = async (req, res) => {
     }
 
     // ---------------------------------------------------
+
     // TRANSPORT
+
     // ---------------------------------------------------
 
     if (transportCharge !== undefined) {
@@ -748,7 +933,9 @@ exports.updateSale = async (req, res) => {
     }
 
     // ---------------------------------------------------
+
     // RECALCULATE TOTAL
+
     // ---------------------------------------------------
 
     let itemsTotal = 0;
@@ -756,6 +943,7 @@ exports.updateSale = async (req, res) => {
     if (Array.isArray(sale.lineItems) && sale.lineItems.length > 0) {
       itemsTotal = sale.lineItems.reduce(
         (sum, item) => sum + Number(item.subtotal || 0),
+
         0,
       );
     } else {
@@ -764,29 +952,38 @@ exports.updateSale = async (req, res) => {
 
     sale.totalAmount = Math.max(
       0,
+
       itemsTotal +
         Number(sale.transportCharge || 0) -
         Number(sale.discount || 0),
     );
 
     // ===================================================
+
     // PAYMENT UPDATE
+
     // ===================================================
 
     if (Array.isArray(payments)) {
       // New segmented payment system.
+
       //
+
       // IMPORTANT:
+
       // Every row is preserved.
 
       const resolvedPayments = resolvePayments({
         payments,
+
         amountPaid,
+
         paymentMethod,
       });
 
       const paymentSummary = calculatePayment(
         sale.totalAmount,
+
         resolvedPayments,
       );
 
@@ -801,7 +998,9 @@ exports.updateSale = async (req, res) => {
       sale.status = paymentSummary.status;
     } else if (amountPaid !== undefined || paymentMethod !== undefined) {
       // -------------------------------------------------
+
       // LEGACY SINGLE PAYMENT UPDATE
+
       // -------------------------------------------------
 
       let updatedAmountPaid = Number(sale.amountPaid || 0);
@@ -840,7 +1039,9 @@ exports.updateSale = async (req, res) => {
           ? [
               {
                 method: updatedPaymentMethod,
+
                 amount: updatedAmountPaid,
+
                 paidAt: new Date(),
               },
             ]
@@ -859,9 +1060,13 @@ exports.updateSale = async (req, res) => {
       sale.status = paymentSummary.status;
     } else {
       // -------------------------------------------------
+
       // NO PAYMENT DATA SENT
+
       // -------------------------------------------------
+
       //
+
       // Preserve existing segmented payments.
 
       let existingPayments = [];
@@ -876,7 +1081,9 @@ exports.updateSale = async (req, res) => {
         existingPayments = [
           {
             method: legacyMethod,
+
             amount: Number(sale.amountPaid || 0),
+
             paidAt: sale.updatedAt || new Date(),
           },
         ];
@@ -884,6 +1091,7 @@ exports.updateSale = async (req, res) => {
 
       const paymentSummary = calculatePayment(
         sale.totalAmount,
+
         existingPayments,
       );
 
@@ -899,7 +1107,9 @@ exports.updateSale = async (req, res) => {
     }
 
     // ---------------------------------------------------
+
     // REMARKS
+
     // ---------------------------------------------------
 
     if (remarks !== undefined) {
@@ -912,6 +1122,7 @@ exports.updateSale = async (req, res) => {
 
     await sale.populate(
       "customerId",
+
       "name phone email address customerType isActive",
     );
 
@@ -928,22 +1139,28 @@ exports.updateSale = async (req, res) => {
 };
 
 // =====================================================
+
 // DELETE SALE
+
 // =====================================================
 
 exports.deleteSale = async (req, res) => {
   try {
     const sale = await EggSale.findOne({
       _id: req.params.id,
+
       isDeleted: false,
     });
 
     if (!sale) {
       return res.status(404).json({ message: "Sale not found" });
     }
+
     if (req.user?.role !== "superadmin" && !isWithinRecentWindow(sale)) {
       return res
+
         .status(403)
+
         .json({
           message:
             "Temporary access does not grant permission to delete older sales.",
@@ -951,7 +1168,9 @@ exports.deleteSale = async (req, res) => {
     }
 
     sale.isDeleted = true;
+
     sale.deletedAt = new Date();
+
     sale.deletedBy = req.user?.id || null;
 
     await sale.save({
@@ -971,7 +1190,9 @@ exports.deleteSale = async (req, res) => {
 };
 
 // =====================================================
+
 // GET DELETED SALES
+
 // =====================================================
 
 exports.getDeletedSales = async (req, res) => {
@@ -979,11 +1200,15 @@ exports.getDeletedSales = async (req, res) => {
     const sales = await EggSale.find({
       isDeleted: true,
     })
+
       .sort({
         deletedAt: -1,
       })
+
       .populate("customerId", "name phone email address customerType")
+
       .populate("deletedBy", "role name")
+
       .populate("soldBy", "role name");
 
     res.json(sales);
@@ -997,13 +1222,16 @@ exports.getDeletedSales = async (req, res) => {
 };
 
 // =====================================================
+
 // RESTORE SALE
+
 // =====================================================
 
 exports.restoreSale = async (req, res) => {
   try {
     const sale = await EggSale.findOne({
       _id: req.params.id,
+
       isDeleted: true,
     });
 
@@ -1014,7 +1242,9 @@ exports.restoreSale = async (req, res) => {
     }
 
     sale.isDeleted = false;
+
     sale.deletedAt = null;
+
     sale.deletedBy = null;
 
     await sale.save({
@@ -1023,6 +1253,7 @@ exports.restoreSale = async (req, res) => {
 
     await sale.populate(
       "customerId",
+
       "name phone email address customerType isActive",
     );
 
@@ -1039,7 +1270,9 @@ exports.restoreSale = async (req, res) => {
 };
 
 // =====================================================
+
 // GET SALES FOR CUSTOMER
+
 // =====================================================
 
 exports.getSalesByCustomer = async (req, res) => {
@@ -1051,6 +1284,7 @@ exports.getSalesByCustomer = async (req, res) => {
     try {
       customer = await Customer.findOne({
         _id: customerId,
+
         isDeleted: false,
       }).select("name phone email address customerType isActive");
     } catch (err) {
@@ -1070,35 +1304,46 @@ exports.getSalesByCustomer = async (req, res) => {
     }
 
     const customerSaleFilter = { customerId, isDeleted: false };
+
     if (req.user?.role !== "superadmin") {
       const cutoff = new Date(Date.now() - ACCESS_WINDOW_MS);
+
       const grantedIds = await getGrantedSaleIds(req, "egg");
+
       customerSaleFilter.$or = [
         { createdAt: { $gte: cutoff } },
+
         { _id: { $in: grantedIds } },
       ];
     }
+
     const sales = await EggSale.find(customerSaleFilter)
+
       .sort({
         date: -1,
+
         createdAt: -1,
       })
+
       .select(
         "invoiceNumber customer phone date lineItems totalAmount amountPaid balance status paymentMethod payments",
       );
 
     const totalPurchases = sales.reduce(
       (sum, sale) => sum + Number(sale.totalAmount || 0),
+
       0,
     );
 
     const totalPaid = sales.reduce(
       (sum, sale) => sum + Number(sale.amountPaid || 0),
+
       0,
     );
 
     const totalOutstanding = sales.reduce(
       (sum, sale) => sum + Number(sale.balance || 0),
+
       0,
     );
 
@@ -1106,6 +1351,7 @@ exports.getSalesByCustomer = async (req, res) => {
       const saleCrates = Array.isArray(sale.lineItems)
         ? sale.lineItems.reduce(
             (lineSum, item) => lineSum + Number(item.cratesSold || 0),
+
             0,
           )
         : 0;
@@ -1115,12 +1361,18 @@ exports.getSalesByCustomer = async (req, res) => {
 
     res.json({
       customer,
+
       sales,
+
       summary: {
         transactionCount: sales.length,
+
         totalPurchases,
+
         totalPaid,
+
         totalOutstanding,
+
         totalCrates,
       },
     });

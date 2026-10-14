@@ -179,6 +179,12 @@ const birdHealthSchema = new mongoose.Schema(
       ref: "Medication",
       default: null,
     },
+
+    vaccinationRecord: {
+      type: mongoose.Schema.Types.ObjectId,
+      ref: "Vaccination",
+      default: null,
+    },
     // Denormalized alongside the existing deletedBy ObjectId ref, matching
     // the pattern used in Feed/Vaccinations, so the frontend can show
     // "Deleted by X (role)" without waiting on a populate() call.

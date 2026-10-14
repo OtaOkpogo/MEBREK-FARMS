@@ -1,133 +1,149 @@
 const Mortality = require("../models/Mortality");
-const BirdHealth = require("../models/BirdHealth");
+const {
+  syncLinkedBirdHealth,
+  softDeleteLinkedBirdHealth,
+} = require("../services/healthSyncService");
 
-// ================= GET =================
+const buildHealthPayload = (record) => ({
+  date: record.date || new Date(),
+  pen: record.birdBatch,
+  healthIssue: record.cause,
+  category: "Mortality",
+  symptoms: `${record.numberDead} bird(s) died`,
+  diagnosis: record.cause,
+  actionTaken: "Mortality recorded",
+  birdsAffected: record.numberDead || 0,
+  severity: "Critical",
+  status: "Dead",
+  remarks: record.notes || "",
+});
 
 exports.getMortality = async (req, res) => {
   try {
-    const records = await Mortality.find().sort({
-      createdAt: -1,
-    });
+    const records = await Mortality.find()
+      .sort({ createdAt: -1 })
+      .populate("productionRecord", "date pen mortality")
+      .populate("birdHealthRecord");
 
     res.json(records);
   } catch (err) {
     console.error("GET MORTALITY ERROR:", err);
-
-    res.status(500).json({
-      error: err.message,
-    });
+    res.status(500).json({ error: err.message });
   }
 };
 
-// ================= CREATE =================
-
 exports.createMortality = async (req, res) => {
   try {
-    console.log("Incoming Mortality Data:", req.body);
+    const record = await Mortality.create(req.body);
 
-    const record = new Mortality(req.body);
-
-    await record.save();
-
-    // Auto-log this mortality event as a Bird Health record so both
-    // modules share one health timeline without duplicate manual entry.
-    // Isolated in its own try/catch — if this fails, the mortality
-    // record itself still saves and the person still gets a 201.
     try {
-      const birdHealthRecord = await BirdHealth.create({
-        date: record.date || new Date(),
-
-        pen: record.birdBatch,
-
-        healthIssue: record.cause,
-
-        category: "Mortality",
-
-        symptoms: `${record.numberDead} bird(s) died`,
-
-        diagnosis: record.cause,
-
-        actionTaken: "Mortality recorded",
-
-        birdsAffected: record.numberDead || 0,
-
-        severity: "Critical",
-
-        status: "Dead",
-
-        remarks: record.notes || "",
-
-        mortalityRecord: record._id,
-
-        recordedBy: req.user.id,
+      await syncLinkedBirdHealth({
+        sourceRecord: record,
+        sourceLinkField: "birdHealthRecord",
+        healthLinkField: "mortalityRecord",
+        payload: buildHealthPayload(record),
+        req,
       });
-
-      const io = req.app.get("io");
-      if (io) {
-        io.emit("birdHealthCreated", birdHealthRecord);
-      }
-    } catch (birdHealthErr) {
-      console.error(
-        "Auto Bird Health Record (Mortality) Error:",
-        birdHealthErr,
-      );
+    } catch (syncError) {
+      console.error("Mortality → Bird Health sync error:", syncError);
     }
 
     res.status(201).json(record);
   } catch (err) {
     console.error("CREATE MORTALITY ERROR:", err);
-
-    res.status(500).json({
-      error: err.message,
-    });
+    res.status(500).json({ error: err.message });
   }
 };
 
-// ================= UPDATE =================
-
 exports.updateMortality = async (req, res) => {
   try {
-    const record = await Mortality.findByIdAndUpdate(req.params.id, req.body, {
-      new: true,
-      runValidators: true,
-    });
+    const record = await Mortality.findById(req.params.id);
 
     if (!record) {
       return res.status(404).json({
         message: "Mortality record not found",
       });
+    }
+
+    // Production-generated mortality must be edited in Production.
+    // That keeps the stock calculation and mortality entry consistent.
+    if (record.productionRecord) {
+      return res.status(409).json({
+        message:
+          "This mortality entry was generated from Production. Edit the production record instead.",
+      });
+    }
+
+    const allowedFields = [
+      "birdBatch",
+      "numberDead",
+      "cause",
+      "estimatedLoss",
+      "notes",
+      "date",
+    ];
+
+    for (const field of allowedFields) {
+      if (req.body[field] !== undefined) {
+        record[field] = req.body[field];
+      }
+    }
+
+    await record.save();
+
+    try {
+      await syncLinkedBirdHealth({
+        sourceRecord: record,
+        sourceLinkField: "birdHealthRecord",
+        healthLinkField: "mortalityRecord",
+        payload: buildHealthPayload(record),
+        req,
+      });
+    } catch (syncError) {
+      console.error("Mortality update sync error:", syncError);
     }
 
     res.json(record);
   } catch (err) {
     console.error("UPDATE MORTALITY ERROR:", err);
-
-    res.status(500).json({
-      error: err.message,
-    });
+    res.status(500).json({ error: err.message });
   }
 };
 
-// ================= DELETE =================
-
 exports.deleteMortality = async (req, res) => {
   try {
-    const record = await Mortality.findByIdAndDelete(req.params.id);
+    const record = await Mortality.findById(req.params.id);
 
     if (!record) {
       return res.status(404).json({
         message: "Mortality record not found",
       });
     }
+
+    if (record.productionRecord) {
+      return res.status(409).json({
+        message:
+          "This mortality entry was generated from Production. Delete the production record instead.",
+      });
+    }
+
+    try {
+      await softDeleteLinkedBirdHealth({
+        sourceRecord: record,
+        sourceLinkField: "birdHealthRecord",
+        req,
+      });
+    } catch (syncError) {
+      console.error("Mortality deletion sync error:", syncError);
+    }
+
+    await Mortality.findByIdAndDelete(record._id);
 
     res.json({
       message: "Mortality record deleted successfully",
     });
   } catch (err) {
     console.error("DELETE MORTALITY ERROR:", err);
-
-    res.status(500).json({
-      error: err.message,
-    });
+    res.status(500).json({ error: err.message });
   }
 };

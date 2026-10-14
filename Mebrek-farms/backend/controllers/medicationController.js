@@ -1,21 +1,40 @@
 const Medication = require("../models/Medication");
-const BirdHealth = require("../models/BirdHealth");
+const {
+  syncLinkedBirdHealth,
+  softDeleteLinkedBirdHealth,
+  restoreLinkedBirdHealth,
+} = require("../services/healthSyncService");
 
-// @desc   Get medication records. Superadmin sees deleted records inline
-//         (with who deleted them); everyone else only sees active records.
-// @route  GET /api/medications
+const buildHealthPayload = (medication) => {
+  const actionTaken = [medication.purpose, medication.dosage]
+    .filter(Boolean)
+    .join(" — ");
+
+  return {
+    date: medication.dateAdministered || new Date(),
+    pen: medication.administeredTo,
+    healthIssue: medication.medicationName,
+    category: "Medication",
+    symptoms: "Medication administered",
+    diagnosis: medication.purpose || "Treatment",
+    medicationUsed: medication.medicationName,
+    actionTaken: actionTaken || "Medication administered",
+    birdsAffected: 1,
+    severity: "Low",
+    status: "Recovering",
+    remarks: medication.purpose || "",
+  };
+};
+
 exports.getMedications = async (req, res) => {
   try {
-    const isSuperadmin = req.user?.role === "superadmin";
-
-    // Superadmin: no filter, so deleted records are included.
-    // Everyone else: only active records, exactly as before.
-    const filter = isSuperadmin ? {} : { isDeleted: false };
+    const filter = req.user?.role === "superadmin" ? {} : { isDeleted: false };
 
     const medications = await Medication.find(filter)
       .sort({ dateAdministered: -1 })
       .populate("administeredBy", "name email")
-      .populate("deletedBy", "role name");
+      .populate("deletedBy", "role name")
+      .populate("birdHealthRecord");
 
     res.json(medications);
   } catch (err) {
@@ -24,8 +43,6 @@ exports.getMedications = async (req, res) => {
   }
 };
 
-// @desc   Create a medication record
-// @route  POST /api/medications
 exports.createMedication = async (req, res) => {
   try {
     const {
@@ -37,7 +54,9 @@ exports.createMedication = async (req, res) => {
     } = req.body;
 
     if (!medicationName || !medicationName.trim()) {
-      return res.status(400).json({ message: "Medication name is required" });
+      return res.status(400).json({
+        message: "Medication name is required",
+      });
     }
 
     const medication = await Medication.create({
@@ -49,50 +68,16 @@ exports.createMedication = async (req, res) => {
       administeredBy: req.user?.id,
     });
 
-    // Auto-log this medication as a Bird Health record so both modules
-    // share one health timeline without duplicate manual entry. Isolated
-    // in its own try/catch — if this fails, the medication record itself
-    // still saves and the person still gets a 201.
     try {
-      const actionTaken = [purpose, dosage].filter(Boolean).join(" — ");
-
-      const birdHealthRecord = await BirdHealth.create({
-        date: medication.dateAdministered || new Date(),
-
-        pen: medication.administeredTo,
-
-        healthIssue: medication.medicationName,
-
-        category: "Medication",
-
-        symptoms: "Medication administered",
-
-        diagnosis: purpose || "Treatment",
-
-        medicationUsed: medication.medicationName,
-
-        actionTaken: actionTaken || "Medication administered",
-
-        birdsAffected: 1,
-
-        severity: "Low",
-
-        status: "Recovering",
-
-        remarks: purpose || "",
-
-        recordedBy: req.user.id,
+      await syncLinkedBirdHealth({
+        sourceRecord: medication,
+        sourceLinkField: "birdHealthRecord",
+        healthLinkField: "medicationRecord",
+        payload: buildHealthPayload(medication),
+        req,
       });
-
-      const io = req.app.get("io");
-      if (io) {
-        io.emit("birdHealthCreated", birdHealthRecord);
-      }
-    } catch (birdHealthErr) {
-      console.error(
-        "Auto Bird Health Record (Medication) Error:",
-        birdHealthErr,
-      );
+    } catch (syncError) {
+      console.error("Medication → Bird Health sync error:", syncError);
     }
 
     res.status(201).json(medication);
@@ -102,8 +87,6 @@ exports.createMedication = async (req, res) => {
   }
 };
 
-// @desc   Update a medication record
-// @route  PUT /api/medications/:id
 exports.updateMedication = async (req, res) => {
   try {
     const medication = await Medication.findOne({
@@ -112,27 +95,44 @@ exports.updateMedication = async (req, res) => {
     });
 
     if (!medication) {
-      return res.status(404).json({ message: "Medication record not found" });
+      return res.status(404).json({
+        message: "Medication record not found",
+      });
     }
 
-    const {
-      medicationName,
-      dosage,
-      purpose,
-      administeredTo,
-      dateAdministered,
-    } = req.body;
+    const fields = [
+      "medicationName",
+      "dosage",
+      "purpose",
+      "administeredTo",
+      "dateAdministered",
+    ];
 
-    if (medicationName !== undefined)
-      medication.medicationName = medicationName;
-    if (dosage !== undefined) medication.dosage = dosage;
-    if (purpose !== undefined) medication.purpose = purpose;
-    if (administeredTo !== undefined)
-      medication.administeredTo = administeredTo;
-    if (dateAdministered !== undefined)
-      medication.dateAdministered = dateAdministered;
+    for (const field of fields) {
+      if (req.body[field] !== undefined) {
+        medication[field] = req.body[field];
+      }
+    }
+
+    if (!medication.medicationName?.trim()) {
+      return res.status(400).json({
+        message: "Medication name is required",
+      });
+    }
 
     await medication.save();
+
+    try {
+      await syncLinkedBirdHealth({
+        sourceRecord: medication,
+        sourceLinkField: "birdHealthRecord",
+        healthLinkField: "medicationRecord",
+        payload: buildHealthPayload(medication),
+        req,
+      });
+    } catch (syncError) {
+      console.error("Medication → Bird Health sync error:", syncError);
+    }
 
     res.json(medication);
   } catch (err) {
@@ -141,8 +141,6 @@ exports.updateMedication = async (req, res) => {
   }
 };
 
-// @desc   Soft delete a medication record
-// @route  DELETE /api/medications/:id
 exports.deleteMedication = async (req, res) => {
   try {
     const medication = await Medication.findOne({
@@ -151,14 +149,26 @@ exports.deleteMedication = async (req, res) => {
     });
 
     if (!medication) {
-      return res.status(404).json({ message: "Medication record not found" });
+      return res.status(404).json({
+        message: "Medication record not found",
+      });
     }
 
     medication.isDeleted = true;
     medication.deletedAt = new Date();
-    medication.deletedBy = req.user?.id;
+    medication.deletedBy = req.user?.id || null;
 
-    await medication.save();
+    await medication.save({ validateModifiedOnly: true });
+
+    try {
+      await softDeleteLinkedBirdHealth({
+        sourceRecord: medication,
+        sourceLinkField: "birdHealthRecord",
+        req,
+      });
+    } catch (syncError) {
+      console.error("Medication deletion sync error:", syncError);
+    }
 
     res.json({ message: "Medication record deleted" });
   } catch (err) {
@@ -167,14 +177,13 @@ exports.deleteMedication = async (req, res) => {
   }
 };
 
-// @desc   Get soft-deleted medication records (superadmin only — gated in route)
-// @route  GET /api/medications/deleted
 exports.getDeletedMedications = async (req, res) => {
   try {
     const medications = await Medication.find({ isDeleted: true })
       .sort({ deletedAt: -1 })
       .populate("administeredBy", "name email")
-      .populate("deletedBy", "name email");
+      .populate("deletedBy", "name email")
+      .populate("birdHealthRecord");
 
     res.json(medications);
   } catch (err) {
@@ -183,8 +192,6 @@ exports.getDeletedMedications = async (req, res) => {
   }
 };
 
-// @desc   Restore a soft-deleted medication record (superadmin only — gated in route)
-// @route  PUT /api/medications/:id/restore
 exports.restoreMedication = async (req, res) => {
   try {
     const medication = await Medication.findOne({
@@ -193,16 +200,26 @@ exports.restoreMedication = async (req, res) => {
     });
 
     if (!medication) {
-      return res
-        .status(404)
-        .json({ message: "Deleted medication record not found" });
+      return res.status(404).json({
+        message: "Deleted medication record not found",
+      });
     }
 
     medication.isDeleted = false;
     medication.deletedAt = null;
     medication.deletedBy = null;
 
-    await medication.save();
+    await medication.save({ validateModifiedOnly: true });
+
+    try {
+      await restoreLinkedBirdHealth({
+        sourceRecord: medication,
+        sourceLinkField: "birdHealthRecord",
+        req,
+      });
+    } catch (syncError) {
+      console.error("Medication restore sync error:", syncError);
+    }
 
     res.json(medication);
   } catch (err) {

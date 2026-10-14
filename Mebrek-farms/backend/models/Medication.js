@@ -30,6 +30,11 @@ const medicationSchema = new mongoose.Schema(
       type: mongoose.Schema.Types.ObjectId,
       ref: "Admin",
     },
+    birdHealthRecord: {
+      type: mongoose.Schema.Types.ObjectId,
+      ref: "BirdHealth",
+      default: null,
+    },
 
     // ---- Soft delete, matching the Warehouse module pattern ----
     isDeleted: {

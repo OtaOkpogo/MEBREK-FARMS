@@ -7,9 +7,21 @@ const mortalitySchema = new mongoose.Schema(
       required: true,
     },
 
+    productionRecord: {
+      type: mongoose.Schema.Types.ObjectId,
+      ref: "Production",
+      default: null,
+    },
+
     numberDead: {
       type: Number,
       required: true,
+    },
+
+    birdHealthRecord: {
+      type: mongoose.Schema.Types.ObjectId,
+      ref: "BirdHealth",
+      default: null,
     },
 
     cause: {
@@ -37,4 +49,13 @@ const mortalitySchema = new mongoose.Schema(
   },
 );
 
+mortalitySchema.index(
+  { productionRecord: 1 },
+  {
+    unique: true,
+    partialFilterExpression: {
+      productionRecord: { $type: "objectId" },
+    },
+  },
+);
 module.exports = mongoose.model("Mortality", mortalitySchema);
