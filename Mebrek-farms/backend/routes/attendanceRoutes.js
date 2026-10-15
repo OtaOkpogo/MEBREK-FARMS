@@ -1,10 +1,11 @@
 const express = require("express");
-
 const router = express.Router();
 
 const {
   getAttendance,
+  getAttendanceWorkers,
   createAttendance,
+  updateAttendance,
   deleteAttendance,
   getDeletedAttendance,
   restoreAttendance,
@@ -15,18 +16,20 @@ const {
   allowRoles,
 } = require("../middleware/authMiddleware");
 
-// GET ALL — all roles
-
+// All authenticated roles can view active attendance.
+// Superadmin sees deleted records inline too.
 router.get("/", authMiddleware, getAttendance);
 
-// CREATE — all roles
+// Registered active workers for attendance entry.
+router.get("/workers", authMiddleware, getAttendanceWorkers);
 
+// All authenticated roles can record attendance.
 router.post("/", authMiddleware, createAttendance);
 
-// DELETE (soft delete) — manager + superadmin only, matching
-// Attendance.jsx's canDelete check. Previously had no role
-// restriction at all.
+// All authenticated roles can update attendance/check-out.
+router.put("/:id", authMiddleware, updateAttendance);
 
+// Manager and superadmin can soft-delete.
 router.delete(
   "/:id",
   authMiddleware,
@@ -34,8 +37,7 @@ router.delete(
   deleteAttendance,
 );
 
-// Superadmin-only: view and restore deleted records
-
+// Superadmin-only deleted-record access.
 router.get(
   "/deleted",
   authMiddleware,
