@@ -42,6 +42,7 @@ const searchRoutes = require("./routes/search");
 const reportRoutes = require("./routes/reportRoutes");
 const customerRoutes = require("./routes/customerRoutes");
 const saleAccessRequestRoutes = require("./routes/saleAccessRequestRoutes");
+const faceAttendanceRoutes = require("./routes/faceAttendanceRoutes");
 
 // ==============================
 // ENVIRONMENT VARIABLES
@@ -254,7 +255,7 @@ app.use("/api/search", searchRoutes);
 app.use("/api/customers", customerRoutes);
 app.use("/api/reports", require("./routes/reportRoutes"));
 app.use("/api/backup", require("./routes/backup"));
-
+app.use("/api/face-attendance", faceAttendanceRoutes);
 // ==============================
 // API 404 HANDLER
 // ==============================

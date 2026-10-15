@@ -33,7 +33,6 @@ const flockSchema = new mongoose.Schema(
         values: PENS,
         message: "Invalid pen selected",
       },
-      index: true,
     },
 
     placementDate: {

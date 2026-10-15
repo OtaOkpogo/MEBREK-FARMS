@@ -1,4 +1,3 @@
-
 const crypto = require("crypto");
 const mongoose = require("mongoose");
 
@@ -19,11 +18,7 @@ function getEncryptionKey() {
     );
   }
 
-  return crypto.scryptSync(
-    secret,
-    "MebrekFarmsFaceTemplate:v1",
-    32,
-  );
+  return crypto.scryptSync(secret, "MebrekFarmsFaceTemplate:v1", 32);
 }
 
 function validateDescriptor(value) {
@@ -42,11 +37,7 @@ function validateDescriptor(value) {
 
 function encryptDescriptor(descriptor) {
   const iv = crypto.randomBytes(12);
-  const cipher = crypto.createCipheriv(
-    "aes-256-gcm",
-    getEncryptionKey(),
-    iv,
-  );
+  const cipher = crypto.createCipheriv("aes-256-gcm", getEncryptionKey(), iv);
 
   const encrypted = Buffer.concat([
     cipher.update(JSON.stringify(descriptor), "utf8"),
@@ -70,9 +61,7 @@ function decryptDescriptor(template) {
   decipher.setAuthTag(Buffer.from(template.authTag, "base64"));
 
   const decrypted = Buffer.concat([
-    decipher.update(
-      Buffer.from(template.encryptedDescriptor, "base64"),
-    ),
+    decipher.update(Buffer.from(template.encryptedDescriptor, "base64")),
     decipher.final(),
   ]).toString("utf8");
 
@@ -121,10 +110,7 @@ function isLate(checkInTime, scheduledStartTime) {
   const actual = checkInTime.split(":").map(Number);
   const scheduled = scheduledStartTime.split(":").map(Number);
 
-  return (
-    actual[0] * 60 + actual[1] >
-    scheduled[0] * 60 + scheduled[1]
-  );
+  return actual[0] * 60 + actual[1] > scheduled[0] * 60 + scheduled[1];
 }
 
 function calculateWorkingHours(checkInTime, checkOutTime) {
@@ -133,8 +119,7 @@ function calculateWorkingHours(checkInTime, checkOutTime) {
   const [inHours, inMinutes] = checkInTime.split(":").map(Number);
   const [outHours, outMinutes] = checkOutTime.split(":").map(Number);
 
-  let minutes =
-    outHours * 60 + outMinutes - (inHours * 60 + inMinutes);
+  let minutes = outHours * 60 + outMinutes - (inHours * 60 + inMinutes);
 
   if (minutes < 0) minutes += 24 * 60;
 
@@ -257,8 +242,14 @@ exports.removeFace = async (req, res) => {
 // Authenticated attendance users.
 exports.recognizeFace = async (req, res) => {
   try {
-    const { descriptor } = req.body;
+    const { descriptor, action: requestedAction } = req.body;
 
+    if (!["check-in", "check-out"].includes(requestedAction)) {
+      return res.status(400).json({
+        success: false,
+        message: "Select check-in or check-out before scanning.",
+      });
+    }
     if (!validateDescriptor(descriptor)) {
       return res.status(400).json({
         success: false,
@@ -277,19 +268,13 @@ exports.recognizeFace = async (req, res) => {
     const matches = [];
 
     for (const template of templates) {
-      if (
-        !template.workerId ||
-        template.workerId.status !== "Active"
-      ) {
+      if (!template.workerId || template.workerId.status !== "Active") {
         continue;
       }
 
       try {
         const savedDescriptor = decryptDescriptor(template);
-        const distance = euclideanDistance(
-          descriptor,
-          savedDescriptor,
-        );
+        const distance = euclideanDistance(descriptor, savedDescriptor);
 
         matches.push({
           worker: template.workerId,
@@ -297,10 +282,7 @@ exports.recognizeFace = async (req, res) => {
         });
       } catch (error) {
         // Skip unreadable templates; never treat them as a match.
-        console.error(
-          "Unable to read a face template:",
-          template._id,
-        );
+        console.error("Unable to read a face template:", template._id);
       }
     }
 
@@ -312,12 +294,12 @@ exports.recognizeFace = async (req, res) => {
     if (
       !best ||
       best.distance > MATCH_THRESHOLD ||
-      (secondBest &&
-        secondBest.distance - best.distance < MIN_MATCH_MARGIN)
+      (secondBest && secondBest.distance - best.distance < MIN_MATCH_MARGIN)
     ) {
       return res.status(404).json({
         success: false,
-        message: "Face not recognized. Please try again or use manual attendance.",
+        message:
+          "Face not recognized. Please try again or use manual attendance.",
       });
     }
 
@@ -337,44 +319,64 @@ exports.recognizeFace = async (req, res) => {
       });
     }
 
-    let action;
+    let action = requestedAction;
 
-    if (!attendance) {
-      const scheduledStartTime = worker.startTime || "08:00";
-      const late = isLate(time, scheduledStartTime);
+    if (requestedAction === "check-in") {
+      if (attendance?.checkInTime) {
+        return res.status(409).json({
+          success: false,
+          message: "This worker has already checked in today.",
+        });
+      }
 
-      attendance = await Attendance.create({
-        workerId: worker._id,
-        workerName: `${worker.firstName} ${worker.lastName}`.trim(),
-        role: worker.role,
-        attendanceDate: date,
-        status: late ? "Late" : "Present",
-        checkInTime: time,
-        checkOutTime: "",
-        scheduledStartTime,
-        scheduledEndTime: worker.endTime || "",
-        isLate: late,
-        workingHours: 0,
-        remarks: "Recorded through face recognition",
-      });
+      if (!attendance) {
+        const scheduledStartTime = worker.startTime || "08:00";
+        const late = isLate(time, scheduledStartTime);
 
-      action = "check-in";
-    } else if (!attendance.checkInTime) {
-      const scheduledStartTime =
-        attendance.scheduledStartTime || worker.startTime || "08:00";
+        attendance = await Attendance.create({
+          workerId: worker._id,
+          workerName: `${worker.firstName} ${worker.lastName}`.trim(),
+          role: worker.role,
+          attendanceDate: date,
+          status: late ? "Late" : "Present",
+          checkInTime: time,
+          checkOutTime: "",
+          scheduledStartTime,
+          scheduledEndTime: worker.endTime || "",
+          isLate: late,
+          workingHours: 0,
+          remarks: "Recorded through face recognition",
+        });
+      } else {
+        const scheduledStartTime =
+          attendance.scheduledStartTime || worker.startTime || "08:00";
 
-      attendance.checkInTime = time;
-      attendance.scheduledStartTime = scheduledStartTime;
-      attendance.scheduledEndTime =
-        attendance.scheduledEndTime || worker.endTime || "";
-      attendance.isLate = isLate(time, scheduledStartTime);
-      attendance.status = attendance.isLate ? "Late" : "Present";
-      attendance.remarks =
-        attendance.remarks || "Recorded through face recognition";
+        attendance.checkInTime = time;
+        attendance.scheduledStartTime = scheduledStartTime;
+        attendance.scheduledEndTime =
+          attendance.scheduledEndTime || worker.endTime || "";
+        attendance.isLate = isLate(time, scheduledStartTime);
+        attendance.status = attendance.isLate ? "Late" : "Present";
+        attendance.remarks =
+          attendance.remarks || "Recorded through face recognition";
 
-      await attendance.save();
-      action = "check-in";
-    } else if (!attendance.checkOutTime) {
+        await attendance.save();
+      }
+    } else {
+      if (!attendance?.checkInTime) {
+        return res.status(409).json({
+          success: false,
+          message: "This worker must check in before checking out.",
+        });
+      }
+
+      if (attendance.checkOutTime) {
+        return res.status(409).json({
+          success: false,
+          message: "This worker has already checked out today.",
+        });
+      }
+
       attendance.checkOutTime = time;
       attendance.workingHours = calculateWorkingHours(
         attendance.checkInTime,
@@ -382,14 +384,7 @@ exports.recognizeFace = async (req, res) => {
       );
 
       await attendance.save();
-      action = "check-out";
-    } else {
-      return res.status(409).json({
-        success: false,
-        message: "This worker has already checked in and out today.",
-      });
     }
-
     return res.json({
       success: true,
       message: `Face matched. ${action === "check-in" ? "Check-in" : "Check-out"} recorded.`,
@@ -418,4 +413,3 @@ exports.recognizeFace = async (req, res) => {
     });
   }
 };
-
