@@ -1,4 +1,5 @@
 import { useEffect, useState } from "react";
+
 import {
   fetchWorkers,
   createWorker,
@@ -13,7 +14,6 @@ const initialFormData = {
   // WORKER IDENTIFICATION
   // ============================================================
   employeeId: "",
-
   // ============================================================
   // PERSONAL INFORMATION
   // ============================================================
@@ -22,7 +22,6 @@ const initialFormData = {
   dateOfBirth: "",
   gender: "",
   maritalStatus: "",
-
   // ============================================================
   // CONTACT INFORMATION
   // ============================================================
@@ -33,7 +32,6 @@ const initialFormData = {
   city: "",
   state: "",
   country: "Nigeria",
-
   // ============================================================
   // IDENTIFICATION DETAILS
   // ============================================================
@@ -41,7 +39,6 @@ const initialFormData = {
   idNumber: "",
   idIssueDate: "",
   idExpiryDate: "",
-
   // ============================================================
   // EMPLOYMENT DETAILS
   // ============================================================
@@ -55,13 +52,11 @@ const initialFormData = {
   workShift: "",
   startTime: "",
   endTime: "",
-
   // ============================================================
   // SALARY / PAYMENT
   // ============================================================
   salary: "",
   paymentFrequency: "Monthly",
-
   // ============================================================
   // NEXT OF KIN / EMERGENCY CONTACT
   // ============================================================
@@ -71,7 +66,6 @@ const initialFormData = {
   nextOfKinAlternativePhone: "",
   nextOfKinAddress: "",
   nextOfKinOccupation: "",
-
   // ============================================================
   // WORK EXPERIENCE / SKILLS
   // ============================================================
@@ -79,7 +73,6 @@ const initialFormData = {
   previousPosition: "",
   previousDuties: "",
   skillsExperience: "",
-
   // ============================================================
   // BANK / PAYMENT INFORMATION
   // ============================================================
@@ -87,7 +80,6 @@ const initialFormData = {
   accountName: "",
   accountNumber: "",
   bvn: "",
-
   // ============================================================
   // HEALTH / SAFETY
   // ============================================================
@@ -95,12 +87,10 @@ const initialFormData = {
   allergies: "",
   medicalNotes: "",
   bloodGroup: "",
-
   // ============================================================
   // PPE / SAFETY EQUIPMENT
   // ============================================================
   ppeIssued: [],
-
   // ============================================================
   // DOCUMENTS
   // ============================================================
@@ -108,7 +98,6 @@ const initialFormData = {
   idDocument: "",
   employmentAgreement: "",
   otherDocuments: "",
-
   // ============================================================
   // ADMINISTRATIVE
   // ============================================================
@@ -120,22 +109,29 @@ export default function Workers() {
 
   const [stats, setStats] = useState({
     totalWorkers: 0,
+
     totalSalary: 0,
+
     avgSalary: 0,
+
     recentWorkers: [],
   });
 
   const [editingId, setEditingId] = useState(null);
+
   const [loading, setLoading] = useState(false);
 
   const [formData, setFormData] = useState(initialFormData);
 
   // ============================================================
+
   // LOAD DATA
+
   // ============================================================
 
   useEffect(() => {
     loadWorkers();
+
     loadStats();
   }, []);
 
@@ -154,11 +150,17 @@ export default function Workers() {
       const response = await apiClient.get("/workers/stats");
 
       /*
+
        * Supports both:
+
        *
+
        * apiClient returning response.data
+
        *
+
        * and Axios-style response.data.
+
        */
 
       const data =
@@ -181,7 +183,9 @@ export default function Workers() {
   };
 
   // ============================================================
+
   // HANDLE INPUT CHANGES
+
   // ============================================================
 
   const handleChange = (e) => {
@@ -189,12 +193,15 @@ export default function Workers() {
 
     setFormData((previous) => ({
       ...previous,
+
       [name]: value,
     }));
   };
 
   // ============================================================
+
   // HANDLE PPE CHECKBOXES
+
   // ============================================================
 
   const handlePPEChange = (item) => {
@@ -214,7 +221,9 @@ export default function Workers() {
   };
 
   // ============================================================
+
   // RESET FORM
+
   // ============================================================
 
   const resetForm = () => {
@@ -226,7 +235,9 @@ export default function Workers() {
   };
 
   // ============================================================
+
   // SUBMIT FORM
+
   // ============================================================
 
   const handleSubmit = async (e) => {
@@ -239,8 +250,11 @@ export default function Workers() {
         ...formData,
 
         /*
+
          * Convert salary to a number before
+
          * sending to backend.
+
          */
 
         salary: formData.salary === "" ? 0 : Number(formData.salary),
@@ -255,6 +269,7 @@ export default function Workers() {
       resetForm();
 
       await loadWorkers();
+
       await loadStats();
     } catch (err) {
       console.error("Failed to save worker:", err);
@@ -266,7 +281,9 @@ export default function Workers() {
   };
 
   // ============================================================
+
   // EDIT WORKER
+
   // ============================================================
 
   const handleEdit = (worker) => {
@@ -323,7 +340,10 @@ export default function Workers() {
 
       status: worker.status || "Active",
 
-      hireDate: worker.hireDate ? worker.hireDate.substring(0, 10) : "",
+      hireDate:
+        worker.hireDate || worker.dateHired
+          ? String(worker.hireDate || worker.dateHired).substring(0, 10)
+          : "",
 
       assignedFarmArea: worker.assignedFarmArea || "",
 
@@ -390,12 +410,15 @@ export default function Workers() {
 
     window.scrollTo({
       top: 0,
+
       behavior: "smooth",
     });
   };
 
   // ============================================================
+
   // DELETE WORKER
+
   // ============================================================
 
   const handleDelete = async (id) => {
@@ -407,6 +430,7 @@ export default function Workers() {
       await deleteWorker(id);
 
       await loadWorkers();
+
       await loadStats();
     } catch (err) {
       console.error("Failed to delete worker:", err);
@@ -416,7 +440,9 @@ export default function Workers() {
   };
 
   // ============================================================
+
   // FORMAT DATE
+
   // ============================================================
 
   const formatDate = (date) => {
@@ -427,14 +453,91 @@ export default function Workers() {
     return new Date(date).toLocaleDateString();
   };
 
+  // Calculate employment duration from the hire date to today.
+  // This is derived for display only and is not stored in the database.
+  const formatEmploymentDuration = (hireDate) => {
+    if (!hireDate) {
+      return "Hire date not set";
+    }
+
+    // Parse YYYY-MM-DD as a local calendar date to avoid timezone shifts.
+    const dateText = String(hireDate).substring(0, 10);
+    const parts = dateText.split("-").map(Number);
+
+    if (
+      parts.length !== 3 ||
+      parts.some((part) => !Number.isFinite(part)) ||
+      parts[0] < 1 ||
+      parts[1] < 1 ||
+      parts[1] > 12 ||
+      parts[2] < 1 ||
+      parts[2] > 31
+    ) {
+      return "Invalid hire date";
+    }
+
+    const start = new Date(parts[0], parts[1] - 1, parts[2]);
+    const today = new Date();
+    today.setHours(0, 0, 0, 0);
+
+    // Reject invalid calendar dates such as 31 February.
+    if (
+      start.getFullYear() !== parts[0] ||
+      start.getMonth() !== parts[1] - 1 ||
+      start.getDate() !== parts[2]
+    ) {
+      return "Invalid hire date";
+    }
+
+    start.setHours(0, 0, 0, 0);
+
+    if (start > today) {
+      return "Not started";
+    }
+
+    let years = today.getFullYear() - start.getFullYear();
+    let months = today.getMonth() - start.getMonth();
+    let days = today.getDate() - start.getDate();
+
+    if (days < 0) {
+      months -= 1;
+      // The number of days in the previous month relative to today.
+      const daysInPreviousMonth = new Date(
+        today.getFullYear(),
+        today.getMonth(),
+        0,
+      ).getDate();
+      days += daysInPreviousMonth;
+    }
+
+    if (months < 0) {
+      years -= 1;
+      months += 12;
+    }
+
+    const partsOut = [];
+    if (years > 0) partsOut.push(`${years} ${years === 1 ? "year" : "years"}`);
+    if (months > 0)
+      partsOut.push(`${months} ${months === 1 ? "month" : "months"}`);
+    if (days > 0 || partsOut.length === 0) {
+      partsOut.push(`${days} ${days === 1 ? "day" : "days"}`);
+    }
+
+    return partsOut.join(", ");
+  };
+
   // ============================================================
+
   // RENDER
+
   // ============================================================
 
   return (
     <div className="p-6">
       {/* ======================================================
+
           PAGE HEADER
+
       ====================================================== */}
 
       <div className="flex flex-col md:flex-row md:items-center md:justify-between gap-4 mb-6">
@@ -458,7 +561,9 @@ export default function Workers() {
       </div>
 
       {/* ======================================================
+
           ANALYTICS CARDS
+
       ====================================================== */}
 
       <div className="grid md:grid-cols-3 gap-4 mb-8">
@@ -486,7 +591,9 @@ export default function Workers() {
       </div>
 
       {/* ======================================================
+
           WORKER FORM
+
       ====================================================== */}
 
       <div className="bg-white shadow rounded-xl p-6 mb-8">
@@ -502,7 +609,9 @@ export default function Workers() {
 
         <form onSubmit={handleSubmit} className="space-y-8">
           {/* ==================================================
+
               1. PERSONAL INFORMATION
+
           ================================================== */}
 
           <section>
@@ -558,8 +667,11 @@ export default function Workers() {
                 className="border p-3 rounded"
               >
                 <option value="">Select Gender</option>
+
                 <option value="Male">Male</option>
+
                 <option value="Female">Female</option>
+
                 <option value="Other">Other</option>
               </select>
 
@@ -570,16 +682,22 @@ export default function Workers() {
                 className="border p-3 rounded"
               >
                 <option value="">Marital Status</option>
+
                 <option value="Single">Single</option>
+
                 <option value="Married">Married</option>
+
                 <option value="Divorced">Divorced</option>
+
                 <option value="Widowed">Widowed</option>
               </select>
             </div>
           </section>
 
           {/* ==================================================
+
               2. CONTACT INFORMATION
+
           ================================================== */}
 
           <section>
@@ -648,7 +766,9 @@ export default function Workers() {
           </section>
 
           {/* ==================================================
+
               3. IDENTIFICATION
+
           ================================================== */}
 
           <section>
@@ -664,12 +784,17 @@ export default function Workers() {
                 className="border p-3 rounded"
               >
                 <option value="">ID Type</option>
+
                 <option value="NIN">NIN</option>
+
                 <option value="Voter's Card">Voter's Card</option>
+
                 <option value="International Passport">
                   International Passport
                 </option>
+
                 <option value="Driver's License">Driver's License</option>
+
                 <option value="Other">Other</option>
               </select>
 
@@ -712,7 +837,9 @@ export default function Workers() {
           </section>
 
           {/* ==================================================
+
               4. EMPLOYMENT DETAILS
+
           ================================================== */}
 
           <section>
@@ -745,9 +872,13 @@ export default function Workers() {
                 className="border p-3 rounded"
               >
                 <option value="Permanent">Permanent</option>
+
                 <option value="Part-Time">Part-Time</option>
+
                 <option value="Casual">Casual</option>
+
                 <option value="Contract">Contract</option>
+
                 <option value="Temporary">Temporary</option>
               </select>
 
@@ -788,9 +919,13 @@ export default function Workers() {
                 className="border p-3 rounded"
               >
                 <option value="">Work Shift</option>
+
                 <option value="Morning">Morning</option>
+
                 <option value="Afternoon">Afternoon</option>
+
                 <option value="Night">Night</option>
+
                 <option value="Other">Other</option>
               </select>
 
@@ -838,8 +973,11 @@ export default function Workers() {
                 className="border p-3 rounded"
               >
                 <option value="Monthly">Monthly</option>
+
                 <option value="Weekly">Weekly</option>
+
                 <option value="Daily">Daily</option>
+
                 <option value="Other">Other</option>
               </select>
 
@@ -850,16 +988,22 @@ export default function Workers() {
                 className="border p-3 rounded"
               >
                 <option value="Active">Active</option>
+
                 <option value="Inactive">Inactive</option>
+
                 <option value="Suspended">Suspended</option>
+
                 <option value="Terminated">Terminated</option>
+
                 <option value="On Leave">On Leave</option>
               </select>
             </div>
           </section>
 
           {/* ==================================================
+
               5. NEXT OF KIN
+
           ================================================== */}
 
           <section>
@@ -919,7 +1063,9 @@ export default function Workers() {
           </section>
 
           {/* ==================================================
+
               6. EXPERIENCE & SKILLS
+
           ================================================== */}
 
           <section>
@@ -965,7 +1111,9 @@ export default function Workers() {
           </section>
 
           {/* ==================================================
+
               7. PAYMENT / BANK
+
           ================================================== */}
 
           <section>
@@ -1009,7 +1157,9 @@ export default function Workers() {
           </section>
 
           {/* ==================================================
+
               8. HEALTH & SAFETY
+
           ================================================== */}
 
           <section>
@@ -1052,13 +1202,21 @@ export default function Workers() {
                 className="border p-3 rounded"
               >
                 <option value="">Blood Group</option>
+
                 <option value="A+">A+</option>
+
                 <option value="A-">A-</option>
+
                 <option value="B+">B+</option>
+
                 <option value="B-">B-</option>
+
                 <option value="AB+">AB+</option>
+
                 <option value="AB-">AB-</option>
+
                 <option value="O+">O+</option>
+
                 <option value="O-">O-</option>
               </select>
             </div>
@@ -1071,10 +1229,15 @@ export default function Workers() {
               <div className="flex flex-wrap gap-4">
                 {[
                   "Boots",
+
                   "Gloves",
+
                   "Coveralls",
+
                   "Nose Mask",
+
                   "Helmet",
+
                   "Other",
                 ].map((item) => (
                   <label key={item} className="flex items-center gap-2">
@@ -1092,7 +1255,9 @@ export default function Workers() {
           </section>
 
           {/* ==================================================
+
               9. DOCUMENTS
+
           ================================================== */}
 
           <section>
@@ -1136,7 +1301,9 @@ export default function Workers() {
           </section>
 
           {/* ==================================================
+
               10. REMARKS
+
           ================================================== */}
 
           <section>
@@ -1155,7 +1322,9 @@ export default function Workers() {
           </section>
 
           {/* ==================================================
+
               FORM BUTTONS
+
           ================================================== */}
 
           <div className="flex flex-wrap gap-3 pt-4 border-t">
@@ -1185,7 +1354,9 @@ export default function Workers() {
       </div>
 
       {/* ======================================================
+
           WORKERS TABLE
+
       ====================================================== */}
 
       <div className="bg-white shadow rounded-xl p-6">
@@ -1222,6 +1393,8 @@ export default function Workers() {
 
                 <th className="text-left p-3">Hire Date</th>
 
+                <th className="text-left p-3">Employment Duration</th>
+
                 <th className="text-left p-3">Actions</th>
               </tr>
             </thead>
@@ -1229,7 +1402,7 @@ export default function Workers() {
             <tbody>
               {workers.length === 0 ? (
                 <tr>
-                  <td colSpan="10" className="text-center p-8 text-gray-500">
+                  <td colSpan="11" className="text-center p-8 text-gray-500">
                     No workers found.
                   </td>
                 </tr>
@@ -1268,7 +1441,15 @@ export default function Workers() {
                       </span>
                     </td>
 
-                    <td className="p-3">{formatDate(worker.hireDate)}</td>
+                    <td className="p-3">
+                      {formatDate(worker.hireDate || worker.dateHired)}
+                    </td>
+
+                    <td className="p-3 whitespace-nowrap">
+                      {formatEmploymentDuration(
+                        worker.hireDate || worker.dateHired,
+                      )}
+                    </td>
 
                     <td className="p-3">
                       <div className="flex gap-2">
