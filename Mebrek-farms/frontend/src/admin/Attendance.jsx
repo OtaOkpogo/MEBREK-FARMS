@@ -2,6 +2,7 @@ import { useCallback, useEffect, useMemo, useState } from "react";
 import * as XLSX from "xlsx";
 import jsPDF from "jspdf";
 import autoTable from "jspdf-autotable";
+import FaceAttendancePanel from "../components/FaceAttendancePanel";
 
 import {
   fetchAttendance,
@@ -482,7 +483,10 @@ export default function Attendance() {
             reports.
           </p>
         </div>
-
+        <FaceAttendancePanel
+          workers={workers}
+          onAttendanceRecorded={loadData}
+        />
         <div className="flex flex-wrap gap-2">
           <button
             type="button"
