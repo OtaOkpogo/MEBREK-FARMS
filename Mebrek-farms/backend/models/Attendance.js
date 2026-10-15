@@ -114,7 +114,21 @@ const attendanceSchema = new mongoose.Schema(
 );
 
 attendanceSchema.index({ isDeleted: 1, createdAt: -1 });
-attendanceSchema.index({ workerId: 1, attendanceDate: 1 });
+// Only one active attendance record per registered worker per date.
+// Deleted records remain available for history and restoration.
+attendanceSchema.index(
+  { workerId: 1, attendanceDate: 1 },
+  {
+    unique: true,
+    name: "unique_active_worker_attendance_date",
+    partialFilterExpression: {
+      isDeleted: false,
+      workerId: { $type: "objectId" },
+      attendanceDate: { $type: "string" },
+    },
+  },
+);
+
 attendanceSchema.index({ attendanceDate: 1, status: 1 });
 
 module.exports = mongoose.model("Attendance", attendanceSchema);

@@ -240,6 +240,7 @@ exports.removeFace = async (req, res) => {
 
 // POST /api/face-attendance/recognize
 // Authenticated attendance users.
+
 exports.recognizeFace = async (req, res) => {
   try {
     const { descriptor, action: requestedAction } = req.body;
@@ -250,6 +251,7 @@ exports.recognizeFace = async (req, res) => {
         message: "Select check-in or check-out before scanning.",
       });
     }
+
     if (!validateDescriptor(descriptor)) {
       return res.status(400).json({
         success: false,
@@ -257,6 +259,7 @@ exports.recognizeFace = async (req, res) => {
       });
     }
 
+    // Load enrolled face templates and their associated workers.
     const templates = await FaceTemplate.find()
       .select("+encryptedDescriptor +iv +authTag")
       .populate(
@@ -281,7 +284,7 @@ exports.recognizeFace = async (req, res) => {
           distance,
         });
       } catch (error) {
-        // Skip unreadable templates; never treat them as a match.
+        // Never accept a corrupted or unreadable face template.
         console.error("Unable to read a face template:", template._id);
       }
     }
@@ -306,20 +309,30 @@ exports.recognizeFace = async (req, res) => {
     const worker = best.worker;
     const { date, time } = getLagosDateTime();
 
+    // Only consider records that are currently active.
     let attendance = await Attendance.findOne({
       workerId: worker._id,
       attendanceDate: date,
+      isDeleted: false,
     });
 
-    if (attendance?.isDeleted) {
-      return res.status(409).json({
-        success: false,
-        message:
-          "An attendance record for today has been deleted. Contact a manager.",
-      });
-    }
+    // Preserve deleted records. Never silently create a replacement
+    // when today's only attendance record has been soft-deleted.
+    if (!attendance) {
+      const deletedAttendance = await Attendance.findOne({
+        workerId: worker._id,
+        attendanceDate: date,
+        isDeleted: true,
+      }).select("_id");
 
-    let action = requestedAction;
+      if (deletedAttendance) {
+        return res.status(409).json({
+          success: false,
+          message:
+            "An attendance record for today has been deleted. Contact a manager.",
+        });
+      }
+    }
 
     if (requestedAction === "check-in") {
       if (attendance?.checkInTime) {
@@ -333,6 +346,8 @@ exports.recognizeFace = async (req, res) => {
         const scheduledStartTime = worker.startTime || "08:00";
         const late = isLate(time, scheduledStartTime);
 
+        // The unique partial index prevents two simultaneous requests
+        // from creating two active records for the same worker and date.
         attendance = await Attendance.create({
           workerId: worker._id,
           workerName: `${worker.firstName} ${worker.lastName}`.trim(),
@@ -348,21 +363,53 @@ exports.recognizeFace = async (req, res) => {
           remarks: "Recorded through face recognition",
         });
       } else {
+        // Existing record has no check-in yet. Claim it atomically
+        // so concurrent scans cannot both record a check-in.
         const scheduledStartTime =
           attendance.scheduledStartTime || worker.startTime || "08:00";
 
-        attendance.checkInTime = time;
-        attendance.scheduledStartTime = scheduledStartTime;
-        attendance.scheduledEndTime =
-          attendance.scheduledEndTime || worker.endTime || "";
-        attendance.isLate = isLate(time, scheduledStartTime);
-        attendance.status = attendance.isLate ? "Late" : "Present";
-        attendance.remarks =
-          attendance.remarks || "Recorded through face recognition";
+        const late = isLate(time, scheduledStartTime);
 
-        await attendance.save();
+        const updatedAttendance = await Attendance.findOneAndUpdate(
+          {
+            _id: attendance._id,
+            isDeleted: false,
+            $or: [
+              { checkInTime: "" },
+              { checkInTime: { $exists: false } },
+              { checkInTime: null },
+            ],
+          },
+          {
+            $set: {
+              checkInTime: time,
+              scheduledStartTime,
+              scheduledEndTime:
+                attendance.scheduledEndTime || worker.endTime || "",
+              isLate: late,
+              status: late ? "Late" : "Present",
+              remarks:
+                attendance.remarks || "Recorded through face recognition",
+            },
+          },
+          {
+            new: true,
+            runValidators: true,
+          },
+        );
+
+        if (!updatedAttendance) {
+          return res.status(409).json({
+            success: false,
+            message:
+              "This attendance record has already been updated. Please scan again if necessary.",
+          });
+        }
+
+        attendance = updatedAttendance;
       }
     } else {
+      // A worker must have an active attendance record to check out.
       if (!attendance?.checkInTime) {
         return res.status(409).json({
           success: false,
@@ -377,17 +424,50 @@ exports.recognizeFace = async (req, res) => {
         });
       }
 
-      attendance.checkOutTime = time;
-      attendance.workingHours = calculateWorkingHours(
-        attendance.checkInTime,
-        time,
+      const workingHours = calculateWorkingHours(attendance.checkInTime, time);
+
+      // The conditional update allows only one request to check out.
+      const updatedAttendance = await Attendance.findOneAndUpdate(
+        {
+          _id: attendance._id,
+          isDeleted: false,
+          checkInTime: { $exists: true, $nin: ["", null] },
+          $or: [
+            { checkOutTime: "" },
+            { checkOutTime: { $exists: false } },
+            { checkOutTime: null },
+          ],
+        },
+        {
+          $set: {
+            checkOutTime: time,
+            workingHours,
+          },
+        },
+        {
+          new: true,
+          runValidators: true,
+        },
       );
 
-      await attendance.save();
+      if (!updatedAttendance) {
+        return res.status(409).json({
+          success: false,
+          message:
+            "This attendance record has already been updated. The worker may have already checked out.",
+        });
+      }
+
+      attendance = updatedAttendance;
     }
+
+    const action = requestedAction;
+
     return res.json({
       success: true,
-      message: `Face matched. ${action === "check-in" ? "Check-in" : "Check-out"} recorded.`,
+      message: `Face matched. ${
+        action === "check-in" ? "Check-in" : "Check-out"
+      } recorded.`,
       action,
       worker: {
         id: worker._id,
@@ -405,7 +485,16 @@ exports.recognizeFace = async (req, res) => {
       },
     });
   } catch (error) {
-    console.error("Face attendance failed:", error.message);
+    // A concurrent create may lose the unique-index race.
+    if (error.code === 11000) {
+      return res.status(409).json({
+        success: false,
+        message:
+          "An attendance record already exists for this worker and date. Please scan again.",
+      });
+    }
+
+    console.error("Face attendance failed:", error);
 
     return res.status(500).json({
       success: false,

@@ -334,6 +334,7 @@ exports.getDeletedAttendance = async (req, res) => {
 };
 
 // SUPERADMIN-ONLY RESTORE
+
 exports.restoreAttendance = async (req, res) => {
   try {
     const attendance = await Attendance.findOne({
@@ -347,6 +348,24 @@ exports.restoreAttendance = async (req, res) => {
       });
     }
 
+    // Prevent restoring a record when another active record already
+    // exists for the same registered worker and attendance date.
+    if (attendance.workerId && attendance.attendanceDate) {
+      const existingActiveRecord = await Attendance.findOne({
+        _id: { $ne: attendance._id },
+        workerId: attendance.workerId,
+        attendanceDate: attendance.attendanceDate,
+        isDeleted: false,
+      }).select("_id");
+
+      if (existingActiveRecord) {
+        return res.status(409).json({
+          message:
+            "Cannot restore this record because an active attendance record already exists for this worker and date.",
+        });
+      }
+    }
+
     attendance.isDeleted = false;
     attendance.deletedAt = null;
     attendance.deletedBy = null;
@@ -355,11 +374,24 @@ exports.restoreAttendance = async (req, res) => {
 
     await attendance.save({ validateBeforeSave: false });
 
-    res.json({
+    return res.json({
       message: "Attendance record restored successfully.",
       attendance,
     });
   } catch (error) {
-    res.status(500).json({ error: error.message });
+    // Also handle a conflict caused by two requests racing to restore
+    // or create attendance for the same worker and date.
+    if (error.code === 11000) {
+      return res.status(409).json({
+        message:
+          "Cannot restore this record because an active attendance record already exists for this worker and date.",
+      });
+    }
+
+    console.error("Restore attendance error:", error);
+
+    return res.status(500).json({
+      message: "Failed to restore attendance record.",
+    });
   }
 };
