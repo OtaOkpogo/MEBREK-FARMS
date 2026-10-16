@@ -231,6 +231,7 @@ mongoose
 // API ROUTES
 // ==============================
 app.use("/api/workers", require("./routes/workers"));
+app.use("/api/workers", require("./routes/workerFeatures"));
 app.use("/api/expenses", require("./routes/expenseRoutes"));
 app.use("/api/attendance", attendanceRoutes);
 app.use("/api/production", require("./routes/productionRoutes"));

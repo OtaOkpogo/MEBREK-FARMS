@@ -6,29 +6,34 @@ const { protect, allowRoles } = require("../middleware/authMiddleware");
 const {
   createWorker,
   getWorkers,
+  getWorkerById,
   getWorkerStats,
   updateWorker,
   deleteWorker,
+  searchWorkers,
 } = require("../controllers/workerController");
 
-// ============================================================
-// WORKER MANAGEMENT
-// SUPERADMIN ONLY
-// ============================================================
+// All worker-management routes are restricted to superadmin.
 
-// Create worker
+// CREATE WORKER
 router.post("/", protect, allowRoles("superadmin"), createWorker);
 
-// Get all workers
-router.get("/", protect, allowRoles("superadmin"), getWorkers);
+// SEARCH WORKERS
+router.get("/search", protect, allowRoles("superadmin"), searchWorkers);
 
-// Get worker statistics
+// WORKER STATISTICS
 router.get("/stats", protect, allowRoles("superadmin"), getWorkerStats);
 
-// Update worker
+// GET ALL WORKERS
+router.get("/", protect, allowRoles("superadmin"), getWorkers);
+
+// GET ONE WORKER
+router.get("/:id", protect, allowRoles("superadmin"), getWorkerById);
+
+// UPDATE WORKER
 router.put("/:id", protect, allowRoles("superadmin"), updateWorker);
 
-// Delete worker
+// DELETE WORKER
 router.delete("/:id", protect, allowRoles("superadmin"), deleteWorker);
 
 module.exports = router;
