@@ -102,7 +102,7 @@ function App() {
           }
         />
 
-        {/* Login stays separate from the public website navigation */}
+        {/* Login stays separate from public website navigation */}
         <Route path="/login" element={<Login />} />
 
         <Route path="/unauthorized" element={<Unauthorized />} />
@@ -125,10 +125,11 @@ function App() {
 
           <Route index element={<Dashboard />} />
 
+          {/* Notifications: Superadmin and Manager only */}
           <Route
             path="notifications"
             element={
-              <ProtectedRoute allowedRoles={["superadmin", "manager", "staff"]}>
+              <ProtectedRoute allowedRoles={["superadmin", "manager"]}>
                 <Notifications />
               </ProtectedRoute>
             }
@@ -149,7 +150,9 @@ function App() {
           <Route path="mortality" element={<Mortality />} />
 
           <Route path="profile" element={<Profile />} />
-          <Route path="/admin/customers" element={<Customers />} />
+
+          {/* Customers: /admin/customers */}
+          <Route path="customers" element={<Customers />} />
 
           {/* ===================================================
               SUPERADMIN ONLY
