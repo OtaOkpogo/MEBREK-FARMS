@@ -139,6 +139,17 @@ const workerSchema = new mongoose.Schema(
       default: Date.now,
     },
 
+    terminationDate: {
+      type: Date,
+      default: null,
+    },
+
+    terminationReason: {
+      type: String,
+      default: "",
+      trim: true,
+    },
+
     assignedFarmArea: {
       type: String,
       trim: true,
