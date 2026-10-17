@@ -271,6 +271,63 @@ const Production = () => {
   }, [activeFlock, formData.date, broodingHouse]);
 
   // ============================================================
+  // AUTOMATIC OPENING STOCK
+  // ============================================================
+
+  useEffect(() => {
+    if (!formData.pen || !formData.date || !Array.isArray(productions)) {
+      return;
+    }
+
+    const selectedDay = getCalendarDay(formData.date);
+    if (selectedDay === null) return;
+
+    const previousRecords = productions
+      .filter((record) => {
+        if (!record || record.isDeleted || record.pen !== formData.pen) {
+          return false;
+        }
+
+        // Do not use the record currently being edited as its own source.
+        if (editingId && String(record._id) === String(editingId)) {
+          return false;
+        }
+
+        const recordDay = getCalendarDay(record.date);
+        return recordDay !== null && recordDay < selectedDay;
+      })
+      .sort((a, b) => getCalendarDay(b.date) - getCalendarDay(a.date));
+
+    if (previousRecords.length === 0) {
+      // The first record for a pen needs its verified starting stock entered
+      // manually. While editing, preserve the record's existing opening stock.
+      if (!editingId) {
+        setFormData((current) => {
+          if (current.pen !== formData.pen || current.date !== formData.date) {
+            return current;
+          }
+          return current.openingStock === ""
+            ? current
+            : { ...current, openingStock: "" };
+        });
+      }
+      return;
+    }
+
+    const previousClosingStock = Number(previousRecords[0].closingStock ?? 0);
+
+    setFormData((current) => {
+      if (current.pen !== formData.pen || current.date !== formData.date) {
+        return current;
+      }
+
+      return String(current.openingStock) === String(previousClosingStock)
+        ? current
+        : { ...current, openingStock: String(previousClosingStock) };
+    });
+  }, [formData.pen, formData.date, productions, editingId]);
+
+  // ============================================================
   // PEN CHANGE
   // ============================================================
 
@@ -281,6 +338,9 @@ const Production = () => {
       ...prev,
       pen,
       days: "",
+      // For a new entry, the opening-stock effect below will fill this from
+      // the selected pen's latest earlier production record, if one exists.
+      openingStock: editingId ? prev.openingStock : "",
 
       ...(pen === BROODING_HOUSE
         ? {
@@ -1467,6 +1527,11 @@ const Production = () => {
               onChange={handleChange}
               required
               className={inputClass}
+              placeholder={
+                formData.pen && formData.date
+                  ? "Loading previous stock if available..."
+                  : "Select a pen and date first"
+              }
             />
           </div>
 
