@@ -9,23 +9,36 @@ const Admin = require("../models/Admin");
 
 // =========================================
 // Helper: Build Date Filter
+// Includes the entire selected end date
 // =========================================
 const buildDateFilter = (req, field = "date") => {
   const { startDate, endDate } = req.query;
-
   const filter = {};
 
   if (startDate || endDate) {
     filter[field] = {};
 
     if (startDate) {
-      filter[field].$gte = new Date(startDate);
+      const start = new Date(`${startDate}T00:00:00.000Z`);
+
+      if (!Number.isNaN(start.getTime())) {
+        filter[field].$gte = start;
+      }
     }
 
     if (endDate) {
-      const end = new Date(endDate);
-      end.setHours(23, 59, 59, 999);
-      filter[field].$lte = end;
+      // Exclusive upper bound: midnight at the start of the next day.
+      // This avoids server-local timezone and end-of-day precision issues.
+      const end = new Date(`${endDate}T00:00:00.000Z`);
+
+      if (!Number.isNaN(end.getTime())) {
+        end.setUTCDate(end.getUTCDate() + 1);
+        filter[field].$lt = end;
+      }
+    }
+
+    if (Object.keys(filter[field]).length === 0) {
+      delete filter[field];
     }
   }
 

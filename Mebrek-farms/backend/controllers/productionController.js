@@ -1,6 +1,7 @@
 const Production = require("../models/Production");
 const Flock = require("../models/Flock");
 const Mortality = require("../models/Mortality");
+
 const {
   softDeleteLinkedBirdHealth,
   syncLinkedBirdHealth,
@@ -8,40 +9,79 @@ const {
 
 const BROODING_HOUSE = "Brooding House";
 
+const DAY_MS = 24 * 60 * 60 * 1000;
+const WEEK_MS = 7 * DAY_MS;
+
+// Use calendar dates in UTC to avoid daylight-saving/time-of-day
+// differences affecting the number of elapsed days.
+const toUtcDay = (value) => {
+  if (!value) return null;
+
+  const date = new Date(value);
+
+  if (Number.isNaN(date.getTime())) return null;
+
+  return Date.UTC(date.getUTCFullYear(), date.getUTCMonth(), date.getUTCDate());
+};
+
+// Flock age in completed weeks on the production date.
 const calculateFlockAgeWeeks = (flock, productionDate) => {
   if (!flock) return null;
 
-  const placementDate = new Date(flock.placementDate);
-  const recordDate = new Date(productionDate);
+  const placementDay = toUtcDay(flock.placementDate);
+  const productionDay = toUtcDay(productionDate);
 
-  if (
-    Number.isNaN(placementDate.getTime()) ||
-    Number.isNaN(recordDate.getTime())
-  ) {
-    return null;
-  }
+  if (placementDay === null || productionDay === null) return null;
+  if (productionDay < placementDay) return null;
 
-  const elapsedMilliseconds = recordDate.getTime() - placementDate.getTime();
+  const elapsedDays = Math.floor((productionDay - placementDay) / DAY_MS);
 
-  if (elapsedMilliseconds < 0) return null;
-
-  const elapsedWeeks = Math.floor(
-    elapsedMilliseconds / (7 * 24 * 60 * 60 * 1000),
+  return Math.max(
+    0,
+    Number(flock.startingAgeWeeks || 0) + Math.floor(elapsedDays / 7),
   );
+};
 
-  return Math.max(0, Number(flock.startingAgeWeeks || 0) + elapsedWeeks);
+// Days is the flock's age in days on the production date.
+// Example: 18 weeks old = 126 days.
+const calculateFlockAgeDays = (flock, productionDate) => {
+  if (!flock) return null;
+
+  const placementDay = toUtcDay(flock.placementDate);
+  const productionDay = toUtcDay(productionDate);
+
+  if (placementDay === null || productionDay === null) return null;
+  if (productionDay < placementDay) return null;
+
+  const elapsedDays = Math.floor((productionDay - placementDay) / DAY_MS);
+
+  const startingAgeDays = Number(flock.startingAgeWeeks || 0) * 7;
+
+  return startingAgeDays + elapsedDays;
 };
 
 const getProductionFlockData = async (pen, productionDate) => {
   if (!pen || pen === BROODING_HOUSE) {
-    return { flock: null, flockId: null, flockAgeWeeks: null };
+    return {
+      flock: null,
+      flockId: null,
+      flockAgeWeeks: null,
+      days: null,
+    };
   }
 
-  const recordDate = new Date(productionDate);
+  const recordDay = toUtcDay(productionDate);
 
-  if (Number.isNaN(recordDate.getTime())) {
-    return { flock: null, flockId: null, flockAgeWeeks: null };
+  if (recordDay === null) {
+    return {
+      flock: null,
+      flockId: null,
+      flockAgeWeeks: null,
+      days: null,
+    };
   }
+
+  const recordDate = new Date(recordDay);
 
   const activeFlock = await Flock.findOne({
     pen,
@@ -50,30 +90,32 @@ const getProductionFlockData = async (pen, productionDate) => {
     placementDate: { $lte: recordDate },
   }).sort({ placementDate: -1 });
 
-  if (activeFlock) {
+  let flock = activeFlock;
+
+  if (!flock) {
+    flock = await Flock.findOne({
+      pen,
+      isDeleted: false,
+      status: "SOLD",
+      placementDate: { $lte: recordDate },
+      saleDate: { $gte: recordDate },
+    }).sort({ placementDate: -1 });
+  }
+
+  if (!flock) {
     return {
-      flock: activeFlock._id,
-      flockId: activeFlock.flockId,
-      flockAgeWeeks: calculateFlockAgeWeeks(activeFlock, recordDate),
+      flock: null,
+      flockId: null,
+      flockAgeWeeks: null,
+      days: null,
     };
   }
 
-  const historicalFlock = await Flock.findOne({
-    pen,
-    isDeleted: false,
-    status: "SOLD",
-    placementDate: { $lte: recordDate },
-    saleDate: { $gte: recordDate },
-  }).sort({ placementDate: -1 });
-
-  if (!historicalFlock) {
-    return { flock: null, flockId: null, flockAgeWeeks: null };
-  }
-
   return {
-    flock: historicalFlock._id,
-    flockId: historicalFlock.flockId,
-    flockAgeWeeks: calculateFlockAgeWeeks(historicalFlock, recordDate),
+    flock: flock._id,
+    flockId: flock.flockId,
+    flockAgeWeeks: calculateFlockAgeWeeks(flock, recordDate),
+    days: calculateFlockAgeDays(flock, recordDate),
   };
 };
 
@@ -233,6 +275,7 @@ exports.getProduction = async (req, res) => {
 exports.createProduction = async (req, res) => {
   try {
     const { pen, date } = req.body;
+
     const flockData = await getProductionFlockData(pen, date);
 
     const productionData = {
@@ -241,6 +284,13 @@ exports.createProduction = async (req, res) => {
       flockId: flockData.flockId,
       flockAgeWeeks: flockData.flockAgeWeeks,
     };
+
+    // Automatically calculate Days when a flock is found.
+    // For the Brooding House or a pen without a matching flock,
+    // retain the manually supplied value.
+    if (flockData.days !== null) {
+      productionData.days = flockData.days;
+    }
 
     const totals = calculateProductionTotals(productionData);
 
@@ -319,6 +369,12 @@ exports.updateProduction = async (req, res) => {
     production.flock = flockData.flock;
     production.flockId = flockData.flockId;
     production.flockAgeWeeks = flockData.flockAgeWeeks;
+
+    // Recalculate on every edit so changing the pen or date
+    // updates Days automatically.
+    if (flockData.days !== null) {
+      production.days = flockData.days;
+    }
 
     const totals = calculateProductionTotals(production);
 
