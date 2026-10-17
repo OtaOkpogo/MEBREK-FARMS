@@ -22,6 +22,7 @@ import socket from "../services/socket";
 // ============================================================
 
 const PAGE_SIZE = 10;
+
 const BROODING_HOUSE = "Brooding House";
 const DAY_MS = 24 * 60 * 60 * 1000;
 
@@ -54,88 +55,39 @@ const emptyFormData = {
 
 const isBroodingHouse = (pen) => pen === BROODING_HOUSE;
 
-/**
- * Converts a date to a UTC calendar-day timestamp.
- * Handles YYYY-MM-DD values without local-time timezone drift.
- */
 const getCalendarDay = (value) => {
   if (!value) return null;
-
   if (typeof value === "string") {
     const match = value.match(/^(\d{4})-(\d{2})-(\d{2})/);
-
-    if (match) {
-      const [, year, month, day] = match;
-
-      return Date.UTC(Number(year), Number(month) - 1, Number(day));
-    }
+    if (match)
+      return Date.UTC(Number(match[1]), Number(match[2]) - 1, Number(match[3]));
   }
-
   const date = new Date(value);
-
   if (Number.isNaN(date.getTime())) return null;
-
   return Date.UTC(date.getUTCFullYear(), date.getUTCMonth(), date.getUTCDate());
 };
 
-const toDateInputValue = (value) => {
-  if (!value) return "";
-
-  if (typeof value === "string") {
-    const match = value.match(/^(\d{4}-\d{2}-\d{2})/);
-
-    if (match) return match[1];
-  }
-
-  const date = new Date(value);
-
-  if (Number.isNaN(date.getTime())) return "";
-
-  return [
-    date.getUTCFullYear(),
-    String(date.getUTCMonth() + 1).padStart(2, "0"),
-    String(date.getUTCDate()).padStart(2, "0"),
-  ].join("-");
-};
-
-/**
- * Calculate the flock's age in days on the selected production date.
- *
- * Starting age is the flock's age when it was placed in the pen.
- * Days since placement is added to that starting age.
- */
 const calculateDaysFromFlock = (flock, productionDate) => {
-  if (!flock || !productionDate || !flock.placementDate) {
-    return "";
-  }
-
+  if (!flock?.placementDate || !productionDate) return "";
   const placementDay = getCalendarDay(flock.placementDate);
   const productionDay = getCalendarDay(productionDate);
-
-  if (placementDay === null || productionDay === null) {
-    return "";
-  }
-
-  if (productionDay < placementDay) {
-    return "";
-  }
-
   const startingAgeWeeks = Number(flock.startingAgeWeeks ?? 0);
-
-  if (!Number.isFinite(startingAgeWeeks) || startingAgeWeeks < 0) {
+  if (
+    placementDay === null ||
+    productionDay === null ||
+    productionDay < placementDay ||
+    !Number.isFinite(startingAgeWeeks) ||
+    startingAgeWeeks < 0
+  )
     return "";
-  }
-
-  const daysSincePlacement = Math.floor(
-    (productionDay - placementDay) / DAY_MS,
+  return (
+    startingAgeWeeks * 7 + Math.floor((productionDay - placementDay) / DAY_MS)
   );
-
-  return startingAgeWeeks * 7 + daysSincePlacement;
 };
 
 const toFormData = (record) => ({
   pen: record?.pen || "",
-  date: toDateInputValue(record?.date),
+  date: record?.date ? new Date(record.date).toISOString().slice(0, 10) : "",
   days: record?.days ?? "",
   openingStock: record?.openingStock ?? "",
   transferIn: record?.transferIn ?? "",
@@ -162,6 +114,7 @@ const Production = () => {
   // ============================================================
 
   const user = JSON.parse(localStorage.getItem("user") || "{}");
+
   const role = user?.role || localStorage.getItem("role");
 
   // ============================================================
@@ -169,11 +122,24 @@ const Production = () => {
   // ============================================================
 
   const [productions, setProductions] = useState([]);
+
   const [formData, setFormData] = useState(emptyFormData);
+
+  const broodingHouse = isBroodingHouse(formData.pen);
+
   const [editingId, setEditingId] = useState(null);
+
   const [saving, setSaving] = useState(false);
+
   const [loading, setLoading] = useState(false);
+
   const [search, setSearch] = useState("");
+  const [dateFrom, setDateFrom] = useState("");
+  const [dateTo, setDateTo] = useState("");
+
+  // Report view only filters existing records; it never creates or merges records.
+  const [reportView, setReportView] = useState("All Pens");
+
   const [currentPage, setCurrentPage] = useState(1);
 
   // ============================================================
@@ -181,10 +147,10 @@ const Production = () => {
   // ============================================================
 
   const [activeFlock, setActiveFlock] = useState(null);
-  const [flockLoading, setFlockLoading] = useState(false);
-  const [flockError, setFlockError] = useState("");
 
-  const broodingHouse = isBroodingHouse(formData.pen);
+  const [flockLoading, setFlockLoading] = useState(false);
+
+  const [flockError, setFlockError] = useState("");
 
   // ============================================================
   // LOAD PRODUCTIONS
@@ -195,6 +161,7 @@ const Production = () => {
       setLoading(true);
 
       const data = await fetchProductions();
+
       const records = Array.isArray(data) ? data : [];
 
       setProductions(records);
@@ -226,19 +193,25 @@ const Production = () => {
   // ============================================================
 
   useEffect(() => {
-    if (!socket) return undefined;
+    if (!socket) {
+      return;
+    }
 
     const handleProductionUpdate = () => {
       loadProductions(false);
     };
 
     socket.on("productionCreated", handleProductionUpdate);
+
     socket.on("productionUpdated", handleProductionUpdate);
+
     socket.on("productionDeleted", handleProductionUpdate);
 
     return () => {
       socket.off("productionCreated", handleProductionUpdate);
+
       socket.off("productionUpdated", handleProductionUpdate);
+
       socket.off("productionDeleted", handleProductionUpdate);
     };
   }, []);
@@ -251,20 +224,23 @@ const Production = () => {
     setActiveFlock(null);
     setFlockError("");
 
-    if (!pen || isBroodingHouse(pen)) {
+    if (!pen) {
       setFlockLoading(false);
-      return null;
+      return;
+    }
+
+    // Brooding House does not require a flock.
+    if (pen === BROODING_HOUSE) {
+      setFlockLoading(false);
+      return;
     }
 
     setFlockLoading(true);
 
     try {
       const flock = await fetchActiveFlockByPen(pen);
-      const result = flock || null;
 
-      setActiveFlock(result);
-
-      return result;
+      setActiveFlock(flock || null);
     } catch (error) {
       console.error("ACTIVE FLOCK ERROR:", error);
 
@@ -274,41 +250,24 @@ const Production = () => {
         error.response?.data?.message ||
           `Failed to load active flock for ${pen}.`,
       );
-
-      return null;
     } finally {
       setFlockLoading(false);
     }
   };
 
   // ============================================================
-  // AUTOMATIC DAYS CALCULATION
+  // AUTOMATIC FLOCK AGE / DAYS
   // ============================================================
 
   useEffect(() => {
-    // Brooding House and pens without an active flock use manual Days.
-    if (broodingHouse || !activeFlock || !formData.date) {
-      return;
-    }
-
+    if (broodingHouse || !activeFlock || !formData.date) return;
     const calculatedDays = calculateDaysFromFlock(activeFlock, formData.date);
-
-    // Keep the field unchanged if the date is before placement
-    // or the flock's placement date is missing.
-    if (calculatedDays === "") {
-      return;
-    }
-
-    setFormData((previous) => {
-      if (String(previous.days) === String(calculatedDays)) {
-        return previous;
-      }
-
-      return {
-        ...previous,
-        days: calculatedDays,
-      };
-    });
+    if (calculatedDays === "") return;
+    setFormData((previous) =>
+      String(previous.days) === String(calculatedDays)
+        ? previous
+        : { ...previous, days: calculatedDays },
+    );
   }, [activeFlock, formData.date, broodingHouse]);
 
   // ============================================================
@@ -318,12 +277,9 @@ const Production = () => {
   const handlePenChange = async (e) => {
     const pen = e.target.value;
 
-    setFormData((previous) => ({
-      ...previous,
+    setFormData((prev) => ({
+      ...prev,
       pen,
-
-      // Reset Days while loading another flock so the previous
-      // pen's calculated age is not accidentally reused.
       days: "",
 
       ...(pen === BROODING_HOUSE
@@ -346,8 +302,8 @@ const Production = () => {
   const handleChange = (e) => {
     const { name, value } = e.target;
 
-    setFormData((previous) => ({
-      ...previous,
+    setFormData((prev) => ({
+      ...prev,
       [name]: value,
     }));
   };
@@ -364,6 +320,17 @@ const Production = () => {
       return;
     }
 
+    if (
+      activeFlock &&
+      !broodingHouse &&
+      calculateDaysFromFlock(activeFlock, formData.date) === ""
+    ) {
+      toast.error(
+        "The production date cannot be before the flock placement date. Check the date and flock information.",
+      );
+      return;
+    }
+
     const calculatedClosingStock =
       Number(formData.openingStock || 0) +
       Number(formData.transferIn || 0) -
@@ -374,36 +341,46 @@ const Production = () => {
       toast.error(
         "Closing stock cannot be negative. Check opening stock, transfers, and mortality.",
       );
+
       return;
     }
 
-    // If an active flock is assigned, do not save an age from a
-    // date before that flock's placement date.
-    if (activeFlock && !broodingHouse) {
-      const calculatedDays = calculateDaysFromFlock(activeFlock, formData.date);
-
-      if (calculatedDays === "") {
-        toast.error(
-          "The production date cannot be before the flock placement date. Check the date and flock information.",
-        );
-        return;
-      }
-    }
+    // ==========================================================
+    // IMPORTANT:
+    //
+    // We deliberately DO NOT send:
+    //
+    // flock
+    // flockId
+    // flockAgeWeeks
+    //
+    // The backend determines those values from the active flock
+    // for the selected pen.
+    // ==========================================================
 
     const payload = {
       ...formData,
+      days: Number(formData.days || 0),
 
       days: Number(formData.days || 0),
 
       openingStock: Number(formData.openingStock || 0),
+
       transferIn: Number(formData.transferIn || 0),
+
       transferOut: Number(formData.transferOut || 0),
+
       mortality: Number(formData.mortality || 0),
+
       sickBirds: Number(formData.sickBirds || 0),
 
+      // Decimal values are preserved.
+      // Examples: 0.5, 1.25, 2.5
       feedBagsConsumed: Number(formData.feedBagsConsumed || 0),
+
       waterConsumed: Number(formData.waterConsumed || 0),
 
+      // Brooding House has no egg production fields.
       cratesProduced: broodingHouse ? 0 : Number(formData.cratesProduced || 0),
 
       extraEggPieces: broodingHouse ? 0 : Number(formData.extraEggPieces || 0),
@@ -415,25 +392,24 @@ const Production = () => {
       crackedEggs: broodingHouse ? 0 : Number(formData.crackedEggs || 0),
     };
 
-    // The backend remains responsible for assigning flock,
-    // flockId, and flockAgeWeeks from the flock record.
     setSaving(true);
 
     try {
       if (editingId) {
         const updated = await updateProduction(editingId, payload);
 
-        setProductions((previous) =>
-          previous.map((item) => (item._id === editingId ? updated : item)),
+        setProductions((prev) =>
+          prev.map((item) => (item._id === editingId ? updated : item)),
         );
 
         toast.success("Production record updated successfully");
+
         setEditingId(null);
       } else {
         const created = await createProduction(payload);
 
         if (created) {
-          setProductions((previous) => [created, ...previous]);
+          setProductions((prev) => [created, ...prev]);
         } else {
           await loadProductions(false);
         }
@@ -442,9 +418,11 @@ const Production = () => {
       }
 
       setFormData(emptyFormData);
+
       setActiveFlock(null);
       setFlockError("");
       setFlockLoading(false);
+
       setCurrentPage(1);
     } catch (error) {
       console.error("SAVE PRODUCTION ERROR:", error);
@@ -465,27 +443,11 @@ const Production = () => {
     setEditingId(record._id);
 
     setFormData(toFormData(record));
+
     setActiveFlock(null);
     setFlockError("");
 
-    const flock = await loadActiveFlock(record.pen);
-
-    // For an existing record, recalculate Days using the selected
-    // record date when the current flock's placement information
-    // is available. The backend also recalculates on save.
-    if (flock && !isBroodingHouse(record.pen)) {
-      const calculatedDays = calculateDaysFromFlock(
-        flock,
-        toDateInputValue(record.date),
-      );
-
-      if (calculatedDays !== "") {
-        setFormData((previous) => ({
-          ...previous,
-          days: calculatedDays,
-        }));
-      }
-    }
+    await loadActiveFlock(record.pen);
 
     window.scrollTo({
       top: 0,
@@ -499,7 +461,9 @@ const Production = () => {
 
   const cancelEdit = () => {
     setEditingId(null);
+
     setFormData(emptyFormData);
+
     setActiveFlock(null);
     setFlockError("");
     setFlockLoading(false);
@@ -514,16 +478,23 @@ const Production = () => {
       "Are you sure you want to delete this production record?",
     );
 
-    if (!confirmed) return;
+    if (!confirmed) {
+      return;
+    }
 
     try {
       await deleteProduction(id);
 
-      setProductions((previous) =>
+      setProductions((prev) =>
         role === "superadmin"
-          ? previous.filter((item) => item._id !== id)
-          : previous.map((item) =>
-              item._id === id ? { ...item, isDeleted: true } : item,
+          ? prev.filter((item) => item._id !== id)
+          : prev.map((item) =>
+              item._id === id
+                ? {
+                    ...item,
+                    isDeleted: true,
+                  }
+                : item,
             ),
       );
 
@@ -543,12 +514,34 @@ const Production = () => {
   // SEARCH
   // ============================================================
 
+  const BATTERY_CAGE_PENS = [
+    "Battery Cage Row 1",
+    "Battery Cage Row 2",
+    "Battery Cage Row 3",
+  ];
+
+  const isCombinedBatteryReport = reportView === "Battery Cage Combined";
+
   const filteredProductions = useMemo(() => {
     const query = search.trim().toLowerCase();
 
-    if (!query) return productions;
-
     return productions.filter((record) => {
+      const recordDay = getCalendarDay(record?.date);
+      const fromDay = dateFrom ? getCalendarDay(dateFrom) : null;
+      const toDay = dateTo ? getCalendarDay(dateTo) : null;
+      if (fromDay !== null && (recordDay === null || recordDay < fromDay))
+        return false;
+      if (toDay !== null && (recordDay === null || recordDay > toDay))
+        return false;
+      const matchesPen =
+        reportView === "All Pens" ||
+        (isCombinedBatteryReport
+          ? BATTERY_CAGE_PENS.includes(record?.pen)
+          : record?.pen === reportView);
+
+      if (!matchesPen) return false;
+      if (!query) return true;
+
       const values = [
         record?.pen,
         record?.flockId,
@@ -565,7 +558,14 @@ const Production = () => {
           .includes(query),
       );
     });
-  }, [productions, search]);
+  }, [
+    productions,
+    search,
+    reportView,
+    isCombinedBatteryReport,
+    dateFrom,
+    dateTo,
+  ]);
 
   // ============================================================
   // PAGINATION
@@ -610,24 +610,25 @@ const Production = () => {
       0,
     );
 
-    // Closing stock is a balance, so use only the latest record
-    // for each pen rather than summing daily closing stocks.
+    // Closing stock is a point-in-time balance, not a daily value to sum.
+    // For every pen, use only its latest active production record.
     const currentStockByPen = PENS.map((pen) => {
-      const penRecords = activeRecords
-        .filter((item) => item.pen === pen)
-        .sort((a, b) => {
-          const dateDifference =
-            new Date(b.date).getTime() - new Date(a.date).getTime();
+      const latestRecord =
+        activeRecords
+          .filter((item) => item.pen === pen)
+          .sort((a, b) => {
+            const dateDifference =
+              new Date(b.date).getTime() - new Date(a.date).getTime();
 
-          if (dateDifference !== 0) return dateDifference;
+            if (dateDifference !== 0) {
+              return dateDifference;
+            }
 
-          return (
-            new Date(b.updatedAt || b.createdAt || 0).getTime() -
-            new Date(a.updatedAt || a.createdAt || 0).getTime()
-          );
-        });
-
-      const latestRecord = penRecords[0] || null;
+            return (
+              new Date(b.updatedAt || b.createdAt || 0).getTime() -
+              new Date(a.updatedAt || a.createdAt || 0).getTime()
+            );
+          })[0] || null;
 
       return {
         pen,
@@ -639,21 +640,128 @@ const Production = () => {
       };
     });
 
-    const totalCurrentBirds = currentStockByPen.reduce(
-      (sum, item) =>
-        sum + (item.hasRecord ? Number(item.currentStock || 0) : 0),
-      0,
-    );
-
     return {
       records: activeRecords.length,
       totalEggs,
       totalMortality,
       totalFeed,
       currentStockByPen,
-      totalCurrentBirds,
     };
   }, [productions]);
+
+  // Combined battery-cage report. Egg/mortality/feed totals are summed from
+  // the existing active records. Closing stock is taken from each row's latest
+  // record, because stock is a balance and must not be summed across dates.
+  const batteryCombinedSummary = useMemo(() => {
+    const rows = BATTERY_CAGE_PENS.map((pen) => {
+      const activeRows = filteredProductions.filter(
+        (record) => record.pen === pen && !record.isDeleted,
+      );
+      const sortedRows = [...activeRows].sort((a, b) => {
+        const dateDiff =
+          new Date(b.date || 0).getTime() - new Date(a.date || 0).getTime();
+        if (dateDiff !== 0) return dateDiff;
+        return (
+          new Date(b.updatedAt || b.createdAt || 0).getTime() -
+          new Date(a.updatedAt || a.createdAt || 0).getTime()
+        );
+      });
+      const earliestRows = [...activeRows].sort(
+        (a, b) =>
+          new Date(a.date || 0).getTime() - new Date(b.date || 0).getTime(),
+      );
+      const totalEggs = activeRows.reduce(
+        (sum, r) => sum + Number(r.totalEggs || 0),
+        0,
+      );
+      const openingStock = earliestRows.length
+        ? Number(earliestRows[0].openingStock || 0)
+        : 0;
+      return {
+        pen,
+        records: activeRows.length,
+        openingStock,
+        transferIn: activeRows.reduce(
+          (sum, r) => sum + Number(r.transferIn || 0),
+          0,
+        ),
+        transferOut: activeRows.reduce(
+          (sum, r) => sum + Number(r.transferOut || 0),
+          0,
+        ),
+        mortality: activeRows.reduce(
+          (sum, r) => sum + Number(r.mortality || 0),
+          0,
+        ),
+        closingStock: sortedRows.length
+          ? Number(sortedRows[0].closingStock || 0)
+          : 0,
+        hasStock: sortedRows.length > 0,
+        sickBirds: activeRows.reduce(
+          (sum, r) => sum + Number(r.sickBirds || 0),
+          0,
+        ),
+        feed: activeRows.reduce(
+          (sum, r) => sum + Number(r.feedBagsConsumed || 0),
+          0,
+        ),
+        water: activeRows.reduce(
+          (sum, r) => sum + Number(r.waterConsumed || 0),
+          0,
+        ),
+        crates: activeRows.reduce(
+          (sum, r) => sum + Number(r.cratesProduced || 0),
+          0,
+        ),
+        extraEggs: activeRows.reduce(
+          (sum, r) => sum + Number(r.extraEggPieces || 0),
+          0,
+        ),
+        eggs: totalEggs,
+        miscarriage: activeRows.reduce(
+          (sum, r) => sum + Number(r.miscarriageProduction || 0),
+          0,
+        ),
+        cracked: activeRows.reduce(
+          (sum, r) => sum + Number(r.crackedEggs || 0),
+          0,
+        ),
+        birdDays: activeRows.reduce(
+          (sum, r) => sum + Number(r.openingStock || 0),
+          0,
+        ),
+      };
+    });
+
+    const sum = (key) =>
+      rows.reduce((total, row) => total + Number(row[key] || 0), 0);
+    const latestStocks = rows.reduce(
+      (total, row) => total + (row.hasStock ? row.closingStock : 0),
+      0,
+    );
+    const totalBirdDays = sum("birdDays");
+    const totalEggs = sum("eggs");
+
+    return {
+      rows,
+      records: sum("records"),
+      openingStock: sum("openingStock"),
+      transferIn: sum("transferIn"),
+      transferOut: sum("transferOut"),
+      mortality: sum("mortality"),
+      closingStock: latestStocks,
+      sickBirds: sum("sickBirds"),
+      feed: sum("feed"),
+      water: sum("water"),
+      crates: sum("crates"),
+      extraEggs: sum("extraEggs"),
+      eggs: totalEggs,
+      productionPercentage:
+        totalBirdDays > 0 ? (totalEggs / totalBirdDays) * 100 : 0,
+      miscarriage: sum("miscarriage"),
+      cracked: sum("cracked"),
+    };
+  }, [filteredProductions]);
 
   // ============================================================
   // EXPORT EXCEL
@@ -662,42 +770,113 @@ const Production = () => {
   const handleExportExcel = () => {
     if (!filteredProductions.length) {
       toast.info("There are no production records to export.");
+
       return;
     }
 
     const data = filteredProductions.map((record) => ({
       Date: record.date ? new Date(record.date).toLocaleDateString() : "",
+
       Pen: record.pen || "",
+
       "Flock ID": record.flockId || record.flock?.flockId || "",
+
       "Flock Age":
         record.flockAgeWeeks !== null && record.flockAgeWeeks !== undefined
           ? `${record.flockAgeWeeks} weeks`
           : "",
+
       Days: record.days ?? "",
+
       "Opening Stock": record.openingStock ?? "",
+
       "Transfer In": record.transferIn ?? 0,
+
       "Transfer Out": record.transferOut ?? 0,
+
       Mortality: record.mortality ?? 0,
+
       "Closing Stock": record.closingStock ?? 0,
+
       "Sick Birds": record.sickBirds ?? 0,
+
       "Feed Bags": record.feedBagsConsumed ?? 0,
+
       "Water Consumed": record.waterConsumed ?? 0,
+
       "Crates Produced": record.cratesProduced ?? 0,
+
       "Extra Eggs": record.extraEggPieces ?? 0,
+
       "Total Eggs": record.totalEggs ?? 0,
+
       "Production %": record.productionPercentage ?? 0,
+
       "Miscarriage Production": record.miscarriageProduction ?? 0,
+
       "Cracked Eggs": record.crackedEggs ?? 0,
+
       "Drugs Used": record.drugsUsed || "",
+
       Remarks: record.remarks || "",
     }));
 
     const worksheet = XLSX.utils.json_to_sheet(data);
+
     const workbook = XLSX.utils.book_new();
 
-    XLSX.utils.book_append_sheet(workbook, worksheet, "Production");
+    XLSX.utils.book_append_sheet(workbook, worksheet, "Production Records");
 
-    XLSX.writeFile(workbook, "production-records.xlsx");
+    if (isCombinedBatteryReport) {
+      const summaryRows = [
+        { Metric: "Total Eggs", Combined: batteryCombinedSummary.eggs },
+        { Metric: "Crates Produced", Combined: batteryCombinedSummary.crates },
+        { Metric: "Mortality", Combined: batteryCombinedSummary.mortality },
+        {
+          Metric: "Current Birds (latest closing stock per row)",
+          Combined: batteryCombinedSummary.closingStock,
+        },
+        { Metric: "Feed Bags", Combined: batteryCombinedSummary.feed },
+        {
+          Metric: "Production Percentage",
+          Combined: `${batteryCombinedSummary.productionPercentage.toFixed(2)}%`,
+        },
+        {
+          Metric: "Opening Stock (first record per row)",
+          Combined: batteryCombinedSummary.openingStock,
+        },
+        { Metric: "Transfers In", Combined: batteryCombinedSummary.transferIn },
+        {
+          Metric: "Transfers Out",
+          Combined: batteryCombinedSummary.transferOut,
+        },
+        { Metric: "Sick Birds", Combined: batteryCombinedSummary.sickBirds },
+        { Metric: "Water Consumed", Combined: batteryCombinedSummary.water },
+        { Metric: "Cracked Eggs", Combined: batteryCombinedSummary.cracked },
+        ...batteryCombinedSummary.rows.map((row) => ({
+          Pen: row.pen,
+          Records: row.records,
+          "Total Eggs": row.eggs,
+          Crates: row.crates,
+          Mortality: row.mortality,
+          "Feed Bags": row.feed,
+          "Current Birds": row.hasStock ? row.closingStock : "—",
+          "Cracked Eggs": row.cracked,
+        })),
+      ];
+      XLSX.utils.book_append_sheet(
+        workbook,
+        XLSX.utils.json_to_sheet(summaryRows),
+        "Combined Summary",
+      );
+    }
+
+    XLSX.writeFile(
+      workbook,
+      isCombinedBatteryReport
+        ? "battery-cage-combined-production.xlsx"
+        : "production-records.xlsx",
+    );
 
     toast.success("Production records exported to Excel");
   };
@@ -709,6 +888,7 @@ const Production = () => {
   const handleExportPDF = () => {
     if (!filteredProductions.length) {
       toast.info("There are no production records to export.");
+
       return;
     }
 
@@ -719,34 +899,141 @@ const Production = () => {
     });
 
     doc.setFontSize(16);
-    doc.text("Production Records", 14, 15);
+
+    doc.text(
+      isCombinedBatteryReport
+        ? "Battery Cage Combined Production Report"
+        : "Production Records",
+      14,
+      15,
+    );
 
     doc.setFontSize(9);
+
     doc.text(`Generated: ${new Date().toLocaleString()}`, 14, 21);
+
+    let detailStartY = 26;
+    if (isCombinedBatteryReport) {
+      autoTable(doc, {
+        startY: 26,
+        head: [
+          [
+            "Combined Metric",
+            "Value",
+            "Pen",
+            "Records",
+            "Eggs",
+            "Crates",
+            "Mortality",
+            "Feed Bags",
+            "Current Birds",
+          ],
+        ],
+        body: [
+          ["Combined totals", "", "", "", "", "", "", "", ""],
+          [
+            "Total Eggs",
+            batteryCombinedSummary.eggs,
+            "",
+            "",
+            "",
+            "",
+            "",
+            "",
+            "",
+          ],
+          [
+            "Crates Produced",
+            batteryCombinedSummary.crates,
+            "",
+            "",
+            "",
+            "",
+            "",
+            "",
+            "",
+          ],
+          [
+            "Mortality",
+            batteryCombinedSummary.mortality,
+            "",
+            "",
+            "",
+            "",
+            "",
+            "",
+            "",
+          ],
+          [
+            "Production %",
+            `${batteryCombinedSummary.productionPercentage.toFixed(2)}%`,
+            "",
+            "",
+            "",
+            "",
+            "",
+            "",
+            "",
+          ],
+          ...batteryCombinedSummary.rows.map((row) => [
+            "Row breakdown",
+            "",
+            row.pen,
+            row.records,
+            row.eggs,
+            row.crates,
+            row.mortality,
+            row.feed,
+            row.hasStock ? row.closingStock : "—",
+          ]),
+        ],
+        styles: { fontSize: 7, cellPadding: 1.5 },
+        margin: { left: 8, right: 8 },
+      });
+      detailStartY = (doc.lastAutoTable?.finalY || 60) + 6;
+      if (detailStartY > 170) {
+        doc.addPage();
+        detailStartY = 15;
+      }
+    }
 
     const rows = filteredProductions.map((record) => [
       record.date ? new Date(record.date).toLocaleDateString() : "",
+
       record.pen || "",
+
       record.flockId || record.flock?.flockId || "—",
+
       record.flockAgeWeeks !== null && record.flockAgeWeeks !== undefined
         ? `${record.flockAgeWeeks} w`
         : "—",
+
       record.days ?? "",
+
       record.openingStock ?? 0,
+
       record.transferIn ?? 0,
+
       record.transferOut ?? 0,
+
       record.mortality ?? 0,
+
       record.closingStock ?? 0,
+
       record.cratesProduced ?? 0,
+
       record.extraEggPieces ?? 0,
+
       record.totalEggs ?? 0,
+
       record.productionPercentage !== undefined
         ? `${record.productionPercentage}%`
         : "0%",
     ]);
 
     autoTable(doc, {
-      startY: 26,
+      startY: detailStartY,
+
       head: [
         [
           "Date",
@@ -765,21 +1052,29 @@ const Production = () => {
           "Production %",
         ],
       ],
+
       body: rows,
+
       styles: {
         fontSize: 7,
         cellPadding: 2,
       },
+
       headStyles: {
         fontSize: 7,
       },
+
       margin: {
         left: 8,
         right: 8,
       },
     });
 
-    doc.save("production-records.pdf");
+    doc.save(
+      isCombinedBatteryReport
+        ? "battery-cage-combined-production.pdf"
+        : "production-records.pdf",
+    );
 
     toast.success("Production records exported to PDF");
   };
@@ -793,15 +1088,15 @@ const Production = () => {
 
   const labelClass = "mb-1 block text-sm font-medium text-gray-700";
 
-  const daysCalculatedAutomatically = Boolean(activeFlock) && !broodingHouse;
-
   // ============================================================
   // RENDER
   // ============================================================
 
   return (
     <div className="space-y-6 p-4 md:p-6">
-      {/* PAGE HEADER */}
+      {/* ======================================================
+          PAGE HEADER
+      ====================================================== */}
 
       <div className="flex flex-col gap-4 md:flex-row md:items-center md:justify-between">
         <div>
@@ -843,7 +1138,47 @@ const Production = () => {
         </div>
       </div>
 
-      {/* STATISTICS */}
+      {/* ======================================================
+          PRODUCTION REPORT VIEW
+      ====================================================== */}
+
+      <div className="rounded-xl border border-blue-200 bg-blue-50/50 p-4 shadow-sm">
+        <label
+          htmlFor="productionReportView"
+          className="mb-2 block text-sm font-semibold text-gray-800"
+        >
+          Production Report View
+        </label>
+        <select
+          id="productionReportView"
+          value={reportView}
+          onChange={(e) => {
+            setReportView(e.target.value);
+            setCurrentPage(1);
+          }}
+          className={`${inputClass} w-full bg-white md:max-w-xl`}
+        >
+          <option value="All Pens">All Pens — Individual Records</option>
+          <option value="Battery Cage Combined">
+            Battery Cage Combined Report (Rows 1–3)
+          </option>
+          {PENS.map((pen) => (
+            <option key={pen} value={pen}>
+              {pen} — Individual Report
+            </option>
+          ))}
+        </select>
+        {isCombinedBatteryReport && (
+          <p className="mt-2 text-sm text-blue-800">
+            Combined report selected: Battery Cage Rows 1, 2 and 3. The original
+            individual production records are preserved.
+          </p>
+        )}
+      </div>
+
+      {/* ======================================================
+          STATISTICS
+      ====================================================== */}
 
       <div className="grid grid-cols-1 gap-4 sm:grid-cols-2 lg:grid-cols-5">
         <div className="rounded-xl border bg-white p-4 shadow-sm">
@@ -873,31 +1208,9 @@ const Production = () => {
         </div>
       </div>
 
-      {/* TOTAL CURRENT BIRDS */}
-
-      <div className="rounded-xl border border-blue-200 bg-blue-50 p-5 shadow-sm">
-        <div className="flex flex-col gap-2 sm:flex-row sm:items-center sm:justify-between">
-          <div>
-            <h2 className="text-lg font-semibold text-blue-900">
-              Total Birds Across All Pens
-            </h2>
-
-            <p className="text-sm text-blue-700">
-              Sum of the latest closing stock from each pen.
-            </p>
-          </div>
-
-          <div className="text-left sm:text-right">
-            <p className="text-3xl font-bold text-blue-900">
-              {stats.totalCurrentBirds.toLocaleString()}
-            </p>
-
-            <p className="text-xs text-blue-600">Current total birds</p>
-          </div>
-        </div>
-      </div>
-
-      {/* CURRENT STOCK BY PEN */}
+      {/* ======================================================
+          CURRENT STOCK BY PEN
+      ====================================================== */}
 
       <div className="space-y-3">
         <div>
@@ -940,7 +1253,9 @@ const Production = () => {
         </div>
       </div>
 
-      {/* PRODUCTION FORM */}
+      {/* ======================================================
+          PRODUCTION FORM
+      ====================================================== */}
 
       <div className="rounded-xl border bg-white p-5 shadow-sm">
         <div className="mb-5 flex items-center justify-between">
@@ -1013,24 +1328,22 @@ const Production = () => {
                   <div>
                     <p className="text-xs text-gray-500">Flock ID</p>
                     <p className="font-semibold text-gray-800">
-                      {activeFlock.flockId || "—"}
+                      {activeFlock.flockId}
                     </p>
                   </div>
 
                   <div>
                     <p className="text-xs text-gray-500">Pen</p>
                     <p className="font-semibold text-gray-800">
-                      {activeFlock.pen || "—"}
+                      {activeFlock.pen}
                     </p>
                   </div>
 
                   <div>
                     <p className="text-xs text-gray-500">Current Age</p>
                     <p className="font-semibold text-gray-800">
-                      {activeFlock.currentAgeWeeks ?? "—"}
-                      {activeFlock.currentAgeWeeks !== undefined
-                        ? " weeks"
-                        : ""}
+                      {activeFlock.currentAgeWeeks ?? "—"}{" "}
+                      {activeFlock.currentAgeWeeks !== undefined ? "weeks" : ""}
                     </p>
                   </div>
 
@@ -1120,38 +1433,22 @@ const Production = () => {
               id="days"
               type="number"
               min="0"
-              step="1"
               name="days"
               value={formData.days}
               onChange={handleChange}
-              readOnly={daysCalculatedAutomatically}
+              readOnly={Boolean(activeFlock) && !broodingHouse}
               required
-              className={`${inputClass} ${
-                daysCalculatedAutomatically
-                  ? "cursor-not-allowed bg-gray-100"
-                  : ""
-              }`}
+              className={`${inputClass} ${activeFlock && !broodingHouse ? "cursor-not-allowed bg-gray-100" : ""}`}
             />
-
             <p className="mt-1 text-xs text-gray-500">
-              {daysCalculatedAutomatically
-                ? "Calculated automatically from flock age and the production date."
+              {activeFlock && !broodingHouse
+                ? "Calculated automatically from flock age and production date."
                 : broodingHouse
-                  ? "Enter the age in days manually for the Brooding House."
+                  ? "Enter age in days manually for the Brooding House."
                   : flockLoading
                     ? "Waiting for flock information..."
                     : "Enter Days manually because no active flock is available."}
             </p>
-
-            {activeFlock &&
-              !broodingHouse &&
-              formData.date &&
-              calculateDaysFromFlock(activeFlock, formData.date) === "" && (
-                <p className="mt-1 text-xs text-red-600">
-                  The production date must not be before the flock placement
-                  date.
-                </p>
-              )}
           </div>
 
           {/* OPENING STOCK */}
@@ -1245,7 +1542,10 @@ const Production = () => {
             />
           </div>
 
-          {/* FEED */}
+          {/* ==================================================
+              FEED
+              DECIMALS ARE ALLOWED
+          ================================================== */}
 
           <div>
             <label htmlFor="feedBagsConsumed" className={labelClass}>
@@ -1473,7 +1773,9 @@ const Production = () => {
         </form>
       </div>
 
-      {/* PRODUCTION LIST */}
+      {/* ======================================================
+          PRODUCTION LIST
+      ====================================================== */}
 
       <div className="rounded-xl border bg-white shadow-sm">
         <div className="flex flex-col gap-4 border-b p-5 md:flex-row md:items-center md:justify-between">
@@ -1488,7 +1790,43 @@ const Production = () => {
             </p>
           </div>
 
-          <div className="w-full md:w-80">
+          <div className="flex w-full flex-col gap-2 sm:flex-row md:w-auto">
+            <div className="flex flex-wrap gap-2">
+              <input
+                type="date"
+                value={dateFrom}
+                onChange={(e) => {
+                  setDateFrom(e.target.value);
+                  setCurrentPage(1);
+                }}
+                aria-label="Report start date"
+                className={inputClass}
+              />
+              <input
+                type="date"
+                value={dateTo}
+                min={dateFrom || undefined}
+                onChange={(e) => {
+                  setDateTo(e.target.value);
+                  setCurrentPage(1);
+                }}
+                aria-label="Report end date"
+                className={inputClass}
+              />
+              {(dateFrom || dateTo) && (
+                <button
+                  type="button"
+                  onClick={() => {
+                    setDateFrom("");
+                    setDateTo("");
+                    setCurrentPage(1);
+                  }}
+                  className="rounded-lg border border-gray-300 px-3 py-2 text-sm"
+                >
+                  Clear dates
+                </button>
+              )}
+            </div>
             <input
               type="text"
               value={search}
@@ -1502,30 +1840,141 @@ const Production = () => {
           </div>
         </div>
 
+        {isCombinedBatteryReport && (
+          <div className="space-y-4 border-b bg-blue-50/50 p-5">
+            <div>
+              <h3 className="text-lg font-bold text-gray-800">
+                Battery Cage Combined Summary
+              </h3>
+              <p className="text-sm text-gray-600">
+                Combined from active records for Rows 1–3. Individual production
+                records remain unchanged below.
+              </p>
+            </div>
+            <div className="grid grid-cols-2 gap-3 md:grid-cols-4 xl:grid-cols-6">
+              {[
+                ["Total Eggs", batteryCombinedSummary.eggs],
+                ["Crates Produced", batteryCombinedSummary.crates],
+                ["Mortality", batteryCombinedSummary.mortality],
+                ["Current Birds", batteryCombinedSummary.closingStock],
+                ["Feed Bags", batteryCombinedSummary.feed],
+                [
+                  "Production %",
+                  `${batteryCombinedSummary.productionPercentage.toFixed(2)}%`,
+                ],
+                ["Opening Stock*", batteryCombinedSummary.openingStock],
+                ["Transfers In", batteryCombinedSummary.transferIn],
+                ["Transfers Out", batteryCombinedSummary.transferOut],
+                ["Sick Birds", batteryCombinedSummary.sickBirds],
+                ["Water Consumed", batteryCombinedSummary.water],
+                ["Cracked Eggs", batteryCombinedSummary.cracked],
+              ].map(([label, value]) => (
+                <div key={label} className="rounded-lg border bg-white p-3">
+                  <p className="text-xs text-gray-500">{label}</p>
+                  <p className="mt-1 text-xl font-bold text-gray-800">
+                    {typeof value === "number" ? value.toLocaleString() : value}
+                  </p>
+                </div>
+              ))}
+            </div>
+            <div className="overflow-x-auto rounded-lg border bg-white">
+              <table className="w-full min-w-[800px] text-sm">
+                <thead className="bg-gray-100 text-left">
+                  <tr>
+                    {[
+                      "Pen",
+                      "Records",
+                      "Total Eggs",
+                      "Crates",
+                      "Mortality",
+                      "Feed Bags",
+                      "Current Birds",
+                      "Cracked Eggs",
+                    ].map((heading) => (
+                      <th key={heading} className="px-3 py-2 font-semibold">
+                        {heading}
+                      </th>
+                    ))}
+                  </tr>
+                </thead>
+                <tbody className="divide-y">
+                  {batteryCombinedSummary.rows.map((row) => (
+                    <tr key={row.pen}>
+                      <td className="px-3 py-2 font-medium">{row.pen}</td>
+                      <td className="px-3 py-2">{row.records}</td>
+                      <td className="px-3 py-2">{row.eggs.toLocaleString()}</td>
+                      <td className="px-3 py-2">
+                        {row.crates.toLocaleString()}
+                      </td>
+                      <td className="px-3 py-2">
+                        {row.mortality.toLocaleString()}
+                      </td>
+                      <td className="px-3 py-2">{row.feed.toLocaleString()}</td>
+                      <td className="px-3 py-2">
+                        {row.hasStock ? row.closingStock.toLocaleString() : "—"}
+                      </td>
+                      <td className="px-3 py-2">
+                        {row.cracked.toLocaleString()}
+                      </td>
+                    </tr>
+                  ))}
+                </tbody>
+              </table>
+            </div>
+            <p className="text-xs text-gray-500">
+              *Opening stock shows the first recorded opening stock per row in
+              the current result set. Current birds sums each row's latest
+              closing stock. Production % is a weighted estimate using recorded
+              opening-stock values and should be interpreted as an overall
+              indicator for the selected records.
+            </p>
+          </div>
+        )}
+
         <div className="overflow-x-auto">
           <table className="min-w-[1500px] w-full text-sm">
             <thead className="bg-gray-50 text-left">
               <tr>
                 <th className="px-4 py-3 font-semibold">Date</th>
+
                 <th className="px-4 py-3 font-semibold">Pen</th>
+
                 <th className="px-4 py-3 font-semibold">Flock ID</th>
+
                 <th className="px-4 py-3 font-semibold">Flock Age</th>
+
                 <th className="px-4 py-3 font-semibold">Days</th>
+
                 <th className="px-4 py-3 font-semibold">Opening</th>
+
                 <th className="px-4 py-3 font-semibold">Transfer In</th>
+
                 <th className="px-4 py-3 font-semibold">Transfer Out</th>
+
                 <th className="px-4 py-3 font-semibold">Mortality</th>
+
                 <th className="px-4 py-3 font-semibold">Closing</th>
+
                 <th className="px-4 py-3 font-semibold">Sick</th>
+
                 <th className="px-4 py-3 font-semibold">Feed</th>
+
                 <th className="px-4 py-3 font-semibold">Water</th>
+
                 <th className="px-4 py-3 font-semibold">Crates</th>
+
                 <th className="px-4 py-3 font-semibold">Extra Eggs</th>
+
                 <th className="px-4 py-3 font-semibold">Total Eggs</th>
+
                 <th className="px-4 py-3 font-semibold">Production %</th>
+
                 <th className="px-4 py-3 font-semibold">Miscarriage</th>
+
                 <th className="px-4 py-3 font-semibold">Cracked</th>
+
                 <th className="px-4 py-3 font-semibold">Status</th>
+
                 <th className="px-4 py-3 font-semibold">Actions</th>
               </tr>
             </thead>
