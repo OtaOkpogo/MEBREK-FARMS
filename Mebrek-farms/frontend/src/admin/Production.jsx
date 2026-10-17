@@ -22,8 +22,8 @@ import socket from "../services/socket";
 // ============================================================
 
 const PAGE_SIZE = 10;
-
 const BROODING_HOUSE = "Brooding House";
+const DAY_MS = 24 * 60 * 60 * 1000;
 
 // ============================================================
 // EMPTY FORM
@@ -52,13 +52,90 @@ const emptyFormData = {
 // HELPERS
 // ============================================================
 
-const isBroodingHouse = (pen) => {
-  return pen === BROODING_HOUSE;
+const isBroodingHouse = (pen) => pen === BROODING_HOUSE;
+
+/**
+ * Converts a date to a UTC calendar-day timestamp.
+ * Handles YYYY-MM-DD values without local-time timezone drift.
+ */
+const getCalendarDay = (value) => {
+  if (!value) return null;
+
+  if (typeof value === "string") {
+    const match = value.match(/^(\d{4})-(\d{2})-(\d{2})/);
+
+    if (match) {
+      const [, year, month, day] = match;
+
+      return Date.UTC(Number(year), Number(month) - 1, Number(day));
+    }
+  }
+
+  const date = new Date(value);
+
+  if (Number.isNaN(date.getTime())) return null;
+
+  return Date.UTC(date.getUTCFullYear(), date.getUTCMonth(), date.getUTCDate());
+};
+
+const toDateInputValue = (value) => {
+  if (!value) return "";
+
+  if (typeof value === "string") {
+    const match = value.match(/^(\d{4}-\d{2}-\d{2})/);
+
+    if (match) return match[1];
+  }
+
+  const date = new Date(value);
+
+  if (Number.isNaN(date.getTime())) return "";
+
+  return [
+    date.getUTCFullYear(),
+    String(date.getUTCMonth() + 1).padStart(2, "0"),
+    String(date.getUTCDate()).padStart(2, "0"),
+  ].join("-");
+};
+
+/**
+ * Calculate the flock's age in days on the selected production date.
+ *
+ * Starting age is the flock's age when it was placed in the pen.
+ * Days since placement is added to that starting age.
+ */
+const calculateDaysFromFlock = (flock, productionDate) => {
+  if (!flock || !productionDate || !flock.placementDate) {
+    return "";
+  }
+
+  const placementDay = getCalendarDay(flock.placementDate);
+  const productionDay = getCalendarDay(productionDate);
+
+  if (placementDay === null || productionDay === null) {
+    return "";
+  }
+
+  if (productionDay < placementDay) {
+    return "";
+  }
+
+  const startingAgeWeeks = Number(flock.startingAgeWeeks ?? 0);
+
+  if (!Number.isFinite(startingAgeWeeks) || startingAgeWeeks < 0) {
+    return "";
+  }
+
+  const daysSincePlacement = Math.floor(
+    (productionDay - placementDay) / DAY_MS,
+  );
+
+  return startingAgeWeeks * 7 + daysSincePlacement;
 };
 
 const toFormData = (record) => ({
   pen: record?.pen || "",
-  date: record?.date ? new Date(record.date).toISOString().slice(0, 10) : "",
+  date: toDateInputValue(record?.date),
   days: record?.days ?? "",
   openingStock: record?.openingStock ?? "",
   transferIn: record?.transferIn ?? "",
@@ -85,7 +162,6 @@ const Production = () => {
   // ============================================================
 
   const user = JSON.parse(localStorage.getItem("user") || "{}");
-
   const role = user?.role || localStorage.getItem("role");
 
   // ============================================================
@@ -93,19 +169,11 @@ const Production = () => {
   // ============================================================
 
   const [productions, setProductions] = useState([]);
-
   const [formData, setFormData] = useState(emptyFormData);
-
-  const broodingHouse = isBroodingHouse(formData.pen);
-
   const [editingId, setEditingId] = useState(null);
-
   const [saving, setSaving] = useState(false);
-
   const [loading, setLoading] = useState(false);
-
   const [search, setSearch] = useState("");
-
   const [currentPage, setCurrentPage] = useState(1);
 
   // ============================================================
@@ -113,10 +181,10 @@ const Production = () => {
   // ============================================================
 
   const [activeFlock, setActiveFlock] = useState(null);
-
   const [flockLoading, setFlockLoading] = useState(false);
-
   const [flockError, setFlockError] = useState("");
+
+  const broodingHouse = isBroodingHouse(formData.pen);
 
   // ============================================================
   // LOAD PRODUCTIONS
@@ -127,7 +195,6 @@ const Production = () => {
       setLoading(true);
 
       const data = await fetchProductions();
-
       const records = Array.isArray(data) ? data : [];
 
       setProductions(records);
@@ -159,25 +226,19 @@ const Production = () => {
   // ============================================================
 
   useEffect(() => {
-    if (!socket) {
-      return;
-    }
+    if (!socket) return undefined;
 
     const handleProductionUpdate = () => {
       loadProductions(false);
     };
 
     socket.on("productionCreated", handleProductionUpdate);
-
     socket.on("productionUpdated", handleProductionUpdate);
-
     socket.on("productionDeleted", handleProductionUpdate);
 
     return () => {
       socket.off("productionCreated", handleProductionUpdate);
-
       socket.off("productionUpdated", handleProductionUpdate);
-
       socket.off("productionDeleted", handleProductionUpdate);
     };
   }, []);
@@ -190,23 +251,20 @@ const Production = () => {
     setActiveFlock(null);
     setFlockError("");
 
-    if (!pen) {
+    if (!pen || isBroodingHouse(pen)) {
       setFlockLoading(false);
-      return;
-    }
-
-    // Brooding House does not require a flock.
-    if (pen === BROODING_HOUSE) {
-      setFlockLoading(false);
-      return;
+      return null;
     }
 
     setFlockLoading(true);
 
     try {
       const flock = await fetchActiveFlockByPen(pen);
+      const result = flock || null;
 
-      setActiveFlock(flock || null);
+      setActiveFlock(result);
+
+      return result;
     } catch (error) {
       console.error("ACTIVE FLOCK ERROR:", error);
 
@@ -216,10 +274,42 @@ const Production = () => {
         error.response?.data?.message ||
           `Failed to load active flock for ${pen}.`,
       );
+
+      return null;
     } finally {
       setFlockLoading(false);
     }
   };
+
+  // ============================================================
+  // AUTOMATIC DAYS CALCULATION
+  // ============================================================
+
+  useEffect(() => {
+    // Brooding House and pens without an active flock use manual Days.
+    if (broodingHouse || !activeFlock || !formData.date) {
+      return;
+    }
+
+    const calculatedDays = calculateDaysFromFlock(activeFlock, formData.date);
+
+    // Keep the field unchanged if the date is before placement
+    // or the flock's placement date is missing.
+    if (calculatedDays === "") {
+      return;
+    }
+
+    setFormData((previous) => {
+      if (String(previous.days) === String(calculatedDays)) {
+        return previous;
+      }
+
+      return {
+        ...previous,
+        days: calculatedDays,
+      };
+    });
+  }, [activeFlock, formData.date, broodingHouse]);
 
   // ============================================================
   // PEN CHANGE
@@ -228,9 +318,13 @@ const Production = () => {
   const handlePenChange = async (e) => {
     const pen = e.target.value;
 
-    setFormData((prev) => ({
-      ...prev,
+    setFormData((previous) => ({
+      ...previous,
       pen,
+
+      // Reset Days while loading another flock so the previous
+      // pen's calculated age is not accidentally reused.
+      days: "",
 
       ...(pen === BROODING_HOUSE
         ? {
@@ -252,8 +346,8 @@ const Production = () => {
   const handleChange = (e) => {
     const { name, value } = e.target;
 
-    setFormData((prev) => ({
-      ...prev,
+    setFormData((previous) => ({
+      ...previous,
       [name]: value,
     }));
   };
@@ -265,6 +359,11 @@ const Production = () => {
   const handleSubmit = async (e) => {
     e.preventDefault();
 
+    if (!formData.pen || !formData.date) {
+      toast.error("Please select a pen and production date.");
+      return;
+    }
+
     const calculatedClosingStock =
       Number(formData.openingStock || 0) +
       Number(formData.transferIn || 0) -
@@ -275,22 +374,21 @@ const Production = () => {
       toast.error(
         "Closing stock cannot be negative. Check opening stock, transfers, and mortality.",
       );
-
       return;
     }
 
-    // ==========================================================
-    // IMPORTANT:
-    //
-    // We deliberately DO NOT send:
-    //
-    // flock
-    // flockId
-    // flockAgeWeeks
-    //
-    // The backend determines those values from the active flock
-    // for the selected pen.
-    // ==========================================================
+    // If an active flock is assigned, do not save an age from a
+    // date before that flock's placement date.
+    if (activeFlock && !broodingHouse) {
+      const calculatedDays = calculateDaysFromFlock(activeFlock, formData.date);
+
+      if (calculatedDays === "") {
+        toast.error(
+          "The production date cannot be before the flock placement date. Check the date and flock information.",
+        );
+        return;
+      }
+    }
 
     const payload = {
       ...formData,
@@ -298,22 +396,14 @@ const Production = () => {
       days: Number(formData.days || 0),
 
       openingStock: Number(formData.openingStock || 0),
-
       transferIn: Number(formData.transferIn || 0),
-
       transferOut: Number(formData.transferOut || 0),
-
       mortality: Number(formData.mortality || 0),
-
       sickBirds: Number(formData.sickBirds || 0),
 
-      // Decimal values are preserved.
-      // Examples: 0.5, 1.25, 2.5
       feedBagsConsumed: Number(formData.feedBagsConsumed || 0),
-
       waterConsumed: Number(formData.waterConsumed || 0),
 
-      // Brooding House has no egg production fields.
       cratesProduced: broodingHouse ? 0 : Number(formData.cratesProduced || 0),
 
       extraEggPieces: broodingHouse ? 0 : Number(formData.extraEggPieces || 0),
@@ -325,24 +415,25 @@ const Production = () => {
       crackedEggs: broodingHouse ? 0 : Number(formData.crackedEggs || 0),
     };
 
+    // The backend remains responsible for assigning flock,
+    // flockId, and flockAgeWeeks from the flock record.
     setSaving(true);
 
     try {
       if (editingId) {
         const updated = await updateProduction(editingId, payload);
 
-        setProductions((prev) =>
-          prev.map((item) => (item._id === editingId ? updated : item)),
+        setProductions((previous) =>
+          previous.map((item) => (item._id === editingId ? updated : item)),
         );
 
         toast.success("Production record updated successfully");
-
         setEditingId(null);
       } else {
         const created = await createProduction(payload);
 
         if (created) {
-          setProductions((prev) => [created, ...prev]);
+          setProductions((previous) => [created, ...previous]);
         } else {
           await loadProductions(false);
         }
@@ -351,11 +442,9 @@ const Production = () => {
       }
 
       setFormData(emptyFormData);
-
       setActiveFlock(null);
       setFlockError("");
       setFlockLoading(false);
-
       setCurrentPage(1);
     } catch (error) {
       console.error("SAVE PRODUCTION ERROR:", error);
@@ -376,11 +465,27 @@ const Production = () => {
     setEditingId(record._id);
 
     setFormData(toFormData(record));
-
     setActiveFlock(null);
     setFlockError("");
 
-    await loadActiveFlock(record.pen);
+    const flock = await loadActiveFlock(record.pen);
+
+    // For an existing record, recalculate Days using the selected
+    // record date when the current flock's placement information
+    // is available. The backend also recalculates on save.
+    if (flock && !isBroodingHouse(record.pen)) {
+      const calculatedDays = calculateDaysFromFlock(
+        flock,
+        toDateInputValue(record.date),
+      );
+
+      if (calculatedDays !== "") {
+        setFormData((previous) => ({
+          ...previous,
+          days: calculatedDays,
+        }));
+      }
+    }
 
     window.scrollTo({
       top: 0,
@@ -394,9 +499,7 @@ const Production = () => {
 
   const cancelEdit = () => {
     setEditingId(null);
-
     setFormData(emptyFormData);
-
     setActiveFlock(null);
     setFlockError("");
     setFlockLoading(false);
@@ -411,23 +514,16 @@ const Production = () => {
       "Are you sure you want to delete this production record?",
     );
 
-    if (!confirmed) {
-      return;
-    }
+    if (!confirmed) return;
 
     try {
       await deleteProduction(id);
 
-      setProductions((prev) =>
+      setProductions((previous) =>
         role === "superadmin"
-          ? prev.filter((item) => item._id !== id)
-          : prev.map((item) =>
-              item._id === id
-                ? {
-                    ...item,
-                    isDeleted: true,
-                  }
-                : item,
+          ? previous.filter((item) => item._id !== id)
+          : previous.map((item) =>
+              item._id === id ? { ...item, isDeleted: true } : item,
             ),
       );
 
@@ -450,9 +546,7 @@ const Production = () => {
   const filteredProductions = useMemo(() => {
     const query = search.trim().toLowerCase();
 
-    if (!query) {
-      return productions;
-    }
+    if (!query) return productions;
 
     return productions.filter((record) => {
       const values = [
@@ -516,8 +610,8 @@ const Production = () => {
       0,
     );
 
-    // Closing stock is a point-in-time balance, not a daily value to sum.
-    // For every pen, use only its latest active production record.
+    // Closing stock is a balance, so use only the latest record
+    // for each pen rather than summing daily closing stocks.
     const currentStockByPen = PENS.map((pen) => {
       const penRecords = activeRecords
         .filter((item) => item.pen === pen)
@@ -525,9 +619,7 @@ const Production = () => {
           const dateDifference =
             new Date(b.date).getTime() - new Date(a.date).getTime();
 
-          if (dateDifference !== 0) {
-            return dateDifference;
-          }
+          if (dateDifference !== 0) return dateDifference;
 
           return (
             new Date(b.updatedAt || b.createdAt || 0).getTime() -
@@ -546,10 +638,6 @@ const Production = () => {
         hasRecord: Boolean(latestRecord),
       };
     });
-
-    // ============================================================
-    // TOTAL CURRENT BIRDS ACROSS ALL PENS
-    // ============================================================
 
     const totalCurrentBirds = currentStockByPen.reduce(
       (sum, item) =>
@@ -574,59 +662,37 @@ const Production = () => {
   const handleExportExcel = () => {
     if (!filteredProductions.length) {
       toast.info("There are no production records to export.");
-
       return;
     }
 
     const data = filteredProductions.map((record) => ({
       Date: record.date ? new Date(record.date).toLocaleDateString() : "",
-
       Pen: record.pen || "",
-
       "Flock ID": record.flockId || record.flock?.flockId || "",
-
       "Flock Age":
         record.flockAgeWeeks !== null && record.flockAgeWeeks !== undefined
           ? `${record.flockAgeWeeks} weeks`
           : "",
-
       Days: record.days ?? "",
-
       "Opening Stock": record.openingStock ?? "",
-
       "Transfer In": record.transferIn ?? 0,
-
       "Transfer Out": record.transferOut ?? 0,
-
       Mortality: record.mortality ?? 0,
-
       "Closing Stock": record.closingStock ?? 0,
-
       "Sick Birds": record.sickBirds ?? 0,
-
       "Feed Bags": record.feedBagsConsumed ?? 0,
-
       "Water Consumed": record.waterConsumed ?? 0,
-
       "Crates Produced": record.cratesProduced ?? 0,
-
       "Extra Eggs": record.extraEggPieces ?? 0,
-
       "Total Eggs": record.totalEggs ?? 0,
-
       "Production %": record.productionPercentage ?? 0,
-
       "Miscarriage Production": record.miscarriageProduction ?? 0,
-
       "Cracked Eggs": record.crackedEggs ?? 0,
-
       "Drugs Used": record.drugsUsed || "",
-
       Remarks: record.remarks || "",
     }));
 
     const worksheet = XLSX.utils.json_to_sheet(data);
-
     const workbook = XLSX.utils.book_new();
 
     XLSX.utils.book_append_sheet(workbook, worksheet, "Production");
@@ -643,7 +709,6 @@ const Production = () => {
   const handleExportPDF = () => {
     if (!filteredProductions.length) {
       toast.info("There are no production records to export.");
-
       return;
     }
 
@@ -654,42 +719,27 @@ const Production = () => {
     });
 
     doc.setFontSize(16);
-
     doc.text("Production Records", 14, 15);
 
     doc.setFontSize(9);
-
     doc.text(`Generated: ${new Date().toLocaleString()}`, 14, 21);
 
     const rows = filteredProductions.map((record) => [
       record.date ? new Date(record.date).toLocaleDateString() : "",
-
       record.pen || "",
-
       record.flockId || record.flock?.flockId || "—",
-
       record.flockAgeWeeks !== null && record.flockAgeWeeks !== undefined
         ? `${record.flockAgeWeeks} w`
         : "—",
-
       record.days ?? "",
-
       record.openingStock ?? 0,
-
       record.transferIn ?? 0,
-
       record.transferOut ?? 0,
-
       record.mortality ?? 0,
-
       record.closingStock ?? 0,
-
       record.cratesProduced ?? 0,
-
       record.extraEggPieces ?? 0,
-
       record.totalEggs ?? 0,
-
       record.productionPercentage !== undefined
         ? `${record.productionPercentage}%`
         : "0%",
@@ -697,7 +747,6 @@ const Production = () => {
 
     autoTable(doc, {
       startY: 26,
-
       head: [
         [
           "Date",
@@ -716,18 +765,14 @@ const Production = () => {
           "Production %",
         ],
       ],
-
       body: rows,
-
       styles: {
         fontSize: 7,
         cellPadding: 2,
       },
-
       headStyles: {
         fontSize: 7,
       },
-
       margin: {
         left: 8,
         right: 8,
@@ -748,15 +793,15 @@ const Production = () => {
 
   const labelClass = "mb-1 block text-sm font-medium text-gray-700";
 
+  const daysCalculatedAutomatically = Boolean(activeFlock) && !broodingHouse;
+
   // ============================================================
   // RENDER
   // ============================================================
 
   return (
     <div className="space-y-6 p-4 md:p-6">
-      {/* ======================================================
-          PAGE HEADER
-      ====================================================== */}
+      {/* PAGE HEADER */}
 
       <div className="flex flex-col gap-4 md:flex-row md:items-center md:justify-between">
         <div>
@@ -798,9 +843,7 @@ const Production = () => {
         </div>
       </div>
 
-      {/* ======================================================
-          STATISTICS
-      ====================================================== */}
+      {/* STATISTICS */}
 
       <div className="grid grid-cols-1 gap-4 sm:grid-cols-2 lg:grid-cols-5">
         <div className="rounded-xl border bg-white p-4 shadow-sm">
@@ -830,9 +873,7 @@ const Production = () => {
         </div>
       </div>
 
-      {/* ======================================================
-          TOTAL CURRENT BIRDS
-      ====================================================== */}
+      {/* TOTAL CURRENT BIRDS */}
 
       <div className="rounded-xl border border-blue-200 bg-blue-50 p-5 shadow-sm">
         <div className="flex flex-col gap-2 sm:flex-row sm:items-center sm:justify-between">
@@ -856,9 +897,7 @@ const Production = () => {
         </div>
       </div>
 
-      {/* ======================================================
-          CURRENT STOCK BY PEN
-      ====================================================== */}
+      {/* CURRENT STOCK BY PEN */}
 
       <div className="space-y-3">
         <div>
@@ -901,9 +940,7 @@ const Production = () => {
         </div>
       </div>
 
-      {/* ======================================================
-          PRODUCTION FORM
-      ====================================================== */}
+      {/* PRODUCTION FORM */}
 
       <div className="rounded-xl border bg-white p-5 shadow-sm">
         <div className="mb-5 flex items-center justify-between">
@@ -976,22 +1013,24 @@ const Production = () => {
                   <div>
                     <p className="text-xs text-gray-500">Flock ID</p>
                     <p className="font-semibold text-gray-800">
-                      {activeFlock.flockId}
+                      {activeFlock.flockId || "—"}
                     </p>
                   </div>
 
                   <div>
                     <p className="text-xs text-gray-500">Pen</p>
                     <p className="font-semibold text-gray-800">
-                      {activeFlock.pen}
+                      {activeFlock.pen || "—"}
                     </p>
                   </div>
 
                   <div>
                     <p className="text-xs text-gray-500">Current Age</p>
                     <p className="font-semibold text-gray-800">
-                      {activeFlock.currentAgeWeeks ?? "—"}{" "}
-                      {activeFlock.currentAgeWeeks !== undefined ? "weeks" : ""}
+                      {activeFlock.currentAgeWeeks ?? "—"}
+                      {activeFlock.currentAgeWeeks !== undefined
+                        ? " weeks"
+                        : ""}
                     </p>
                   </div>
 
@@ -1081,12 +1120,38 @@ const Production = () => {
               id="days"
               type="number"
               min="0"
+              step="1"
               name="days"
               value={formData.days}
               onChange={handleChange}
+              readOnly={daysCalculatedAutomatically}
               required
-              className={inputClass}
+              className={`${inputClass} ${
+                daysCalculatedAutomatically
+                  ? "cursor-not-allowed bg-gray-100"
+                  : ""
+              }`}
             />
+
+            <p className="mt-1 text-xs text-gray-500">
+              {daysCalculatedAutomatically
+                ? "Calculated automatically from flock age and the production date."
+                : broodingHouse
+                  ? "Enter the age in days manually for the Brooding House."
+                  : flockLoading
+                    ? "Waiting for flock information..."
+                    : "Enter Days manually because no active flock is available."}
+            </p>
+
+            {activeFlock &&
+              !broodingHouse &&
+              formData.date &&
+              calculateDaysFromFlock(activeFlock, formData.date) === "" && (
+                <p className="mt-1 text-xs text-red-600">
+                  The production date must not be before the flock placement
+                  date.
+                </p>
+              )}
           </div>
 
           {/* OPENING STOCK */}
@@ -1180,10 +1245,7 @@ const Production = () => {
             />
           </div>
 
-          {/* ==================================================
-              FEED
-              DECIMALS ARE ALLOWED
-          ================================================== */}
+          {/* FEED */}
 
           <div>
             <label htmlFor="feedBagsConsumed" className={labelClass}>
@@ -1411,9 +1473,7 @@ const Production = () => {
         </form>
       </div>
 
-      {/* ======================================================
-          PRODUCTION LIST
-      ====================================================== */}
+      {/* PRODUCTION LIST */}
 
       <div className="rounded-xl border bg-white shadow-sm">
         <div className="flex flex-col gap-4 border-b p-5 md:flex-row md:items-center md:justify-between">
@@ -1447,45 +1507,25 @@ const Production = () => {
             <thead className="bg-gray-50 text-left">
               <tr>
                 <th className="px-4 py-3 font-semibold">Date</th>
-
                 <th className="px-4 py-3 font-semibold">Pen</th>
-
                 <th className="px-4 py-3 font-semibold">Flock ID</th>
-
                 <th className="px-4 py-3 font-semibold">Flock Age</th>
-
                 <th className="px-4 py-3 font-semibold">Days</th>
-
                 <th className="px-4 py-3 font-semibold">Opening</th>
-
                 <th className="px-4 py-3 font-semibold">Transfer In</th>
-
                 <th className="px-4 py-3 font-semibold">Transfer Out</th>
-
                 <th className="px-4 py-3 font-semibold">Mortality</th>
-
                 <th className="px-4 py-3 font-semibold">Closing</th>
-
                 <th className="px-4 py-3 font-semibold">Sick</th>
-
                 <th className="px-4 py-3 font-semibold">Feed</th>
-
                 <th className="px-4 py-3 font-semibold">Water</th>
-
                 <th className="px-4 py-3 font-semibold">Crates</th>
-
                 <th className="px-4 py-3 font-semibold">Extra Eggs</th>
-
                 <th className="px-4 py-3 font-semibold">Total Eggs</th>
-
                 <th className="px-4 py-3 font-semibold">Production %</th>
-
                 <th className="px-4 py-3 font-semibold">Miscarriage</th>
-
                 <th className="px-4 py-3 font-semibold">Cracked</th>
-
                 <th className="px-4 py-3 font-semibold">Status</th>
-
                 <th className="px-4 py-3 font-semibold">Actions</th>
               </tr>
             </thead>
