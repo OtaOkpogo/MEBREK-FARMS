@@ -2,20 +2,107 @@ import { useEffect, useMemo, useRef, useState } from "react";
 import { useNavigate } from "react-router-dom";
 import { globalSearch } from "../services/searchService";
 
-function highlightText(text, search) {
-  if (!text) return "";
+const EMPTY_RESULTS = {
+  workers: [],
+  production: [],
+  eggSales: [],
+  feedInventory: [],
+  roomInventory: [],
+  notifications: [],
+  warehouse: [],
+  orders: [],
+  vaccinations: [],
+  medications: [],
+};
 
-  if (!search || search.trim() === "") {
-    return text;
+const CATEGORIES = [
+  {
+    key: "workers",
+    label: "Workers",
+    icon: "👤",
+    path: "/admin/staff",
+  },
+  {
+    key: "production",
+    label: "Production",
+    icon: "🥚",
+    path: "/admin/production",
+  },
+  {
+    key: "eggSales",
+    label: "Egg Sales",
+    icon: "💰",
+    path: "/admin/egg-sales",
+  },
+  {
+    key: "feedInventory",
+    label: "Feed Inventory",
+    icon: "🌽",
+    path: "/admin/feeds",
+  },
+  {
+    key: "roomInventory",
+    label: "Room Inventory",
+    icon: "🏠",
+    path: "/admin/room-inventory",
+  },
+  {
+    key: "notifications",
+    label: "Notifications",
+    icon: "🔔",
+    path: "/admin/notifications",
+  },
+  {
+    key: "warehouse",
+    label: "Warehouse",
+    icon: "📦",
+    path: "/admin/warehouse",
+  },
+  {
+    key: "orders",
+    label: "Orders",
+    icon: "🧾",
+    path: "/admin/orders",
+  },
+  {
+    key: "vaccinations",
+    label: "Vaccinations",
+    icon: "💉",
+    path: "/admin/vaccinations",
+  },
+  {
+    key: "medications",
+    label: "Medications",
+    icon: "💊",
+    path: "/admin/medications",
+  },
+];
+
+function readRecentSearches() {
+  try {
+    const saved = JSON.parse(localStorage.getItem("recentSearches") || "[]");
+    return Array.isArray(saved)
+      ? saved.filter((item) => typeof item === "string")
+      : [];
+  } catch {
+    return [];
   }
+}
 
-  const escaped = search.replace(/[.*+?^${}()|[\]\\]/g, "\\$&");
-  const regex = new RegExp(`(${escaped})`, "ig");
-  const parts = String(text).split(regex);
+function highlightText(value, search) {
+  if (value === null || value === undefined || value === "") return "—";
+
+  const text = String(value);
+  const term = String(search || "").trim();
+
+  if (!term) return text;
+
+  const escaped = term.replace(/[.*+?^${}()|[\]\\]/g, "\\$&");
+  const parts = text.split(new RegExp(`(${escaped})`, "ig"));
 
   return parts.map((part, index) =>
-    regex.test(part) ? (
-      <mark key={index} className="bg-yellow-300 text-black rounded px-0.5">
+    index % 2 === 1 ? (
+      <mark key={index} className="rounded bg-yellow-200 px-0.5 text-gray-900">
         {part}
       </mark>
     ) : (
@@ -24,33 +111,186 @@ function highlightText(text, search) {
   );
 }
 
+// Supports both normalized results and raw documents returned by the API.
+function normalizeResult(category, item) {
+  const first = (...values) =>
+    values.find(
+      (value) => value !== undefined && value !== null && value !== "",
+    );
+
+  let title = item.title;
+  let subtitle = item.subtitle;
+  let detail = item.detail;
+  let date = item.date;
+
+  switch (category) {
+    case "workers":
+      title = first(
+        title,
+        item.name,
+        [item.firstName, item.lastName].filter(Boolean).join(" "),
+        item.employeeId,
+      );
+      subtitle = first(subtitle, item.email, item.employeeId, item.department);
+      detail = first(detail, item.role, item.department, item.status);
+      break;
+
+    case "production":
+      title = first(title, item.pen, "Production record");
+      subtitle = first(
+        subtitle,
+        item.date ? new Date(item.date).toLocaleDateString() : "",
+      );
+      detail =
+        detail ??
+        [
+          item.cratesProduced !== undefined
+            ? `Crates: ${item.cratesProduced}`
+            : null,
+          item.productionPercentage !== undefined
+            ? `Production: ${item.productionPercentage}%`
+            : null,
+          item.totalEggs !== undefined ? `Eggs: ${item.totalEggs}` : null,
+        ]
+          .filter(Boolean)
+          .join(" • ");
+      date = first(date, item.date);
+      break;
+
+    case "eggSales":
+      title = first(title, item.customer, item.customerName, "Egg sale");
+      subtitle = first(subtitle, item.phone, item.invoiceNumber);
+      detail =
+        detail ??
+        [
+          item.totalAmount !== undefined
+            ? `Total: ₦${Number(item.totalAmount || 0).toLocaleString()}`
+            : null,
+          item.paymentStatus || item.status,
+        ]
+          .filter(Boolean)
+          .join(" • ");
+      date = first(date, item.date);
+      break;
+
+    case "feedInventory":
+      title = first(title, item.name, item.feedName, "Feed inventory");
+      subtitle = first(
+        subtitle,
+        item.supplier,
+        item.unit ? `Unit: ${item.unit}` : "",
+      );
+      detail =
+        detail ??
+        [
+          item.quantity !== undefined ? `Quantity: ${item.quantity}` : null,
+          item.unit,
+        ]
+          .filter(Boolean)
+          .join(" • ");
+      break;
+
+    case "roomInventory":
+      title = first(title, item.itemName, item.name, "Inventory item");
+      subtitle = first(subtitle, item.roomName, item.category);
+      detail =
+        detail ??
+        [
+          item.quantity !== undefined ? `Quantity: ${item.quantity}` : null,
+          item.condition,
+        ]
+          .filter(Boolean)
+          .join(" • ");
+      break;
+
+    case "notifications":
+      title = first(title, item.subject, "Notification");
+      subtitle = first(subtitle, item.message, item.senderName);
+      detail = detail ?? item.senderName;
+      date = first(date, item.createdAt);
+      break;
+
+    case "warehouse":
+      title = first(title, item.itemName, item.name, "Warehouse item");
+      subtitle = first(subtitle, item.category, item.location);
+      detail =
+        detail ??
+        [
+          item.quantity !== undefined ? `Quantity: ${item.quantity}` : null,
+          item.unit,
+          item.status,
+        ]
+          .filter(Boolean)
+          .join(" • ");
+      break;
+
+    case "orders":
+      title = first(title, item.name, item.customer, item.contact, "Order");
+      subtitle = first(subtitle, item.contact, item.message);
+      detail = detail ?? item.status;
+      date = first(date, item.createdAt, item.date);
+      break;
+
+    case "vaccinations":
+      title = first(title, item.vaccineName, item.name, "Vaccination record");
+      subtitle = first(subtitle, item.birdBatch, item.administeredBy);
+      detail =
+        detail ??
+        [
+          item.quantity !== undefined ? `Quantity: ${item.quantity}` : null,
+          item.nextDueDate ? `Next due: ${item.nextDueDate}` : null,
+        ]
+          .filter(Boolean)
+          .join(" • ");
+      date = first(date, item.dateAdministered, item.createdAt);
+      break;
+
+    case "medications":
+      title = first(title, item.medicationName, item.name, "Medication record");
+      subtitle = first(subtitle, item.purpose, item.administeredTo);
+      detail =
+        detail ??
+        [item.dosage ? `Dosage: ${item.dosage}` : null, item.administeredTo]
+          .filter(Boolean)
+          .join(" • ");
+      date = first(date, item.dateAdministered, item.createdAt);
+      break;
+
+    default:
+      title = first(title, item.name, item._id, "Record");
+  }
+
+  return {
+    ...item,
+    title: String(title ?? "Record"),
+    subtitle: subtitle == null ? "" : String(subtitle),
+    detail: detail == null ? "" : String(detail),
+    date,
+  };
+}
+
+function formatDate(value) {
+  if (!value) return "";
+
+  const parsed = new Date(value);
+  return Number.isNaN(parsed.getTime())
+    ? String(value)
+    : parsed.toLocaleDateString();
+}
+
 function SearchSpinner() {
   return (
     <div className="flex flex-col items-center justify-center py-8">
-      <div className="relative">
-        <div className="w-10 h-10 rounded-full border-4 border-gray-200"></div>
-        <div className="absolute inset-0 w-10 h-10 rounded-full border-4 border-emerald-600 border-t-transparent animate-spin"></div>
+      <div className="relative h-10 w-10">
+        <div className="h-10 w-10 rounded-full border-4 border-gray-200" />
+        <div className="absolute inset-0 h-10 w-10 animate-spin rounded-full border-4 border-emerald-600 border-t-transparent" />
       </div>
 
-      <div className="flex items-center gap-2 mt-4">
-        <span className="font-medium text-gray-700">
-          Searching farm records
-        </span>
-        <span className="flex gap-1">
-          <span className="w-1.5 h-1.5 bg-emerald-600 rounded-full animate-bounce"></span>
-          <span
-            className="w-1.5 h-1.5 bg-emerald-600 rounded-full animate-bounce"
-            style={{ animationDelay: ".15s" }}
-          ></span>
-          <span
-            className="w-1.5 h-1.5 bg-emerald-600 rounded-full animate-bounce"
-            style={{ animationDelay: ".30s" }}
-          ></span>
-        </span>
-      </div>
-
-      <p className="text-xs text-gray-400 mt-1">
-        Workers • Production • Sales • Feed • Inventory • Notifications
+      <p className="mt-4 font-medium text-gray-700">
+        Searching farm records...
+      </p>
+      <p className="mt-1 text-xs text-gray-500">
+        Searching the records available to your account
       </p>
     </div>
   );
@@ -58,23 +298,14 @@ function SearchSpinner() {
 
 function SectionHeader({ icon, title, count }) {
   return (
-    <div className="sticky top-0 z-10 flex items-center justify-between bg-gray-50 px-3 py-2 border-b">
+    <div className="sticky top-0 z-10 flex items-center justify-between border-b bg-gray-50 px-3 py-2">
       <div className="flex items-center gap-2">
         <span>{icon}</span>
-        <span className="text-xs font-bold uppercase tracking-wide text-gray-600">
+        <span className="text-xs font-bold uppercase tracking-wide text-gray-700">
           {title}
         </span>
       </div>
-
-      <span
-        className={`text-xs font-semibold px-2 py-1 rounded-full ${
-          count > 10
-            ? "bg-red-100 text-red-700"
-            : count > 5
-              ? "bg-yellow-100 text-yellow-700"
-              : "bg-emerald-100 text-emerald-700"
-        }`}
-      >
+      <span className="rounded-full bg-emerald-100 px-2 py-1 text-xs font-semibold text-emerald-800">
         {count}
       </span>
     </div>
@@ -89,210 +320,92 @@ export default function GlobalSearch() {
   const selectedRef = useRef(null);
 
   const [query, setQuery] = useState("");
-  const [results, setResults] = useState({
-    workers: [],
-    production: [],
-    eggSales: [],
-    feedInventory: [],
-    roomInventory: [],
-    notifications: [],
-    warehouse: [],
-    orders: [],
-    vaccinations: [],
-    medications: [],
-  });
-
+  const [results, setResults] = useState(EMPTY_RESULTS);
   const [loading, setLoading] = useState(false);
   const [open, setOpen] = useState(false);
+  const [error, setError] = useState("");
   const [selectedIndex, setSelectedIndex] = useState(-1);
-
-  const [recentSearches, setRecentSearches] = useState(() => {
-    return JSON.parse(localStorage.getItem("recentSearches") || "[]");
-  });
-
-  // ==========================
-  // PLATFORM-AWARE SHORTCUT LABEL
-  // ==========================
+  const [recentSearches, setRecentSearches] = useState(readRecentSearches);
 
   const isMac =
     typeof navigator !== "undefined" &&
-    /Mac|iPod|iPhone|iPad/.test(navigator.platform || navigator.userAgent);
+    /Mac|iPod|iPhone|iPad/i.test(
+      `${navigator.platform || ""} ${navigator.userAgent || ""}`,
+    );
 
-  const shortcutLabel = isMac ? "⌘ + K" : "Ctrl + K";
-
-  // ==========================
-  // SEARCH (debounced)
-  // ==========================
+  const shortcutLabel = isMac ? "⌘ K" : "Ctrl K";
 
   useEffect(() => {
-    if (query.trim().length < 2) {
-      setResults({
-        workers: [],
-        production: [],
-        eggSales: [],
-        feedInventory: [],
-        roomInventory: [],
-        notifications: [],
-        warehouse: [],
-        orders: [],
-        vaccinations: [],
-        medications: [],
-      });
-      return;
+    const term = query.trim();
+    let cancelled = false;
+
+    if (term.length < 2) {
+      setResults(EMPTY_RESULTS);
+      setLoading(false);
+      setError("");
+      return undefined;
     }
 
     const timer = setTimeout(async () => {
+      setLoading(true);
+      setError("");
+
       try {
-        setLoading(true);
+        const data = await globalSearch(term);
 
-        const data = await globalSearch(query);
+        if (cancelled) return;
 
-        setResults({
-          workers: data.workers || [],
-          production: data.production || [],
-          eggSales: data.eggSales || [],
-          feedInventory: data.feedInventory || [],
-          roomInventory: data.roomInventory || [],
-          notifications: data.notifications || [],
-          warehouse: data.warehouse || [],
-          orders: data.orders || [],
-          vaccinations: data.vaccinations || [],
-          medications: data.medications || [],
-        });
+        // Also supports an Axios response if the service hasn't unwrapped it.
+        const payload = data?.data ?? data ?? {};
 
+        const safeResults = {};
+        for (const category of CATEGORIES) {
+          const value = payload[category.key];
+          safeResults[category.key] = Array.isArray(value)
+            ? value.map((item) => normalizeResult(category.key, item))
+            : [];
+        }
+
+        setResults(safeResults);
+        setSelectedIndex(-1);
         setOpen(true);
       } catch (err) {
-        console.error(err);
+        if (cancelled) return;
+
+        console.error("Global search failed:", err);
+        setResults(EMPTY_RESULTS);
+        setError(
+          err?.response?.data?.message ||
+            "Search failed. Please check your connection and try again.",
+        );
+        setOpen(true);
       } finally {
-        setLoading(false);
+        if (!cancelled) setLoading(false);
       }
     }, 300);
 
-    return () => clearTimeout(timer);
+    return () => {
+      cancelled = true;
+      clearTimeout(timer);
+    };
   }, [query]);
 
-  // ==========================
-  // FLATTEN RESULTS (single source of truth)
-  // ==========================
-
-  const flatResults = useMemo(() => {
-    const rows = [];
-
-    results.workers.forEach((item) =>
-      rows.push({ type: "worker", path: "/admin/staff", data: item }),
-    );
-    results.production.forEach((item) =>
-      rows.push({ type: "production", path: "/admin/production", data: item }),
-    );
-    results.eggSales.forEach((item) =>
-      rows.push({ type: "eggSales", path: "/admin/egg-sales", data: item }),
-    );
-    results.feedInventory.forEach((item) =>
-      rows.push({ type: "feed", path: "/admin/feeds", data: item }),
-    );
-    results.roomInventory.forEach((item) =>
-      rows.push({ type: "room", path: "/admin/room-inventory", data: item }),
-    );
-    results.notifications.forEach((item) =>
-      rows.push({
-        type: "notification",
-        path: "/admin/notifications",
-        data: item,
-      }),
-    );
-    results.warehouse.forEach((item) =>
-      rows.push({ type: "warehouse", path: "/admin/warehouse", data: item }),
-    );
-    results.orders.forEach((item) =>
-      rows.push({ type: "order", path: "/admin/orders", data: item }),
-    );
-    results.vaccinations.forEach((item) =>
-      rows.push({
-        type: "vaccination",
-        path: "/admin/vaccinations",
-        data: item,
-      }),
-    );
-    results.medications.forEach((item) =>
-      rows.push({
-        type: "medication",
-        path: "/admin/medications",
-        data: item,
-      }),
-    );
-
-    return rows;
-  }, [results]);
+  const flatResults = useMemo(
+    () =>
+      CATEGORIES.flatMap((category) =>
+        results[category.key].map((item) => ({
+          category,
+          item,
+        })),
+      ),
+    [results],
+  );
 
   const totalResults = flatResults.length;
 
-  const searchedCategories = [
-    results.workers.length,
-    results.production.length,
-    results.eggSales.length,
-    results.feedInventory.length,
-    results.roomInventory.length,
-    results.notifications.length,
-    results.warehouse.length,
-    results.orders.length,
-    results.vaccinations.length,
-    results.medications.length,
-  ].filter((count) => count > 0).length;
-
-  // ==========================
-  // RECENT SEARCH HISTORY
-  // ==========================
-
-  const saveSearch = (text) => {
-    if (!text.trim()) return;
-
-    let history = JSON.parse(localStorage.getItem("recentSearches") || "[]");
-
-    history = history.filter(
-      (item) => item.toLowerCase() !== text.toLowerCase(),
-    );
-
-    history.unshift(text);
-
-    history = history.slice(0, 8);
-
-    localStorage.setItem("recentSearches", JSON.stringify(history));
-
-    setRecentSearches(history);
-  };
-
-  const removeRecentSearch = (search) => {
-    const updated = recentSearches.filter((item) => item !== search);
-
-    setRecentSearches(updated);
-
-    localStorage.setItem("recentSearches", JSON.stringify(updated));
-  };
-
-  // ==========================
-  // NAVIGATION HELPER
-  // ==========================
-
-  const go = (path) => {
-    saveSearch(query);
-
-    setOpen(false);
-
-    navigate(path);
-  };
-
-  // ==========================
-  // RESET SELECTION WHEN RESULTS CHANGE
-  // ==========================
-
-  useEffect(() => {
-    if (open) {
-      setSelectedIndex(flatResults.length > 0 ? 0 : -1);
-    }
-  }, [flatResults, open]);
-  // ==========================
-  // AUTO-SCROLL SELECTED ITEM INTO VIEW
-  // ==========================
+  const searchedCategories = CATEGORIES.filter(
+    (category) => results[category.key].length > 0,
+  ).length;
 
   useEffect(() => {
     if (selectedIndex >= 0 && document.activeElement === inputRef.current) {
@@ -303,61 +416,84 @@ export default function GlobalSearch() {
     }
   }, [selectedIndex]);
 
-  // ==========================
-  // KEYBOARD SHORTCUTS (single combined handler)
-  // ==========================
+  const saveSearch = (value) => {
+    const term = String(value || "").trim();
+    if (!term) return;
+
+    const history = [
+      term,
+      ...readRecentSearches().filter(
+        (item) => item.toLowerCase() !== term.toLowerCase(),
+      ),
+    ].slice(0, 8);
+
+    localStorage.setItem("recentSearches", JSON.stringify(history));
+    setRecentSearches(history);
+  };
+
+  const removeRecentSearch = (value) => {
+    const updated = recentSearches.filter((item) => item !== value);
+    setRecentSearches(updated);
+    localStorage.setItem("recentSearches", JSON.stringify(updated));
+  };
+
+  const go = (path) => {
+    saveSearch(query);
+    setOpen(false);
+    navigate(path);
+  };
 
   useEffect(() => {
-    const handler = (e) => {
-      // CTRL/CMD + K focuses the input regardless of open state
-      if ((e.ctrlKey || e.metaKey) && e.key.toLowerCase() === "k") {
-        e.preventDefault();
+    const handler = (event) => {
+      if ((event.ctrlKey || event.metaKey) && event.key.toLowerCase() === "k") {
+        event.preventDefault();
         inputRef.current?.focus();
+        setOpen(true);
         return;
       }
 
       if (!open) return;
 
-      switch (e.key) {
-        case "ArrowDown":
-          e.preventDefault();
-          setSelectedIndex((prev) =>
-            Math.min(prev + 1, flatResults.length - 1),
-          );
-          break;
+      if (event.key === "Escape") {
+        setOpen(false);
+        return;
+      }
 
-        case "ArrowUp":
-          e.preventDefault();
-          setSelectedIndex((prev) => Math.max(prev - 1, 0));
-          break;
+      if (event.key === "ArrowDown" && flatResults.length > 0) {
+        event.preventDefault();
+        setSelectedIndex((previous) =>
+          previous < flatResults.length - 1 ? previous + 1 : 0,
+        );
+        return;
+      }
 
-        case "Enter":
-          if (selectedIndex >= 0 && flatResults[selectedIndex]) {
-            e.preventDefault();
-            go(flatResults[selectedIndex].path);
-          }
-          break;
+      if (event.key === "ArrowUp" && flatResults.length > 0) {
+        event.preventDefault();
+        setSelectedIndex((previous) =>
+          previous > 0 ? previous - 1 : flatResults.length - 1,
+        );
+        return;
+      }
 
-        case "Escape":
-          setOpen(false);
-          break;
-
-        default:
-          break;
+      if (event.key === "Enter" && selectedIndex >= 0) {
+        const selected = flatResults[selectedIndex];
+        if (selected) {
+          event.preventDefault();
+          go(selected.category.path);
+        }
       }
     };
 
     window.addEventListener("keydown", handler);
     return () => window.removeEventListener("keydown", handler);
-  }, [open, selectedIndex, flatResults]);
-
-  // ==========================
-  // CLOSE WHEN CLICKING OUTSIDE
-  // ==========================
+  }, [open, flatResults, selectedIndex, query]);
 
   useEffect(() => {
-    const handleOutside = (e) => {
-      if (containerRef.current && !containerRef.current.contains(e.target)) {
+    const handleOutside = (event) => {
+      if (
+        containerRef.current &&
+        !containerRef.current.contains(event.target)
+      ) {
         setOpen(false);
       }
     };
@@ -365,10 +501,6 @@ export default function GlobalSearch() {
     document.addEventListener("mousedown", handleOutside);
     return () => document.removeEventListener("mousedown", handleOutside);
   }, []);
-
-  // ==========================
-  // UI
-  // ==========================
 
   let resultIndex = -1;
 
@@ -378,441 +510,214 @@ export default function GlobalSearch() {
         <input
           ref={inputRef}
           value={query}
-          onChange={(e) => setQuery(e.target.value)}
-          onFocus={() => {
-            setOpen(true);
-          }}
+          onChange={(event) => setQuery(event.target.value)}
+          onFocus={() => setOpen(true)}
           placeholder="Search anything across the farm..."
-          className="w-full rounded-xl border border-gray-300 bg-white px-4 py-3 pl-11 shadow-sm focus:border-emerald-500 focus:ring-2 focus:ring-emerald-200 outline-none"
+          aria-label="Search farm records"
+          aria-expanded={open}
+          className="w-full rounded-xl border border-gray-300 bg-white px-4 py-3 pl-11 pr-20 text-gray-800 shadow-sm outline-none focus:border-emerald-500 focus:ring-2 focus:ring-emerald-200"
         />
 
-        <span className="absolute left-4 top-3.5 text-gray-400">
-          {loading ? (
-            <svg
-              className="w-5 h-5 animate-spin"
-              viewBox="0 0 24 24"
-              fill="none"
-            >
-              <circle
-                cx="12"
-                cy="12"
-                r="10"
-                stroke="#10B981"
-                strokeWidth="3"
-                strokeLinecap="round"
-                strokeDasharray="60"
-                strokeDashoffset="20"
-              />
-            </svg>
-          ) : (
-            "🔍"
-          )}
+        <span className="absolute left-4 top-3.5 text-gray-500">
+          {loading ? "⏳" : "🔍"}
         </span>
 
-        <span className="absolute right-3 top-3 text-xs bg-gray-100 px-2 py-1 rounded">
+        <span className="absolute right-3 top-3 rounded bg-gray-100 px-2 py-1 text-xs text-gray-600">
           {shortcutLabel}
         </span>
       </div>
 
       {open && (
-        <div className="absolute left-0 right-0 mt-2 bg-white rounded-xl shadow-2xl border max-h-[600px] overflow-y-auto z-50 animate-in fade-in zoom-in-95 duration-150">
-          {!loading && query.length < 2 && recentSearches.length > 0 && (
-            <div className="border-b">
-              <div className="flex items-center justify-between px-4 py-3 bg-gray-50">
-                <h3 className="text-xs font-bold uppercase text-gray-500">
-                  🕘 Recent Searches
-                </h3>
+        <div className="absolute left-0 right-0 z-50 mt-2 max-h-[600px] overflow-y-auto rounded-xl border border-gray-200 bg-white shadow-2xl">
+          {!loading && query.trim().length < 2 && (
+            <div>
+              {recentSearches.length > 0 ? (
+                <>
+                  <div className="flex items-center justify-between border-b bg-gray-50 px-4 py-3">
+                    <h3 className="text-xs font-bold uppercase text-gray-600">
+                      🕘 Recent Searches
+                    </h3>
+                    <button
+                      type="button"
+                      onClick={() => {
+                        setRecentSearches([]);
+                        localStorage.removeItem("recentSearches");
+                      }}
+                      className="text-xs text-red-600 hover:underline"
+                    >
+                      Clear
+                    </button>
+                  </div>
 
-                <button
-                  onClick={() => {
-                    setRecentSearches([]);
-                    localStorage.removeItem("recentSearches");
-                  }}
-                  className="text-xs text-red-500 hover:underline"
-                >
-                  Clear
-                </button>
-              </div>
-
-              {recentSearches.map((item) => (
-                <div
-                  key={item}
-                  className="flex items-center justify-between px-4 py-3 hover:bg-emerald-50"
-                >
-                  <button
-                    className="flex-1 text-left"
-                    onClick={() => setQuery(item)}
-                  >
-                    🔍 {item}
-                  </button>
-
-                  <button
-                    onClick={() => removeRecentSearch(item)}
-                    className="text-gray-400 hover:text-red-500"
-                  >
-                    ✕
-                  </button>
+                  {recentSearches.map((item) => (
+                    <div
+                      key={item}
+                      className="flex items-center gap-3 border-b px-4 py-3 hover:bg-emerald-50"
+                    >
+                      <button
+                        type="button"
+                        className="flex-1 text-left text-sm text-gray-700"
+                        onClick={() => {
+                          setQuery(item);
+                          setOpen(true);
+                        }}
+                      >
+                        🔍 {item}
+                      </button>
+                      <button
+                        type="button"
+                        aria-label={`Remove ${item} from recent searches`}
+                        onClick={() => removeRecentSearch(item)}
+                        className="text-gray-400 hover:text-red-600"
+                      >
+                        ✕
+                      </button>
+                    </div>
+                  ))}
+                </>
+              ) : (
+                <div className="p-8 text-center">
+                  <div className="mb-3 text-4xl">🔎</div>
+                  <h3 className="font-semibold text-gray-800">
+                    Start typing to search
+                  </h3>
+                  <p className="mt-2 text-sm text-gray-600">
+                    Search the farm records your account is allowed to access.
+                  </p>
+                  <p className="mt-4 text-xs text-gray-500">
+                    Use {shortcutLabel} to focus the search bar.
+                  </p>
                 </div>
-              ))}
-            </div>
-          )}
-
-          {!loading && query.length < 2 && recentSearches.length === 0 && (
-            <div className="p-8 text-center">
-              <div className="text-5xl mb-3">🔎</div>
-
-              <h3 className="font-semibold text-gray-700">
-                Start typing to search
-              </h3>
-
-              <p className="text-sm text-gray-500 mt-2">
-                Search workers, production, feed, egg sales, inventory and
-                notifications.
-              </p>
-
-              <div className="mt-6 text-xs text-gray-400">
-                Shortcut:
-                <span className="ml-2 px-2 py-1 bg-gray-100 rounded">
-                  Ctrl + K
-                </span>
-              </div>
+              )}
             </div>
           )}
 
           {loading && <SearchSpinner />}
 
-          {!loading && totalResults === 0 && query.trim().length >= 2 && (
-            <div className="p-6 text-center text-gray-400">
-              No results found.
+          {!loading && error && (
+            <div className="p-5 text-center">
+              <p className="font-medium text-red-700">{error}</p>
+              <button
+                type="button"
+                onClick={() => setQuery((value) => `${value} `.trim())}
+                className="mt-3 rounded-lg bg-emerald-700 px-4 py-2 text-sm font-semibold text-white hover:bg-emerald-800"
+              >
+                Try again
+              </button>
             </div>
           )}
 
-          {!loading && totalResults > 0 && (
+          {!loading &&
+            !error &&
+            query.trim().length >= 2 &&
+            totalResults === 0 && (
+              <div className="p-7 text-center">
+                <div className="mb-2 text-3xl">🔎</div>
+                <p className="font-semibold text-gray-800">No results found</p>
+                <p className="mt-1 text-sm text-gray-600">
+                  Try another name, item, pen, customer, or keyword.
+                </p>
+              </div>
+            )}
+
+          {!loading && !error && totalResults > 0 && (
             <>
-              <div className="flex justify-between items-center px-4 py-3 bg-emerald-50 border-b">
-                <div className="text-sm font-semibold text-emerald-700">
-                  {totalResults} result{totalResults !== 1 ? "s" : ""} found
-                </div>
-                <div className="text-xs text-gray-500">
+              <div className="sticky top-0 z-20 flex items-center justify-between border-b bg-emerald-50 px-4 py-3">
+                <span className="text-sm font-semibold text-emerald-900">
+                  {totalResults} result{totalResults === 1 ? "" : "s"} found
+                </span>
+                <span className="text-xs text-gray-600">
                   {searchedCategories} categor
                   {searchedCategories === 1 ? "y" : "ies"} matched
-                </div>
+                </span>
               </div>
 
-              <div className="divide-y">
-                {/* ================= WORKERS ================= */}
-                {results.workers.length > 0 && (
-                  <div className="p-3">
+              {CATEGORIES.map((category) => {
+                const items = results[category.key];
+                if (!items.length) return null;
+
+                return (
+                  <section
+                    key={category.key}
+                    className="border-b last:border-b-0"
+                  >
                     <SectionHeader
-                      icon="👤"
-                      title="Workers"
-                      count={results.workers.length}
+                      icon={category.icon}
+                      title={category.label}
+                      count={items.length}
                     />
 
-                    {results.workers.map((worker) => {
-                      resultIndex++;
+                    <div className="p-2">
+                      {items.map((item) => {
+                        resultIndex++;
+                        const currentIndex = resultIndex;
+                        const active = currentIndex === selectedIndex;
 
-                      const active = resultIndex === selectedIndex;
+                        return (
+                          <button
+                            key={
+                              item._id ||
+                              `${category.key}-${currentIndex}-${item.title}`
+                            }
+                            ref={active ? selectedRef : null}
+                            type="button"
+                            onMouseEnter={() => setSelectedIndex(currentIndex)}
+                            onClick={() => go(category.path)}
+                            className={`mb-1 w-full rounded-lg border-l-4 p-3 text-left transition ${
+                              active
+                                ? "border-emerald-700 bg-emerald-100"
+                                : "border-transparent hover:bg-emerald-50"
+                            }`}
+                          >
+                            <div className="flex items-start gap-3">
+                              <span className="pt-0.5 text-lg">
+                                {category.icon}
+                              </span>
 
-                      return (
-                        <button
-                          key={worker._id}
-                          ref={active ? selectedRef : null}
-                          onClick={() => go("/admin/staff")}
-                          className={`w-full text-left p-3 rounded-lg transition ${
-                            active
-                              ? "bg-emerald-100 border-l-4 border-emerald-600"
-                              : "hover:bg-emerald-50"
-                          }`}
-                        >
-                          {active && (
-                            <div className="text-xs text-emerald-700 font-semibold mb-1">
-                              Press Enter ↵
+                              <div className="min-w-0 flex-1">
+                                <div className="break-words font-semibold text-gray-900">
+                                  {highlightText(item.title, query)}
+                                </div>
+
+                                {item.subtitle && (
+                                  <div className="mt-1 break-words text-sm text-gray-700">
+                                    {highlightText(item.subtitle, query)}
+                                  </div>
+                                )}
+
+                                {item.detail && (
+                                  <div className="mt-1 break-words text-xs text-gray-600">
+                                    {highlightText(item.detail, query)}
+                                  </div>
+                                )}
+
+                                {item.date && (
+                                  <div className="mt-1 text-xs text-gray-500">
+                                    {formatDate(item.date)}
+                                  </div>
+                                )}
+
+                                {active && (
+                                  <div className="mt-2 text-xs font-semibold text-emerald-800">
+                                    Press Enter ↵ to open this section
+                                  </div>
+                                )}
+                              </div>
+
+                              <span className="text-xs text-gray-400">↗</span>
                             </div>
-                          )}
-                          <div className="font-semibold text-gray-800">
-                            {highlightText(worker.name, query)}
-                          </div>
-                          <div className="text-sm text-gray-500">
-                            {highlightText(worker.email, query)}
-                          </div>
-                          <div className="mt-1">
-                            <span className="text-xs bg-blue-100 text-blue-700 px-2 py-1 rounded-full">
-                              {highlightText(worker.role, query)}
-                            </span>
-                          </div>
-                        </button>
-                      );
-                    })}
-                  </div>
-                )}
+                          </button>
+                        );
+                      })}
+                    </div>
+                  </section>
+                );
+              })}
 
-                {/* ================= PRODUCTION ================= */}
-                {results.production.length > 0 && (
-                  <div className="p-3">
-                    <SectionHeader
-                      icon="🥚"
-                      title="Production"
-                      count={results.production.length}
-                    />
-
-                    {results.production.map((item) => {
-                      resultIndex++;
-
-                      const active = resultIndex === selectedIndex;
-
-                      return (
-                        <button
-                          key={item._id}
-                          ref={active ? selectedRef : null}
-                          onClick={() => go("/admin/production")}
-                          className={`w-full text-left p-3 rounded-lg transition ${
-                            active
-                              ? "bg-emerald-100 border-l-4 border-emerald-600"
-                              : "hover:bg-emerald-50"
-                          }`}
-                        >
-                          {active && (
-                            <div className="text-xs text-emerald-700 font-semibold mb-1">
-                              Press Enter ↵
-                            </div>
-                          )}
-                          <div className="font-semibold">
-                            {highlightText(item.pen, query)}
-                          </div>
-                          <div className="text-sm text-gray-500">
-                            {new Date(item.date).toLocaleDateString()}
-                          </div>
-                          <div className="flex gap-4 mt-1 text-xs text-gray-500">
-                            <span>Crates: {item.cratesProduced}</span>
-                            <span>{item.productionPercentage}%</span>
-                          </div>
-                        </button>
-                      );
-                    })}
-                  </div>
-                )}
-
-                {/* ================= EGG SALES ================= */}
-                {results.eggSales.length > 0 && (
-                  <div className="p-3">
-                    <SectionHeader
-                      icon="💰"
-                      title="Egg Sales"
-                      count={results.eggSales.length}
-                    />
-
-                    {results.eggSales.map((sale) => {
-                      resultIndex++;
-
-                      const active = resultIndex === selectedIndex;
-
-                      return (
-                        <button
-                          key={sale._id}
-                          ref={active ? selectedRef : null}
-                          onClick={() => go("/admin/egg-sales")}
-                          className={`w-full text-left p-3 rounded-lg transition ${
-                            active
-                              ? "bg-emerald-100 border-l-4 border-emerald-600"
-                              : "hover:bg-emerald-50"
-                          }`}
-                        >
-                          {active && (
-                            <div className="text-xs text-emerald-700 font-semibold mb-1">
-                              Press Enter ↵
-                            </div>
-                          )}
-                          <div className="font-semibold">
-                            {highlightText(sale.customer, query)}
-                          </div>
-                          <div className="text-sm text-gray-500">
-                            {highlightText(sale.phone, query)}
-                          </div>
-                          <div className="flex justify-between mt-2">
-                            <span className="text-sm font-semibold text-emerald-700">
-                              ₦{Number(sale.totalAmount || 0).toLocaleString()}
-                            </span>
-                            <span
-                              className={`text-xs px-2 py-1 rounded-full ${
-                                sale.paymentStatus === "Paid"
-                                  ? "bg-green-100 text-green-700"
-                                  : sale.paymentStatus === "Part Paid"
-                                    ? "bg-yellow-100 text-yellow-700"
-                                    : "bg-red-100 text-red-700"
-                              }`}
-                            >
-                              {highlightText(sale.paymentStatus, query)}
-                            </span>
-                          </div>
-                        </button>
-                      );
-                    })}
-                  </div>
-                )}
-
-                {/* ================= FEED INVENTORY ================= */}
-                {results.feedInventory.length > 0 && (
-                  <div className="p-3">
-                    <SectionHeader
-                      icon="🌽"
-                      title="Feed Inventory"
-                      count={results.feedInventory.length}
-                    />
-
-                    {results.feedInventory.map((feed) => {
-                      resultIndex++;
-
-                      const active = resultIndex === selectedIndex;
-
-                      return (
-                        <button
-                          key={feed._id}
-                          ref={active ? selectedRef : null}
-                          onClick={() => go("/admin/feeds")}
-                          className={`w-full text-left p-3 rounded-lg transition ${
-                            active
-                              ? "bg-emerald-100 border-l-4 border-emerald-600"
-                              : "hover:bg-emerald-50"
-                          }`}
-                        >
-                          {active && (
-                            <div className="text-xs text-emerald-700 font-semibold mb-1">
-                              Press Enter ↵
-                            </div>
-                          )}
-                          <div className="font-semibold">
-                            {highlightText(feed.name, query)}
-                          </div>
-                          <div className="text-sm text-gray-500">
-                            {feed.unit}
-                          </div>
-                          <div className="flex justify-between mt-2 text-xs text-gray-500">
-                            <span>
-                              Qty: {highlightText(feed.quantity, query)}
-                            </span>
-                            <span>{highlightText(feed.supplier, query)}</span>
-                          </div>
-                        </button>
-                      );
-                    })}
-                  </div>
-                )}
-
-                {/* ================= ROOM INVENTORY ================= */}
-                {results.roomInventory.length > 0 && (
-                  <div className="p-3">
-                    <SectionHeader
-                      icon="🏠"
-                      title="Room Inventory"
-                      count={results.roomInventory.length}
-                    />
-
-                    {results.roomInventory.map((item) => {
-                      resultIndex++;
-
-                      const active = resultIndex === selectedIndex;
-
-                      return (
-                        <button
-                          key={item._id}
-                          ref={active ? selectedRef : null}
-                          onClick={() => go("/admin/room-inventory")}
-                          className={`w-full text-left p-3 rounded-lg transition ${
-                            active
-                              ? "bg-emerald-100 border-l-4 border-emerald-600"
-                              : "hover:bg-emerald-50"
-                          }`}
-                        >
-                          {active && (
-                            <div className="text-xs text-emerald-700 font-semibold mb-1">
-                              Press Enter ↵
-                            </div>
-                          )}
-                          <div className="font-semibold">
-                            {highlightText(item.itemName, query)}
-                          </div>
-                          <div className="text-sm text-gray-500">
-                            {highlightText(item.roomName, query)}
-                          </div>
-                          <div className="flex justify-between mt-2">
-                            <span className="text-xs text-gray-500">
-                              Qty: {highlightText(item.quantity, query)}
-                            </span>
-                            <span
-                              className={`text-xs px-2 py-1 rounded-full ${
-                                item.condition === "Excellent"
-                                  ? "bg-green-100 text-green-700"
-                                  : item.condition === "Good"
-                                    ? "bg-blue-100 text-blue-700"
-                                    : item.condition === "Fair"
-                                      ? "bg-yellow-100 text-yellow-700"
-                                      : "bg-red-100 text-red-700"
-                              }`}
-                            >
-                              {highlightText(item.condition, query)}
-                            </span>
-                          </div>
-                        </button>
-                      );
-                    })}
-                  </div>
-                )}
-
-                {/* ================= NOTIFICATIONS ================= */}
-                {results.notifications.length > 0 && (
-                  <div className="p-3">
-                    <SectionHeader
-                      icon="🔔"
-                      title="Notifications"
-                      count={results.notifications.length}
-                    />
-
-                    {results.notifications.map((notification) => {
-                      resultIndex++;
-
-                      const active = resultIndex === selectedIndex;
-
-                      return (
-                        <button
-                          key={notification._id}
-                          ref={active ? selectedRef : null}
-                          onClick={() => go("/admin/notifications")}
-                          className={`w-full text-left p-3 rounded-lg transition ${
-                            active
-                              ? "bg-emerald-100 border-l-4 border-emerald-600"
-                              : "hover:bg-emerald-50"
-                          }`}
-                        >
-                          {active && (
-                            <div className="text-xs text-emerald-700 font-semibold mb-1">
-                              Press Enter ↵
-                            </div>
-                          )}
-                          <div className="font-semibold">
-                            {highlightText(notification.subject, query)}
-                          </div>
-                          <div className="text-sm text-gray-500 truncate">
-                            {highlightText(notification.message, query)}
-                          </div>
-                          <div className="mt-2 text-xs text-gray-400">
-                            {highlightText(notification.senderName, query)} •{" "}
-                            {new Date(notification.createdAt).toLocaleString()}
-                          </div>
-                        </button>
-                      );
-                    })}
-                  </div>
-                )}
-
-                {/* ================= FOOTER ================= */}
-                <div className="p-3 text-center border-t">
-                  <div className="flex justify-center gap-5 text-xs text-gray-500">
-                    <span>↑ ↓ Navigate</span>
-                    <span>↵ Open</span>
-                    <span>Esc Close</span>
-                  </div>
-                </div>
+              <div className="sticky bottom-0 flex justify-center gap-5 border-t bg-gray-50 p-3 text-xs text-gray-600">
+                <span>↑ ↓ Navigate</span>
+                <span>↵ Open section</span>
+                <span>Esc Close</span>
               </div>
             </>
           )}

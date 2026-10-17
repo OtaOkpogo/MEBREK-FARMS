@@ -1,27 +1,28 @@
 import apiClient from "./apiClient";
 
-/**
- * Global Search
- * GET /api/search?q=keyword
- */
+const EMPTY_RESULT = {
+  workers: [],
+  production: [],
+  eggSales: [],
+  feedInventory: [],
+  roomInventory: [],
+  notifications: [],
+  warehouse: [],
+  orders: [],
+  vaccinations: [],
+  medications: [],
+};
+
 export const globalSearch = async (query) => {
-  if (!query || query.trim().length < 2) {
-    return {
-      workers: [],
-      production: [],
-      eggSales: [],
-      feedInventory: [],
-      roomInventory: [],
-      notifications: [],
-    };
+  const searchTerm = String(query || "").trim();
+
+  if (searchTerm.length < 2) {
+    return EMPTY_RESULT;
   }
 
   const response = await apiClient.get("/search", {
-    params: {
-      q: query.trim(),
-    },
+    params: { q: searchTerm },
   });
 
-  // apiClient already returns response.data
-  return response;
+  return response.data || EMPTY_RESULT;
 };
