@@ -12,8 +12,7 @@ const BROODING_HOUSE = "Brooding House";
 const DAY_MS = 24 * 60 * 60 * 1000;
 const WEEK_MS = 7 * DAY_MS;
 
-// Use calendar dates in UTC to avoid daylight-saving/time-of-day
-// differences affecting the number of elapsed days.
+// Normalize a value to the start of its UTC calendar day.
 const toUtcDay = (value) => {
   if (!value) return null;
 
@@ -24,7 +23,15 @@ const toUtcDay = (value) => {
   return Date.UTC(date.getUTCFullYear(), date.getUTCMonth(), date.getUTCDate());
 };
 
-// Flock age in completed weeks on the production date.
+const getDayDate = (value) => {
+  const day = toUtcDay(value);
+  return day === null ? null : new Date(day);
+};
+
+// ------------------------------------------------------------
+// FLOCK CALCULATIONS
+// ------------------------------------------------------------
+
 const calculateFlockAgeWeeks = (flock, productionDate) => {
   if (!flock) return null;
 
@@ -42,8 +49,6 @@ const calculateFlockAgeWeeks = (flock, productionDate) => {
   );
 };
 
-// Days is the flock's age in days on the production date.
-// Example: 18 weeks old = 126 days.
 const calculateFlockAgeDays = (flock, productionDate) => {
   if (!flock) return null;
 
@@ -55,9 +60,7 @@ const calculateFlockAgeDays = (flock, productionDate) => {
 
   const elapsedDays = Math.floor((productionDay - placementDay) / DAY_MS);
 
-  const startingAgeDays = Number(flock.startingAgeWeeks || 0) * 7;
-
-  return startingAgeDays + elapsedDays;
+  return Number(flock.startingAgeWeeks || 0) * 7 + elapsedDays;
 };
 
 const getProductionFlockData = async (pen, productionDate) => {
@@ -119,12 +122,17 @@ const getProductionFlockData = async (pen, productionDate) => {
   };
 };
 
+// ------------------------------------------------------------
+// PRODUCTION TOTALS
+// ------------------------------------------------------------
+
 const calculateProductionTotals = (production) => {
-  const closingStock =
-    Number(production.openingStock || 0) +
-    Number(production.transferIn || 0) -
-    Number(production.transferOut || 0) -
-    Number(production.mortality || 0);
+  const openingStock = Number(production.openingStock || 0);
+  const transferIn = Number(production.transferIn || 0);
+  const transferOut = Number(production.transferOut || 0);
+  const mortality = Number(production.mortality || 0);
+
+  const closingStock = openingStock + transferIn - transferOut - mortality;
 
   const totalEggs =
     Number(production.cratesProduced || 0) * 30 +
@@ -135,8 +143,128 @@ const calculateProductionTotals = (production) => {
       ? Number(((totalEggs / closingStock) * 100).toFixed(2))
       : 0;
 
-  return { closingStock, totalEggs, productionPercentage };
+  return {
+    closingStock,
+    totalEggs,
+    productionPercentage,
+  };
 };
+
+// ------------------------------------------------------------
+// STOCK CARRY-FORWARD
+// ------------------------------------------------------------
+
+// Find the most recent earlier, active record for the SAME pen.
+// A deleted record must never provide the next opening stock.
+const getPreviousProduction = async (pen, productionDate, excludeId = null) => {
+  const day = toUtcDay(productionDate);
+
+  if (!pen || day === null) return null;
+
+  const filter = {
+    pen,
+    isDeleted: false,
+    date: { $lt: new Date(day) },
+  };
+
+  if (excludeId) {
+    filter._id = { $ne: excludeId };
+  }
+
+  return Production.findOne(filter).sort({
+    date: -1,
+    _id: -1,
+  });
+};
+
+// Recalculate active records after a given date using the supplied
+// closing stock as the next opening stock.
+const recalculateRecordsAfter = async (
+  pen,
+  productionDate,
+  startingClosingStock,
+) => {
+  const day = toUtcDay(productionDate);
+
+  if (!pen || day === null) return;
+
+  const records = await Production.find({
+    pen,
+    isDeleted: false,
+    date: { $gt: new Date(day) },
+  }).sort({ date: 1, _id: 1 });
+
+  let previousClosingStock = Number(startingClosingStock);
+
+  for (const record of records) {
+    record.openingStock = previousClosingStock;
+
+    const totals = calculateProductionTotals(record);
+
+    if (totals.closingStock < 0) {
+      throw new Error(
+        `Stock recalculation would make the closing stock negative for ${record.pen} on ${getDayDate(record.date).toISOString().slice(0, 10)}. Review transfers and mortality for that record.`,
+      );
+    }
+
+    Object.assign(record, totals);
+
+    await record.save();
+
+    previousClosingStock = record.closingStock;
+  }
+};
+
+// Rebuild a pen's history from a date after a record is moved or removed.
+// If an earlier active record exists, use its closing stock. Otherwise,
+// preserve the first remaining record's manually entered opening stock.
+const recalculatePenFromDate = async (pen, fromDate) => {
+  const day = toUtcDay(fromDate);
+
+  if (!pen || day === null) return;
+
+  const previous = await Production.findOne({
+    pen,
+    isDeleted: false,
+    date: { $lt: new Date(day) },
+  }).sort({ date: -1, _id: -1 });
+
+  const records = await Production.find({
+    pen,
+    isDeleted: false,
+    date: { $gte: new Date(day) },
+  }).sort({ date: 1, _id: 1 });
+
+  if (!records.length) return;
+
+  let previousClosingStock =
+    previous === null ? null : Number(previous.closingStock);
+
+  for (const record of records) {
+    // Preserve the manually entered starting stock if this is now the
+    // first active record in the pen's history.
+    if (previousClosingStock !== null) {
+      record.openingStock = previousClosingStock;
+    }
+
+    const totals = calculateProductionTotals(record);
+
+    if (totals.closingStock < 0) {
+      throw new Error(
+        `Stock recalculation would make the closing stock negative for ${record.pen} on ${getDayDate(record.date).toISOString().slice(0, 10)}. Review transfers and mortality for that record.`,
+      );
+    }
+
+    Object.assign(record, totals);
+    await record.save();
+
+    previousClosingStock = record.closingStock;
+  }
+};
+
+// ------------------------------------------------------------
+// MORTALITY AND BIRD HEALTH SYNCHRONISATION
+// ------------------------------------------------------------
 
 const buildMortalityHealthPayload = (mortality) => ({
   date: mortality.date || new Date(),
@@ -232,6 +360,10 @@ const populateProduction = (query) =>
     "flockId pen placementDate startingAgeWeeks status saleDate",
   );
 
+// ------------------------------------------------------------
+// GET PRODUCTIONS
+// ------------------------------------------------------------
+
 exports.getProductions = async (req, res) => {
   try {
     const filter = req.user.role === "superadmin" ? {} : { isDeleted: false };
@@ -272,22 +404,41 @@ exports.getProduction = async (req, res) => {
   }
 };
 
+// ------------------------------------------------------------
+// CREATE PRODUCTION
+// ------------------------------------------------------------
+
 exports.createProduction = async (req, res) => {
   try {
     const { pen, date } = req.body;
+    const productionDate = getDayDate(date);
 
-    const flockData = await getProductionFlockData(pen, date);
+    if (!pen || !productionDate) {
+      return res.status(400).json({
+        message: "A valid production date and pen are required.",
+      });
+    }
+
+    const previous = await getPreviousProduction(pen, productionDate);
+
+    const flockData = await getProductionFlockData(pen, productionDate);
 
     const productionData = {
       ...req.body,
+      date: productionDate,
+      pen,
       flock: flockData.flock,
       flockId: flockData.flockId,
       flockAgeWeeks: flockData.flockAgeWeeks,
+
+      // Automatically carry forward the previous closing stock.
+      // For the first active record, retain the manually entered stock.
+      openingStock:
+        previous !== null
+          ? Number(previous.closingStock)
+          : Number(req.body.openingStock || 0),
     };
 
-    // Automatically calculate Days when a flock is found.
-    // For the Brooding House or a pen without a matching flock,
-    // retain the manually supplied value.
     if (flockData.days !== null) {
       productionData.days = flockData.days;
     }
@@ -296,7 +447,8 @@ exports.createProduction = async (req, res) => {
 
     if (totals.closingStock < 0) {
       return res.status(400).json({
-        message: "Closing stock cannot be negative",
+        message:
+          "Closing stock cannot be negative. Check opening stock, transfers, and mortality.",
       });
     }
 
@@ -328,6 +480,10 @@ exports.createProduction = async (req, res) => {
   }
 };
 
+// ------------------------------------------------------------
+// UPDATE PRODUCTION
+// ------------------------------------------------------------
+
 exports.updateProduction = async (req, res) => {
   try {
     const production = await Production.findById(req.params.id);
@@ -344,6 +500,9 @@ exports.updateProduction = async (req, res) => {
       });
     }
 
+    const oldPen = production.pen;
+    const oldDate = new Date(production.date);
+
     const protectedFields = [
       "_id",
       "flock",
@@ -353,6 +512,9 @@ exports.updateProduction = async (req, res) => {
       "isDeleted",
       "deletedAt",
       "deletedBy",
+      "closingStock",
+      "totalEggs",
+      "productionPercentage",
     ];
 
     for (const [key, value] of Object.entries(req.body)) {
@@ -360,6 +522,16 @@ exports.updateProduction = async (req, res) => {
         production[key] = value;
       }
     }
+
+    const productionDate = getDayDate(production.date);
+
+    if (!production.pen || !productionDate) {
+      return res.status(400).json({
+        message: "A valid production date and pen are required.",
+      });
+    }
+
+    production.date = productionDate;
 
     const flockData = await getProductionFlockData(
       production.pen,
@@ -370,17 +542,28 @@ exports.updateProduction = async (req, res) => {
     production.flockId = flockData.flockId;
     production.flockAgeWeeks = flockData.flockAgeWeeks;
 
-    // Recalculate on every edit so changing the pen or date
-    // updates Days automatically.
     if (flockData.days !== null) {
       production.days = flockData.days;
+    }
+
+    const previous = await getPreviousProduction(
+      production.pen,
+      production.date,
+      production._id,
+    );
+
+    // Use the earlier record's closing stock where one exists.
+    // Otherwise, keep the manually entered starting stock.
+    if (previous) {
+      production.openingStock = Number(previous.closingStock);
     }
 
     const totals = calculateProductionTotals(production);
 
     if (totals.closingStock < 0) {
       return res.status(400).json({
-        message: "Closing stock cannot be negative",
+        message:
+          "Closing stock cannot be negative. Check opening stock, transfers, and mortality.",
       });
     }
 
@@ -392,6 +575,21 @@ exports.updateProduction = async (req, res) => {
     } catch (syncError) {
       console.error("Production → Mortality sync error:", syncError);
     }
+
+    // If the pen or date changed, rebuild the old pen's affected history.
+    const oldDay = toUtcDay(oldDate);
+    const newDay = toUtcDay(production.date);
+
+    if (oldPen !== production.pen || oldDay !== newDay) {
+      await recalculatePenFromDate(oldPen, oldDate);
+    }
+
+    // Update later records in the current pen using this record's closing stock.
+    await recalculateRecordsAfter(
+      production.pen,
+      production.date,
+      production.closingStock,
+    );
 
     const result = await populateProduction(
       Production.findById(production._id),
@@ -411,6 +609,10 @@ exports.updateProduction = async (req, res) => {
   }
 };
 
+// ------------------------------------------------------------
+// DELETE PRODUCTION
+// ------------------------------------------------------------
+
 exports.deleteProduction = async (req, res) => {
   try {
     const production = await Production.findById(req.params.id);
@@ -420,6 +622,9 @@ exports.deleteProduction = async (req, res) => {
         message: "Production record not found",
       });
     }
+
+    const affectedPen = production.pen;
+    const affectedDate = new Date(production.date);
 
     try {
       await removeLinkedMortality(production, req);
@@ -434,18 +639,20 @@ exports.deleteProduction = async (req, res) => {
 
     if (req.user.role === "superadmin") {
       await Production.findByIdAndDelete(production._id);
-      return res.json({ message: "Production permanently deleted" });
+    } else {
+      production.isDeleted = true;
+      production.deletedBy = {
+        id: req.user.id,
+        name: req.user.name,
+        role: req.user.role,
+      };
+      production.deletedAt = new Date();
+
+      await production.save({ validateModifiedOnly: true });
     }
 
-    production.isDeleted = true;
-    production.deletedBy = {
-      id: req.user.id,
-      name: req.user.name,
-      role: req.user.role,
-    };
-    production.deletedAt = new Date();
-
-    await production.save({ validateModifiedOnly: true });
+    // The deleted record must no longer be used as a stock source.
+    await recalculatePenFromDate(affectedPen, affectedDate);
 
     res.json({ message: "Production deleted successfully" });
   } catch (err) {
