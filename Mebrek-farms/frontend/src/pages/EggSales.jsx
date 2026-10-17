@@ -19,6 +19,7 @@ import SaleAccessPanel from "../components/SaleAccessPanel";
 
 import {
   fetchSales,
+  fetchOutstandingCustomers,
   createSale,
   updateSale,
   deleteSale,
@@ -345,6 +346,9 @@ export default function EggSales() {
   const [search, setSearch] = useState("");
   const [statusFilter, setStatusFilter] = useState("All");
   const [showDeleted, setShowDeleted] = useState(false);
+  const [outstandingSearch, setOutstandingSearch] = useState("");
+  const [outstandingCustomers, setOutstandingCustomers] = useState([]);
+  const [outstandingLoading, setOutstandingLoading] = useState(false);
 
   // PAGINATION
   const [currentPage, setCurrentPage] = useState(1);
@@ -407,6 +411,38 @@ export default function EggSales() {
   }, []);
 
   const isSuperadmin = user?.role === "superadmin";
+
+  useEffect(() => {
+    if (user?.role === "superadmin" || user?.role === "manager") {
+      loadOutstandingCustomers();
+    }
+  }, [user?.role]);
+
+  // ===================================================
+  // LOAD ALL-TIME OUTSTANDING CUSTOMER SUMMARIES
+  // ===================================================
+
+  const loadOutstandingCustomers = async () => {
+    if (!["superadmin", "manager"].includes(user?.role)) return;
+    try {
+      setOutstandingLoading(true);
+      const response = await fetchOutstandingCustomers();
+      const rows = Array.isArray(response)
+        ? response
+        : Array.isArray(response?.customers)
+          ? response.customers
+          : [];
+      setOutstandingCustomers(rows);
+    } catch (error) {
+      console.error("LOAD OUTSTANDING EGG CUSTOMERS ERROR:", error);
+      toast.error(
+        error?.response?.data?.message ||
+          "Unable to load outstanding customer balances.",
+      );
+    } finally {
+      setOutstandingLoading(false);
+    }
+  };
 
   // ===================================================
   // LOAD SALES
@@ -1008,6 +1044,7 @@ export default function EggSales() {
 
       cancelEdit();
       await loadSales();
+      await loadOutstandingCustomers();
 
       if (customerId) {
         await loadCustomerHistory(customerId);
@@ -1041,6 +1078,7 @@ export default function EggSales() {
 
       toast.success("Egg sale deleted successfully.");
       await loadSales();
+      await loadOutstandingCustomers();
     } catch (error) {
       console.error("DELETE EGG SALE ERROR:", error);
 
@@ -1068,6 +1106,7 @@ export default function EggSales() {
 
       toast.success("Egg sale restored successfully.");
       await loadSales();
+      await loadOutstandingCustomers();
     } catch (error) {
       console.error("RESTORE EGG SALE ERROR:", error);
 
@@ -1173,6 +1212,37 @@ export default function EggSales() {
   const unpaidCount = activeSales.filter(
     (sale) => sale.status === "Unpaid",
   ).length;
+
+  // Outstanding balances come from the all-time, role-protected backend summary.
+
+  const filteredOutstandingCustomers = useMemo(() => {
+    const query = outstandingSearch.trim().toLowerCase();
+    if (!query) return outstandingCustomers;
+
+    return outstandingCustomers.filter((customer) =>
+      [customer.name, customer.phone].some((value) =>
+        String(value || "")
+          .toLowerCase()
+          .includes(query),
+      ),
+    );
+  }, [outstandingCustomers, outstandingSearch]);
+
+  const totalOutstandingCustomers = outstandingCustomers.length;
+
+  const viewOutstandingCustomerSales = (customer) => {
+    setShowDeleted(false);
+    setStatusFilter("All");
+    setSearch(
+      customer.name === "Unknown customer" ? customer.phone : customer.name,
+    );
+    window.setTimeout(() => {
+      document.getElementById("egg-sales-records")?.scrollIntoView({
+        behavior: "smooth",
+        block: "start",
+      });
+    }, 0);
+  };
 
   // ===================================================
   // PAYMENT STATUS CHART
@@ -1337,6 +1407,137 @@ export default function EggSales() {
           </p>
         </div>
       </div>
+
+      {/* CUSTOMERS WITH OUTSTANDING BALANCES: manager and superadmin only */}
+      {(isSuperadmin || user?.role === "manager") && (
+        <section className="overflow-hidden rounded-2xl border border-amber-200 bg-white shadow-sm">
+          <div className="flex flex-col gap-3 border-b border-amber-100 bg-amber-50 p-4 md:flex-row md:items-center md:justify-between">
+            <div className="flex items-start gap-3">
+              <div
+                className="flex h-10 w-10 shrink-0 items-center justify-center rounded-xl bg-amber-100 text-xl"
+                aria-hidden="true"
+              >
+                ⚠️
+              </div>
+              <div>
+                <h2 className="text-lg font-bold text-amber-950">
+                  Customers Owing
+                </h2>
+                <p className="mt-1 text-sm text-amber-800">
+                  All-time outstanding balances. Managers see debt summaries
+                  even when the original sale is older than 24 hours.
+                </p>
+              </div>
+            </div>
+            <div className="flex flex-wrap gap-2">
+              <div className="rounded-lg border border-amber-200 bg-white px-3 py-2">
+                <p className="text-xs text-gray-500">Customers owing</p>
+                <p className="text-lg font-bold text-amber-800">
+                  {totalOutstandingCustomers.toLocaleString()}
+                </p>
+              </div>
+              <div className="rounded-lg border border-red-200 bg-white px-3 py-2">
+                <p className="text-xs text-gray-500">Total outstanding</p>
+                <p className="text-lg font-bold text-red-700">
+                  {formatCurrency(
+                    outstandingCustomers.reduce(
+                      (sum, customer) => sum + customer.outstanding,
+                      0,
+                    ),
+                  )}
+                </p>
+              </div>
+            </div>
+          </div>
+
+          <div className="p-4">
+            <div className="mb-4 flex flex-col gap-3 sm:flex-row sm:items-center sm:justify-between">
+              <p className="text-sm text-gray-600">
+                {totalOutstandingCustomers === 0
+                  ? "All recorded customer balances are settled."
+                  : `${totalOutstandingCustomers} customer${totalOutstandingCustomers === 1 ? "" : "s"} currently have money outstanding.`}
+              </p>
+              <input
+                type="search"
+                value={outstandingSearch}
+                onChange={(event) => setOutstandingSearch(event.target.value)}
+                placeholder="Find owing customer..."
+                aria-label="Search customers with outstanding balances"
+                className="w-full rounded-lg border border-gray-300 px-3 py-2 text-sm outline-none focus:border-amber-500 sm:max-w-xs"
+              />
+            </div>
+
+            {outstandingLoading ? (
+              <p className="rounded-lg bg-gray-50 p-6 text-center text-sm text-gray-500">
+                Loading outstanding balances...
+              </p>
+            ) : filteredOutstandingCustomers.length === 0 ? (
+              <div className="rounded-xl border border-dashed border-gray-300 p-8 text-center">
+                <p className="font-semibold text-gray-700">
+                  {outstandingCustomers.length === 0
+                    ? "No outstanding customers"
+                    : "No customers match your search"}
+                </p>
+                <p className="mt-1 text-sm text-gray-500">
+                  {outstandingCustomers.length === 0
+                    ? "Customers with unpaid balances will appear here automatically."
+                    : "Try another customer name or phone number."}
+                </p>
+              </div>
+            ) : (
+              <div className="overflow-x-auto rounded-xl border border-gray-200">
+                <table className="min-w-[850px] w-full text-left text-sm">
+                  <thead className="bg-gray-50 text-xs uppercase tracking-wide text-gray-500">
+                    <tr>
+                      <th className="px-4 py-3">Customer</th>
+                      <th className="px-4 py-3">Phone</th>
+                      <th className="px-4 py-3">Outstanding</th>
+                      <th className="px-4 py-3">Invoices owing</th>
+                      <th className="px-4 py-3">Last sale</th>
+                      <th className="px-4 py-3">Action</th>
+                    </tr>
+                  </thead>
+                  <tbody className="divide-y divide-gray-100">
+                    {filteredOutstandingCustomers.map((customer) => (
+                      <tr key={customer.key} className="hover:bg-amber-50/60">
+                        <td className="px-4 py-3 font-semibold text-gray-800">
+                          {customer.name}
+                        </td>
+                        <td className="px-4 py-3 text-gray-600">
+                          {customer.phone || "Not provided"}
+                        </td>
+                        <td className="px-4 py-3 font-bold text-red-700">
+                          {formatCurrency(customer.outstanding)}
+                        </td>
+                        <td className="px-4 py-3">
+                          <span className="inline-flex rounded-full bg-amber-100 px-2.5 py-1 text-xs font-semibold text-amber-800">
+                            {customer.invoiceCount} invoice
+                            {customer.invoiceCount === 1 ? "" : "s"}
+                          </span>
+                        </td>
+                        <td className="px-4 py-3 text-gray-600">
+                          {formatDate(customer.lastSale)}
+                        </td>
+                        <td className="px-4 py-3">
+                          <button
+                            type="button"
+                            onClick={() =>
+                              viewOutstandingCustomerSales(customer)
+                            }
+                            className="whitespace-nowrap rounded-lg border border-green-700 px-3 py-2 text-xs font-semibold text-green-800 hover:bg-green-50"
+                          >
+                            {isSuperadmin ? "View sales" : "View recent sales"}
+                          </button>
+                        </td>
+                      </tr>
+                    ))}
+                  </tbody>
+                </table>
+              </div>
+            )}
+          </div>
+        </section>
+      )}
 
       {/* SALES FORM */}
 
@@ -2209,7 +2410,10 @@ export default function EggSales() {
 
       {/* SALES LIST */}
 
-      <div className="rounded-2xl border bg-white shadow-sm">
+      <div
+        id="egg-sales-records"
+        className="scroll-mt-6 rounded-2xl border bg-white shadow-sm"
+      >
         <div className="border-b p-4">
           <div className="flex flex-col gap-4 xl:flex-row xl:items-center xl:justify-between">
             <div>

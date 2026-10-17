@@ -1,5 +1,5 @@
 import { useCallback, useEffect, useRef, useState } from "react";
-import { Outlet, Link, useNavigate, useLocation } from "react-router-dom";
+import { Outlet, NavLink, useNavigate, useLocation } from "react-router-dom";
 
 import { ToastContainer, toast } from "react-toastify";
 import "react-toastify/dist/ReactToastify.css";
@@ -49,7 +49,43 @@ const isOwnSender = (senderId, userId) => {
 const normalizeRequests = (response) => {
   if (Array.isArray(response)) return response;
   if (Array.isArray(response?.requests)) return response.requests;
+
   return [];
+};
+
+const getActiveSection = (pathname) => {
+  const managementPaths = [
+    "/admin/reports",
+    "/admin/expenses",
+    "/admin/workers",
+    "/admin/egg-sales",
+    "/admin/customers",
+    "/admin/manure-sales",
+    "/admin/feeds",
+    "/admin/feed-invoices",
+    "/admin/warehouse",
+    "/admin/room-inventory",
+  ];
+
+  const systemPaths = ["/admin/staff", "/admin/backup"];
+
+  if (
+    managementPaths.some(
+      (path) => pathname === path || pathname.startsWith(`${path}/`),
+    )
+  ) {
+    return "management";
+  }
+
+  if (
+    systemPaths.some(
+      (path) => pathname === path || pathname.startsWith(`${path}/`),
+    )
+  ) {
+    return "system";
+  }
+
+  return "general";
 };
 
 export default function AdminLayout() {
@@ -65,11 +101,36 @@ export default function AdminLayout() {
   const [unreadMessages, setUnreadMessages] = useState(0);
   const [messageNotifications, setMessageNotifications] = useState([]);
 
-  // Independent persistent indicators for the two sales sections.
   const [saleAccessBadges, setSaleAccessBadges] = useState({
     egg: false,
     manure: false,
   });
+
+  // ==========================================================
+  // COLLAPSIBLE NAVIGATION
+  // ==========================================================
+
+  const [expandedSections, setExpandedSections] = useState({
+    general: true,
+    management: false,
+    system: false,
+  });
+
+  useEffect(() => {
+    const activeSection = getActiveSection(location.pathname);
+
+    setExpandedSections((previous) => ({
+      ...previous,
+      [activeSection]: true,
+    }));
+  }, [location.pathname]);
+
+  const toggleSection = (section) => {
+    setExpandedSections((previous) => ({
+      ...previous,
+      [section]: !previous[section],
+    }));
+  };
 
   const orderAudioRef = useRef(null);
   const notificationAudioRef = useRef(null);
@@ -82,7 +143,7 @@ export default function AdminLayout() {
   }, [role, currentUserId]);
 
   // ==========================================================
-  // AUTHENTICATED SOCKET CONNECTION
+  // SOCKET CONNECTION
   // ==========================================================
 
   useEffect(() => {
@@ -129,9 +190,8 @@ export default function AdminLayout() {
       if (!audio) return;
 
       audio.currentTime = 0;
-      const result = audio.play();
 
-      result?.catch?.((err) => {
+      audio.play()?.catch?.((err) => {
         console.warn("Notification sound was blocked:", err);
       });
     } catch (err) {
@@ -145,9 +205,8 @@ export default function AdminLayout() {
       if (!audio) return;
 
       audio.currentTime = 0;
-      const result = audio.play();
 
-      result?.catch?.((err) => {
+      audio.play()?.catch?.((err) => {
         console.warn("Order sound was blocked:", err);
       });
     } catch (err) {
@@ -156,7 +215,7 @@ export default function AdminLayout() {
   }, []);
 
   // ==========================================================
-  // EXISTING MESSAGE NOTIFICATIONS
+  // MESSAGE NOTIFICATIONS
   // ==========================================================
 
   const refreshUnreadCount = useCallback(async () => {
@@ -168,6 +227,7 @@ export default function AdminLayout() {
     try {
       const response = await getUnreadCount();
       const count = response?.data?.count ?? response?.count ?? 0;
+
       setUnreadMessages(Number(count) || 0);
     } catch (err) {
       console.error("Failed to refresh unread notification count:", err);
@@ -179,7 +239,7 @@ export default function AdminLayout() {
   }, [refreshUnreadCount]);
 
   // ==========================================================
-  // SALE-ACCESS BADGES
+  // SALES ACCESS BADGES
   // ==========================================================
 
   const refreshSaleAccessBadges = useCallback(async () => {
@@ -223,7 +283,6 @@ export default function AdminLayout() {
     const handleListChanged = () => refreshSaleAccessBadges();
 
     window.addEventListener("saleAccessRequestListChanged", handleListChanged);
-
     window.addEventListener("saleAccessRequestViewed", handleListChanged);
 
     return () => {
@@ -236,8 +295,10 @@ export default function AdminLayout() {
     };
   }, [refreshSaleAccessBadges, role]);
 
-  // When a manager opens one sales section, mark only that section's
-  // reviewed requests as viewed. The other section remains independent.
+  // ==========================================================
+  // MARK SALES REQUESTS AS VIEWED
+  // ==========================================================
+
   useEffect(() => {
     if (role !== "manager") return;
 
@@ -303,7 +364,7 @@ export default function AdminLayout() {
 
   useEffect(() => {
     const handleNewOrder = (order) => {
-      setUnreadOrders((prev) => prev + 1);
+      setUnreadOrders((previous) => previous + 1);
       playOrderSound();
 
       const message = `New order received from ${order?.name || "customer"}`;
@@ -335,7 +396,7 @@ export default function AdminLayout() {
   }, [playOrderSound]);
 
   // ==========================================================
-  // SALE-ACCESS SOCKET.IO HANDLERS
+  // SALES ACCESS SOCKET EVENTS
   // ==========================================================
 
   useEffect(() => {
@@ -345,8 +406,8 @@ export default function AdminLayout() {
       if (roleRef.current !== "superadmin" || !request) return;
 
       if (["egg", "manure"].includes(request.saleType)) {
-        setSaleAccessBadges((prev) => ({
-          ...prev,
+        setSaleAccessBadges((previous) => ({
+          ...previous,
           [request.saleType]: true,
         }));
       }
@@ -355,6 +416,7 @@ export default function AdminLayout() {
 
       const invoice = request.invoiceNumber || "unknown";
       const requester = request.requesterName || "Manager";
+
       const message =
         request.message ||
         `${requester} requested older-sale access for invoice ${invoice}.`;
@@ -394,8 +456,8 @@ export default function AdminLayout() {
       if (!["approved", "rejected"].includes(request.status)) return;
 
       if (["egg", "manure"].includes(request.saleType)) {
-        setSaleAccessBadges((prev) => ({
-          ...prev,
+        setSaleAccessBadges((previous) => ({
+          ...previous,
           [request.saleType]: true,
         }));
       }
@@ -456,7 +518,7 @@ export default function AdminLayout() {
   }, [role, playNotificationSound]);
 
   // ==========================================================
-  // EXISTING NOTIFICATION SOCKET EVENTS
+  // MESSAGE SOCKET EVENTS
   // ==========================================================
 
   useEffect(() => {
@@ -481,14 +543,15 @@ export default function AdminLayout() {
         theme: "colored",
       });
 
-      setMessageNotifications((prev) => {
+      setMessageNotifications((previous) => {
         const id = getId(notification);
-        const index = prev.findIndex((item) => getId(item) === id);
+        const index = previous.findIndex((item) => getId(item) === id);
 
-        if (index === -1) return [...prev, notification];
+        if (index === -1) return [...previous, notification];
 
-        const next = [...prev];
+        const next = [...previous];
         next[index] = notification;
+
         return next;
       });
     };
@@ -523,14 +586,15 @@ export default function AdminLayout() {
         });
       }
 
-      setMessageNotifications((prev) => {
+      setMessageNotifications((previous) => {
         const id = getId(notification);
-        const index = prev.findIndex((item) => getId(item) === id);
+        const index = previous.findIndex((item) => getId(item) === id);
 
-        if (index === -1) return [...prev, notification];
+        if (index === -1) return [...previous, notification];
 
-        const next = [...prev];
+        const next = [...previous];
         next[index] = notification;
+
         return next;
       });
     };
@@ -557,8 +621,8 @@ export default function AdminLayout() {
     } catch (err) {
       console.error("Failed to mark notification as read:", err);
     } finally {
-      setMessageNotifications((prev) =>
-        prev.filter((item) => getId(item) !== getId(id)),
+      setMessageNotifications((previous) =>
+        previous.filter((item) => getId(item) !== getId(id)),
       );
     }
   };
@@ -568,8 +632,8 @@ export default function AdminLayout() {
       await replyNotification(id, { message });
       await refreshUnreadCount();
 
-      setMessageNotifications((prev) =>
-        prev.filter((item) => getId(item) !== getId(id)),
+      setMessageNotifications((previous) =>
+        previous.filter((item) => getId(item) !== getId(id)),
       );
     } catch (err) {
       console.error("Failed to reply to notification:", err);
@@ -596,31 +660,75 @@ export default function AdminLayout() {
       role="status"
       aria-label={label}
       title={label}
-      className="h-3 w-3 shrink-0 rounded-full bg-red-500 ring-2 ring-red-300 animate-pulse"
+      className="h-3 w-3 shrink-0 animate-pulse rounded-full bg-red-500 ring-2 ring-red-300"
     />
   );
+
+  // ==========================================================
+  // SECTION HEADER
+  // ==========================================================
+
+  const SectionHeader = ({ id, children }) => {
+    const isExpanded = Boolean(expandedSections[id]);
+
+    return (
+      <button
+        type="button"
+        onClick={() => toggleSection(id)}
+        aria-expanded={isExpanded}
+        aria-controls={`admin-nav-${id}`}
+        className="flex min-h-12 w-full items-center justify-between gap-3 rounded-lg border border-green-600 bg-green-700 px-4 py-3 text-left text-sm font-bold uppercase tracking-wide text-white transition hover:bg-green-600 focus:outline-none focus-visible:ring-2 focus-visible:ring-white"
+      >
+        <span>{children}</span>
+
+        <span
+          className={`flex h-6 w-6 shrink-0 items-center justify-center rounded-md bg-green-800 text-sm transition-transform duration-200 ${
+            isExpanded ? "rotate-180" : ""
+          }`}
+          aria-hidden="true"
+        >
+          ▾
+        </span>
+      </button>
+    );
+  };
+
+  // Use conditional display classes rather than the HTML hidden attribute.
+  const sectionContentClass = (section) =>
+    expandedSections[section]
+      ? "flex flex-col gap-2 overflow-hidden pl-2"
+      : "hidden";
+
+  // NavLink supplies isActive, so this function returns a CSS string.
+  const navLinkClass = ({ isActive }) =>
+    `flex min-h-11 w-full items-center justify-between gap-3 rounded-lg border px-3 py-3 text-left transition ${
+      isActive
+        ? "border-green-400 bg-green-600 font-semibold text-white shadow-sm"
+        : "border-transparent text-green-50 hover:border-green-600 hover:bg-green-700"
+    }`;
 
   // ==========================================================
   // UI
   // ==========================================================
 
   return (
-    <div className="flex min-h-screen bg-gray-100">
-      <aside className="w-72 bg-green-800 text-white p-6 shadow-lg">
-        <div className="mb-8">
+    <div className="min-h-screen bg-gray-100 md:flex">
+      <aside className="flex w-full shrink-0 flex-col self-start bg-green-800 p-5 text-white shadow-lg md:min-h-screen md:w-72">
+        {/* BRAND */}
+        <div className="mb-6">
           <div className="flex items-center gap-3">
             <img
               src={logo}
-              alt="logo"
-              className="w-14 h-14 object-contain rounded-full bg-white p-1"
+              alt="Mebrek Farms logo"
+              className="h-14 w-14 shrink-0 rounded-full bg-white object-contain p-1"
             />
 
-            <div>
+            <div className="min-w-0">
               <h2 className="text-2xl font-bold">Mebrek Farms</h2>
-              <p className="text-green-200 text-sm">Farm Management System</p>
+              <p className="text-sm text-green-200">Farm Management System</p>
 
               <div
-                className={`mt-3 inline-block px-3 py-1 rounded-full text-sm font-semibold ${
+                className={`mt-3 inline-block rounded-full px-3 py-1 text-sm font-semibold ${
                   role === "superadmin"
                     ? "bg-red-500"
                     : role === "manager"
@@ -634,253 +742,217 @@ export default function AdminLayout() {
           </div>
         </div>
 
-        <div className="bg-green-700 rounded-lg p-4 mb-6">
-          <p className="font-semibold text-lg">{name || "User"}</p>
-          <p className="text-green-200 text-sm">
+        {/* USER DETAILS */}
+        <div className="mb-4 rounded-lg border border-green-600 bg-green-700 p-4">
+          <p className="break-words text-lg font-semibold">{name || "User"}</p>
+
+          <p className="text-sm text-green-200">
             Logged in as {role || "staff"}
           </p>
         </div>
 
-        <button
-          onClick={() => navigate("/")}
-          className="w-full bg-white text-green-800 font-semibold py-3 rounded-lg mb-4 hover:bg-gray-200 transition"
-        >
-          ← Back to Farm Website
-        </button>
-
-        <button
-          onClick={handleLogout}
-          className="w-full bg-red-500 text-white py-3 rounded-lg mb-8 hover:bg-red-600 transition"
-        >
-          Logout
-        </button>
-
-        <nav className="space-y-2">
-          <div className="text-green-200 text-xs uppercase tracking-wider mb-2">
-            General
-          </div>
-
-          <Link
-            to="/admin"
-            className="block hover:bg-green-700 p-3 rounded-lg transition"
+        {/* ACTION BUTTONS */}
+        <div className="mb-6 flex flex-col gap-3">
+          <button
+            type="button"
+            onClick={() => navigate("/")}
+            className="min-h-11 w-full rounded-lg bg-white px-4 py-3 text-left font-semibold text-green-800 transition hover:bg-gray-200"
           >
-            Dashboard 📊
-          </Link>
+            ← Back to Farm Website
+          </button>
 
-          <Link
-            to="/admin/orders"
-            onClick={() => setUnreadOrders(0)}
-            className="flex items-center justify-between hover:bg-green-700 p-3 rounded-lg transition relative"
+          <button
+            type="button"
+            onClick={handleLogout}
+            className="min-h-11 w-full rounded-lg bg-red-500 px-4 py-3 text-left font-semibold text-white transition hover:bg-red-600"
           >
-            <span>Orders 📦</span>
-            {unreadOrders > 0 && (
-              <span className="min-w-[24px] h-6 px-2 rounded-full bg-red-500 text-white text-xs font-bold flex items-center justify-center animate-pulse">
-                {unreadOrders > 99 ? "99+" : unreadOrders}
-              </span>
-            )}
-          </Link>
+            Logout
+          </button>
+        </div>
 
-          <Link
-            to="/admin/flocks"
-            className="block hover:bg-green-700 p-3 rounded-lg transition"
-          >
-            Flocks 🐔
-          </Link>
+        {/* VERTICAL NAVIGATION */}
+        <nav className="flex flex-col gap-4">
+          {/* GENERAL */}
+          <section className="flex min-w-0 flex-col gap-2">
+            <SectionHeader id="general">General</SectionHeader>
 
-          {["superadmin", "manager", "staff"].includes(role) && (
-            <Link
-              to="/admin/production"
-              className="block hover:bg-green-700 p-3 rounded-lg transition"
+            <div
+              id="admin-nav-general"
+              className={sectionContentClass("general")}
             >
-              Production 🥚
-            </Link>
-          )}
+              <NavLink to="/admin" className={navLinkClass}>
+                Dashboard 📊
+              </NavLink>
 
-          <Link
-            to="/admin/attendance"
-            className="block hover:bg-green-700 p-3 rounded-lg transition"
-          >
-            Attendance 📅
-          </Link>
-
-          <Link
-            to="/admin/notifications"
-            className="flex items-center justify-between hover:bg-green-700 p-3 rounded-lg transition relative"
-          >
-            <span>Notifications 🔔</span>
-            {unreadMessages > 0 && (
-              <span className="min-w-[24px] h-6 px-2 rounded-full bg-red-500 text-white text-xs font-bold flex items-center justify-center animate-pulse">
-                {unreadMessages > 99 ? "99+" : unreadMessages}
-              </span>
-            )}
-          </Link>
-
-          <Link
-            to="/admin/vaccinations"
-            className="block hover:bg-green-700 p-3 rounded-lg transition"
-          >
-            Vaccinations 💉
-          </Link>
-
-          <Link
-            to="/admin/bird-health"
-            className="block hover:bg-green-700 p-3 rounded-lg transition"
-          >
-            Bird Health 🐔
-          </Link>
-
-          <Link
-            to="/admin/medications"
-            className="block hover:bg-green-700 p-3 rounded-lg transition"
-          >
-            Medications 💊
-          </Link>
-
-          <Link
-            to="/admin/mortality"
-            className="block hover:bg-green-700 p-3 rounded-lg transition"
-          >
-            Mortality Tracking ☠️
-          </Link>
-
-          {["superadmin", "manager"].includes(role) && (
-            <>
-              <hr className="border-green-600 my-4" />
-
-              <div className="text-green-200 text-xs uppercase tracking-wider mb-2">
-                Management
-              </div>
-
-              <Link
-                to="/admin/reports"
-                className="block hover:bg-green-700 p-3 rounded-lg transition"
+              <NavLink
+                to="/admin/orders"
+                onClick={() => setUnreadOrders(0)}
+                className={navLinkClass}
               >
-                Reports 📊
-              </Link>
+                <span>Orders 📦</span>
 
-              {role === "superadmin" && (
-                <>
-                  <Link
-                    to="/admin/expenses"
-                    className="block hover:bg-green-700 p-3 rounded-lg transition"
-                  >
-                    Expenses 💰
-                  </Link>
+                {unreadOrders > 0 && (
+                  <span className="flex h-6 min-w-6 shrink-0 animate-pulse items-center justify-center rounded-full bg-red-500 px-2 text-xs font-bold text-white">
+                    {unreadOrders > 99 ? "99+" : unreadOrders}
+                  </span>
+                )}
+              </NavLink>
 
-                  <Link
-                    to="/admin/workers"
-                    className="block hover:bg-green-700 p-3 rounded-lg transition"
-                  >
-                    Workers 👨‍🌾
-                  </Link>
-                </>
+              <NavLink to="/admin/flocks" className={navLinkClass}>
+                Flocks 🐔
+              </NavLink>
+
+              {["superadmin", "manager", "staff"].includes(role) && (
+                <NavLink to="/admin/production" className={navLinkClass}>
+                  Production 🥚
+                </NavLink>
               )}
 
-              <Link
-                to="/admin/egg-sales"
-                className="flex items-center justify-between hover:bg-green-700 p-3 rounded-lg transition"
+              <NavLink to="/admin/attendance" className={navLinkClass}>
+                Attendance 📅
+              </NavLink>
+
+              {["superadmin", "manager"].includes(role) && (
+                <NavLink to="/admin/notifications" className={navLinkClass}>
+                  <span>Notifications 🔔</span>
+
+                  {unreadMessages > 0 && (
+                    <span className="flex h-6 min-w-6 shrink-0 animate-pulse items-center justify-center rounded-full bg-red-500 px-2 text-xs font-bold text-white">
+                      {unreadMessages > 99 ? "99+" : unreadMessages}
+                    </span>
+                  )}
+                </NavLink>
+              )}
+
+              <NavLink to="/admin/vaccinations" className={navLinkClass}>
+                Vaccinations 💉
+              </NavLink>
+
+              <NavLink to="/admin/bird-health" className={navLinkClass}>
+                Bird Health 🐔
+              </NavLink>
+
+              <NavLink to="/admin/medications" className={navLinkClass}>
+                Medications 💊
+              </NavLink>
+
+              <NavLink to="/admin/mortality" className={navLinkClass}>
+                Mortality Tracking ☠️
+              </NavLink>
+            </div>
+          </section>
+
+          {/* MANAGEMENT */}
+          {["superadmin", "manager"].includes(role) && (
+            <section className="flex min-w-0 flex-col gap-2">
+              <SectionHeader id="management">Management</SectionHeader>
+
+              <div
+                id="admin-nav-management"
+                className={sectionContentClass("management")}
               >
-                <span>Egg Sales 🥚</span>
-                {saleAccessBadges.egg && (
-                  <RedDot label="Unread Egg Sales access notification" />
+                <NavLink to="/admin/reports" className={navLinkClass}>
+                  Reports 📊
+                </NavLink>
+
+                {role === "superadmin" && (
+                  <>
+                    <NavLink to="/admin/expenses" className={navLinkClass}>
+                      Expenses 💰
+                    </NavLink>
+
+                    <NavLink to="/admin/workers" className={navLinkClass}>
+                      Workers 👨‍🌾
+                    </NavLink>
+                  </>
                 )}
-              </Link>
 
-              <Link
-                to="/admin/customers"
-                className="block hover:bg-green-700 p-3 rounded-lg transition"
-              >
-                Customers 👥
-              </Link>
+                <NavLink to="/admin/egg-sales" className={navLinkClass}>
+                  <span>Egg Sales 🥚</span>
 
-              <Link
-                to="/admin/manure-sales"
-                className="flex items-center justify-between hover:bg-green-700 p-3 rounded-lg transition"
-              >
-                <span>Manure Sales 🌾</span>
-                {saleAccessBadges.manure && (
-                  <RedDot label="Unread Manure Sales access notification" />
-                )}
-              </Link>
+                  {saleAccessBadges.egg && (
+                    <RedDot label="Unread Egg Sales access notification" />
+                  )}
+                </NavLink>
 
-              <Link
-                to="/admin/feeds"
-                className="block hover:bg-green-700 p-3 rounded-lg transition"
-              >
-                Feed Inventory 🌽
-              </Link>
+                <NavLink to="/admin/customers" className={navLinkClass}>
+                  Customers 👥
+                </NavLink>
 
-              <Link
-                to="/admin/feed-invoices"
-                className="block hover:bg-green-700 p-3 rounded-lg transition"
-              >
-                Feed Invoices 🧾
-              </Link>
+                <NavLink to="/admin/manure-sales" className={navLinkClass}>
+                  <span>Manure Sales 🌾</span>
 
-              <Link
-                to="/admin/warehouse"
-                className="block hover:bg-green-700 p-3 rounded-lg transition"
-              >
-                Warehouse 🏬
-              </Link>
+                  {saleAccessBadges.manure && (
+                    <RedDot label="Unread Manure Sales access notification" />
+                  )}
+                </NavLink>
 
-              <Link
-                to="/admin/room-inventory"
-                className="block hover:bg-green-700 p-3 rounded-lg transition"
-              >
-                Room Inventory 🛏️
-              </Link>
-            </>
+                <NavLink to="/admin/feeds" className={navLinkClass}>
+                  Feed Inventory 🌽
+                </NavLink>
+
+                <NavLink to="/admin/feed-invoices" className={navLinkClass}>
+                  Feed Invoices 🧾
+                </NavLink>
+
+                <NavLink to="/admin/warehouse" className={navLinkClass}>
+                  Warehouse 🏬
+                </NavLink>
+
+                <NavLink to="/admin/room-inventory" className={navLinkClass}>
+                  Room Inventory 🛏️
+                </NavLink>
+              </div>
+            </section>
           )}
 
+          {/* SYSTEM ADMINISTRATION */}
           {role === "superadmin" && (
-            <>
-              <hr className="border-green-600 my-4" />
+            <section className="flex min-w-0 flex-col gap-2">
+              <SectionHeader id="system">System Administration</SectionHeader>
 
-              <div className="text-green-200 text-xs uppercase tracking-wider mb-2">
-                System Administration
+              <div
+                id="admin-nav-system"
+                className={sectionContentClass("system")}
+              >
+                <NavLink to="/admin/staff" className={navLinkClass}>
+                  Staff Accounts 👥
+                </NavLink>
+
+                <NavLink to="/admin/backup" className={navLinkClass}>
+                  Backup 🗄️
+                </NavLink>
               </div>
-
-              <Link
-                to="/admin/staff"
-                className="block hover:bg-green-700 p-3 rounded-lg transition"
-              >
-                Staff Accounts 👥
-              </Link>
-
-              <Link
-                to="/admin/backup"
-                className="block hover:bg-green-700 p-3 rounded-lg transition"
-              >
-                Backup 🗄️
-              </Link>
-            </>
+            </section>
           )}
         </nav>
       </aside>
 
-      <main className="flex-1 min-w-0 bg-gray-100 overflow-y-auto">
-        <div className="bg-white shadow-sm px-8 py-4 flex items-center justify-between">
-          <div className="w-full max-w-xl">
+      {/* MAIN CONTENT */}
+      <main className="min-w-0 flex-1 overflow-y-auto bg-gray-100">
+        <header className="flex flex-col gap-4 bg-white px-4 py-4 shadow-sm sm:flex-row sm:items-center sm:justify-between sm:px-8">
+          <div className="w-full min-w-0 max-w-xl">
             <GlobalSearch />
           </div>
 
-          <div className="flex items-center gap-3 ml-6">
-            <div className="text-right">
-              <p className="font-semibold">{name || "User"}</p>
+          <div className="flex items-center justify-between gap-3 sm:justify-end">
+            <div className="min-w-0 text-right">
+              <p className="break-words font-semibold">{name || "User"}</p>
               <p className="text-sm text-gray-500">{role || "staff"}</p>
             </div>
 
             <button
+              type="button"
               onClick={() => navigate("/admin/profile")}
-              className="w-10 h-10 rounded-full bg-green-700 text-white flex items-center justify-center hover:bg-green-800 transition"
+              aria-label="Open profile"
+              className="flex h-10 w-10 shrink-0 items-center justify-center rounded-full bg-green-700 text-white transition hover:bg-green-800"
             >
               👤
             </button>
           </div>
-        </div>
+        </header>
 
-        <div className="w-full min-w-0 p-8">
+        <div className="w-full min-w-0 p-4 sm:p-6 lg:p-8">
           <Outlet />
         </div>
       </main>

@@ -1,55 +1,87 @@
 import api from "./api";
 
-export const fetchSales = async () => {
-  const res = await api.get("/egg-sales");
+// ============================================================
+// EGG SALES SERVICE
+// ============================================================
+
+// Fetch sales visible to the logged-in user
+export const fetchSales = async (params = {}) => {
+  const res = await api.get("/egg-sales", { params });
   return res.data;
 };
 
+// Fetch outstanding customers
+export const fetchOutstandingCustomers = async (params = {}) => {
+  const res = await api.get("/egg-sales/outstanding", { params });
+  return res.data;
+};
+
+// Fetch one sale
 export const fetchSale = async (id) => {
   const res = await api.get(`/egg-sales/${id}`);
   return res.data;
 };
 
-export const fetchCustomerSales = async (customerId) => {
-  const res = await api.get(`/egg-sales/customer/${customerId}`);
+// Fetch sales belonging to a customer
+// Backend route: GET /api/egg-sales/customer/:customerId
+export const fetchCustomerSales = async (customerId, params = {}) => {
+  if (!customerId) {
+    throw new Error("A customer ID is required to fetch customer sales.");
+  }
+
+  const res = await api.get(
+    `/egg-sales/customer/${encodeURIComponent(customerId)}`,
+    { params },
+  );
+
   return res.data;
 };
 
-export const createSale = async (data) => {
-  const res = await api.post("/egg-sales", data);
+// Create a sale
+export const createSale = async (saleData) => {
+  const res = await api.post("/egg-sales", saleData);
   return res.data;
 };
 
-export const updateSale = async (id, data) => {
-  const res = await api.put(`/egg-sales/${id}`, data);
+// Update a sale
+export const updateSale = async (id, saleData) => {
+  const res = await api.put(`/egg-sales/${id}`, saleData);
   return res.data;
 };
 
+// Delete a sale
 export const deleteSale = async (id) => {
   const res = await api.delete(`/egg-sales/${id}`);
   return res.data;
 };
 
-export const fetchDeletedSales = async () => {
-  const res = await api.get("/egg-sales/deleted");
+// Fetch deleted sales
+export const fetchDeletedSales = async (params = {}) => {
+  const res = await api.get("/egg-sales/deleted", { params });
   return res.data;
 };
 
+// Restore a deleted sale
 export const restoreSale = async (id) => {
   const res = await api.put(`/egg-sales/${id}/restore`);
   return res.data;
 };
 
-// Older-sale access requests
-export const requestOlderSaleAccess = async (payload) => {
+// ============================================================
+// OLDER-SALE ACCESS REQUESTS
+// ============================================================
+
+// Request access to an older sale
+export const requestOlderSaleAccess = async (requestData) => {
   const res = await api.post("/sale-access-requests", {
-    ...payload,
+    ...requestData,
     saleType: "egg",
   });
 
   return res.data;
 };
 
+// Fetch older-sale access requests
 export const fetchSaleAccessRequests = async (params = {}) => {
   const res = await api.get("/sale-access-requests", {
     params: { ...params, saleType: "egg" },
@@ -58,27 +90,35 @@ export const fetchSaleAccessRequests = async (params = {}) => {
   return res.data;
 };
 
-export const reviewSaleAccessRequest = async (
-  id,
-  { decision, reviewNote = "" },
-) => {
+// Approve or reject an older-sale access request
+export const reviewSaleAccessRequest = async (id, reviewData) => {
   const res = await api.put(`/sale-access-requests/${id}/review`, {
-    decision,
-    reviewNote,
+    ...reviewData,
+    saleType: "egg",
   });
 
   return res.data;
 };
 
-export const markSaleAccessRequestViewed = async (id) => {
-  const res = await api.patch(`/sale-access-requests/${id}/viewed`);
+// Delete an older-sale access request
+export const deleteSaleAccessRequest = async (id) => {
+  const res = await api.delete(`/sale-access-requests/${id}`, {
+    params: { saleType: "egg" },
+  });
+
   return res.data;
 };
 
-// Managers may delete their own pending requests.
-// Superadmins may delete requests in any status.
-// The backend enforces these permissions.
-export const deleteSaleAccessRequest = async (id) => {
-  const res = await api.delete(`/sale-access-requests/${id}`);
+/**
+ * Mark an older-sale access request as viewed.
+ * Requires a matching backend endpoint.
+ */
+export const markSaleAccessRequestViewed = async (id) => {
+  const res = await api.put(
+    `/sale-access-requests/${id}/viewed`,
+    { saleType: "egg" },
+    { params: { saleType: "egg" } },
+  );
+
   return res.data;
 };
