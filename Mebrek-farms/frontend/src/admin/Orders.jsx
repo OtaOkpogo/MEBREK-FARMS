@@ -55,7 +55,9 @@ const EMPTY_SCHEDULE = {
 const getToken = () => localStorage.getItem("token");
 
 const authConfig = () => ({
-  headers: { Authorization: `Bearer ${getToken()}` },
+  headers: {
+    Authorization: `Bearer ${getToken()}`,
+  },
 });
 
 const getOrderDate = (order) =>
@@ -63,18 +65,23 @@ const getOrderDate = (order) =>
 
 const getValidDate = (value) => {
   if (!value) return null;
+
   const date = new Date(value);
+
   return Number.isNaN(date.getTime()) ? null : date;
 };
 
 const formatDate = (value) => {
   const date = getValidDate(value);
+
   return date ? date.toLocaleString() : "Not scheduled";
 };
 
 const toDateTimeLocal = (value) => {
   const date = getValidDate(value);
+
   if (!date) return "";
+
   return new Date(date.getTime() - date.getTimezoneOffset() * 60000)
     .toISOString()
     .slice(0, 16);
@@ -88,6 +95,7 @@ const isContactComplete = (order) =>
 
 const isContactOverdue = (order) => {
   const date = getValidDate(order.nextContactAt);
+
   return Boolean(
     date &&
     date.getTime() <= Date.now() &&
@@ -103,7 +111,6 @@ const getSourceLabel = (order) =>
       ? "Website"
       : order.source || "Website";
 
-/** Display a saved booking number; never substitute a row position. */
 const formatBookingNumber = (order) => {
   const value = order?.bookingNumber;
 
@@ -116,6 +123,50 @@ const formatBookingNumber = (order) => {
   }
 
   return `MF-${String(value).padStart(5, "0")}`;
+};
+
+/*
+ * SERVICE QUEUE ORDERING
+ *
+ * Booking numbers determine the order of service.
+ * If two records have the same number, or a record has no number,
+ * the booking timestamp and database ID provide a fallback.
+ */
+const compareServiceOrder = (a, b) => {
+  const rawA = a?.bookingNumber;
+  const rawB = b?.bookingNumber;
+
+  const numberA = Number(rawA);
+  const numberB = Number(rawB);
+
+  const hasNumberA =
+    rawA !== null &&
+    rawA !== undefined &&
+    rawA !== "" &&
+    Number.isFinite(numberA);
+
+  const hasNumberB =
+    rawB !== null &&
+    rawB !== undefined &&
+    rawB !== "" &&
+    Number.isFinite(numberB);
+
+  if (hasNumberA && hasNumberB && numberA !== numberB) {
+    return numberA - numberB;
+  }
+
+  if (hasNumberA !== hasNumberB) {
+    return hasNumberA ? -1 : 1;
+  }
+
+  const dateA = getValidDate(getOrderDate(a))?.getTime() ?? 0;
+  const dateB = getValidDate(getOrderDate(b))?.getTime() ?? 0;
+
+  if (dateA !== dateB) {
+    return dateA - dateB;
+  }
+
+  return String(a?._id || "").localeCompare(String(b?._id || ""));
 };
 
 const getContactPriority = (order) => {
@@ -140,6 +191,7 @@ const getPriorityLabel = (order) => {
   if (priority === 0) return "OVERDUE";
   if (priority === 1) return "SCHEDULED";
   if (priority === 2) return "NEEDS SCHEDULING";
+
   return "LOW PRIORITY";
 };
 
@@ -149,6 +201,7 @@ const getPriorityClass = (order) => {
   if (priority === 0) return "bg-red-100 text-red-800";
   if (priority === 1) return "bg-blue-100 text-blue-800";
   if (priority === 2) return "bg-amber-100 text-amber-800";
+
   return "bg-slate-100 text-slate-600";
 };
 
@@ -160,6 +213,7 @@ export default function Orders() {
   const [search, setSearch] = useState("");
   const [updatingId, setUpdatingId] = useState(null);
   const [page, setPage] = useState(1);
+
   const [activeView, setActiveView] = useState("register");
 
   const [showBookingModal, setShowBookingModal] = useState(false);
@@ -170,24 +224,34 @@ export default function Orders() {
   const [scheduleSaving, setScheduleSaving] = useState(false);
   const [scheduleOrder, setScheduleOrder] = useState(null);
 
-  const [newBooking, setNewBooking] = useState(EMPTY_BOOKING);
+  const [newBooking, setNewBooking] = useState({
+    ...EMPTY_BOOKING,
+  });
+
   const [newEnquiry, setNewEnquiry] = useState({
     name: "",
     contact: "",
     message: "",
   });
-  const [scheduleForm, setScheduleForm] = useState(EMPTY_SCHEDULE);
+
+  const [scheduleForm, setScheduleForm] = useState({
+    ...EMPTY_SCHEDULE,
+  });
 
   // ------------------------------------------------------------
-  // LOAD ORDERS AND CUSTOMERS
+  // FETCH ORDERS
   // ------------------------------------------------------------
 
   const fetchOrders = useCallback(async (showLoader = true) => {
     try {
-      if (showLoader) setLoading(true);
-      else setRefreshing(true);
+      if (showLoader) {
+        setLoading(true);
+      } else {
+        setRefreshing(true);
+      }
 
       const response = await axios.get(`${API}/orders`, authConfig());
+
       const data = Array.isArray(response.data)
         ? response.data
         : response.data?.orders || [];
@@ -207,9 +271,14 @@ export default function Orders() {
     }
   }, []);
 
+  // ------------------------------------------------------------
+  // FETCH CUSTOMERS
+  // ------------------------------------------------------------
+
   const fetchCustomers = useCallback(async () => {
     try {
       const response = await axios.get(`${API}/customers`, authConfig());
+
       const data = Array.isArray(response.data)
         ? response.data
         : response.data?.customers || [];
@@ -217,6 +286,7 @@ export default function Orders() {
       setCustomers(data.filter((customer) => customer.isActive !== false));
     } catch (error) {
       console.error("Failed to load customers:", error);
+
       toast.error(
         "Customer list could not be loaded. You can enter customer details manually.",
       );
@@ -229,7 +299,7 @@ export default function Orders() {
   }, [fetchOrders, fetchCustomers]);
 
   // ------------------------------------------------------------
-  // REAL-TIME UPDATES
+  // REAL-TIME ORDER UPDATES
   // ------------------------------------------------------------
 
   useEffect(() => {
@@ -255,14 +325,10 @@ export default function Orders() {
     const handleNewOrder = (order) => {
       upsertOrder(order);
 
-      // Manual bookings also emit "newOrder"; only website submissions
-      // should produce the incoming website-order notification.
       if (order?.source !== "Manual") {
         toast.info(`New order received from ${order?.name || "a customer"}.`);
       }
     };
-
-    const handleOrderUpdated = (order) => upsertOrder(order);
 
     const handleOrderDeleted = (payload) => {
       const id = payload?.id || payload?._id;
@@ -276,39 +342,32 @@ export default function Orders() {
     };
 
     socket.on("newOrder", handleNewOrder);
-    socket.on("orderBookingCreated", handleOrderUpdated);
-    socket.on("orderBookingUpdated", handleOrderUpdated);
-    socket.on("orderStatusUpdated", handleOrderUpdated);
+    socket.on("orderBookingCreated", upsertOrder);
+    socket.on("orderBookingUpdated", upsertOrder);
+    socket.on("orderStatusUpdated", upsertOrder);
     socket.on("orderDeleted", handleOrderDeleted);
 
     return () => {
       socket.off("newOrder", handleNewOrder);
-      socket.off("orderBookingCreated", handleOrderUpdated);
-      socket.off("orderBookingUpdated", handleOrderUpdated);
-      socket.off("orderStatusUpdated", handleOrderUpdated);
+      socket.off("orderBookingCreated", upsertOrder);
+      socket.off("orderBookingUpdated", upsertOrder);
+      socket.off("orderStatusUpdated", upsertOrder);
       socket.off("orderDeleted", handleOrderDeleted);
     };
   }, [fetchOrders]);
 
   // ------------------------------------------------------------
-  // REGISTER, SEARCH AND CONTACT QUEUE
+  // SEARCH
   // ------------------------------------------------------------
 
   const chronologicalOrders = useMemo(
-    () =>
-      [...orders].sort((a, b) => {
-        const dateA = getValidDate(getOrderDate(a))?.getTime() ?? 0;
-        const dateB = getValidDate(getOrderDate(b))?.getTime() ?? 0;
-
-        if (dateA !== dateB) return dateA - dateB;
-
-        return String(a._id || "").localeCompare(String(b._id || ""));
-      }),
+    () => [...orders].sort(compareServiceOrder),
     [orders],
   );
 
   const searchedOrders = useMemo(() => {
     const keyword = search.trim().toLowerCase();
+
     if (!keyword) return chronologicalOrders;
 
     return chronologicalOrders.filter((order) => {
@@ -337,6 +396,34 @@ export default function Orders() {
     });
   }, [chronologicalOrders, search]);
 
+  // ------------------------------------------------------------
+  // FIRST-COME, FIRST-SERVED SERVICE QUEUE
+  // ------------------------------------------------------------
+
+  const serviceQueue = useMemo(
+    () =>
+      orders.filter((order) => !isClosedOrder(order)).sort(compareServiceOrder),
+    [orders],
+  );
+
+  // Queue positions are based on the complete active queue,
+  // not just the results currently visible after searching.
+  const serviceQueuePositions = useMemo(
+    () => new Map(serviceQueue.map((order, index) => [order._id, index + 1])),
+    [serviceQueue],
+  );
+
+  const searchedServiceQueue = useMemo(() => {
+    const matchingIds = new Set(searchedOrders.map((order) => order._id));
+
+    return serviceQueue.filter((order) => matchingIds.has(order._id));
+  }, [serviceQueue, searchedOrders]);
+
+  // ------------------------------------------------------------
+  // CONTACT QUEUE
+  // This is separate from the first-come, first-served queue.
+  // ------------------------------------------------------------
+
   const contactQueue = useMemo(
     () =>
       [...searchedOrders]
@@ -345,40 +432,55 @@ export default function Orders() {
           const priorityDifference =
             getContactPriority(a) - getContactPriority(b);
 
-          if (priorityDifference !== 0) return priorityDifference;
+          if (priorityDifference !== 0) {
+            return priorityDifference;
+          }
 
           const dateA = getValidDate(a.nextContactAt)?.getTime() ?? Infinity;
+
           const dateB = getValidDate(b.nextContactAt)?.getTime() ?? Infinity;
 
-          if (dateA !== dateB) return dateA - dateB;
+          if (dateA !== dateB) {
+            return dateA - dateB;
+          }
 
-          const bookingA = getValidDate(getOrderDate(a))?.getTime() ?? 0;
-          const bookingB = getValidDate(getOrderDate(b))?.getTime() ?? 0;
-
-          return bookingA - bookingB;
+          return compareServiceOrder(a, b);
         }),
     [searchedOrders],
   );
 
   const displayedOrders =
-    activeView === "queue" ? contactQueue : searchedOrders;
+    activeView === "service"
+      ? searchedServiceQueue
+      : activeView === "queue"
+        ? contactQueue
+        : searchedOrders;
 
   useEffect(() => {
     setPage(1);
   }, [search, activeView]);
 
+  // ------------------------------------------------------------
+  // DASHBOARD STATISTICS
+  // ------------------------------------------------------------
+
   const stats = useMemo(
     () => ({
       total: orders.length,
+
       pending: orders.filter((order) => order.status === "Pending").length,
+
       scheduled: orders.filter(
         (order) =>
           Boolean(order.nextContactAt) &&
           !isClosedOrder(order) &&
           !isContactComplete(order),
       ).length,
+
       overdue: orders.filter(isContactOverdue).length,
+
       completed: orders.filter((order) => order.status === "Completed").length,
+
       unscheduled: orders.filter(
         (order) =>
           !order.nextContactAt &&
@@ -397,13 +499,17 @@ export default function Orders() {
   );
 
   // ------------------------------------------------------------
-  // ORDER STATUS
+  // UPDATE ORDER STATUS
   // ------------------------------------------------------------
 
   const handleStatusChange = async (orderId, newStatus) => {
-    const previousOrders = orders.map((order) => ({ ...order }));
+    const previousOrders = orders.map((order) => ({
+      ...order,
+    }));
+
     setUpdatingId(orderId);
 
+    // Update immediately so the service queue reacts at once.
     setOrders((previous) =>
       previous.map((order) =>
         order._id === orderId ? { ...order, status: newStatus } : order,
@@ -418,10 +524,13 @@ export default function Orders() {
       );
 
       toast.success("Order status updated.");
+
       await fetchOrders(false);
     } catch (error) {
       console.error("Failed to update status:", error);
+
       setOrders(previousOrders);
+
       toast.error(
         error.response?.data?.message || "Failed to update order status.",
       );
@@ -431,7 +540,7 @@ export default function Orders() {
   };
 
   // ------------------------------------------------------------
-  // CREATE ADVANCE BOOKING
+  // ADVANCE BOOKING FORM
   // ------------------------------------------------------------
 
   const openBookingModal = () => {
@@ -440,27 +549,31 @@ export default function Orders() {
   };
 
   const closeBookingModal = () => {
-    if (!submitting) setShowBookingModal(false);
+    if (!submitting) {
+      setShowBookingModal(false);
+    }
   };
 
   const handleBookingChange = (field, value) => {
     if (field === "customerId" && value) {
-      const selectedCustomer = customers.find(
-        (customer) => customer._id === value,
-      );
+      const customer = customers.find((item) => item._id === value);
 
-      if (selectedCustomer) {
+      if (customer) {
         setNewBooking((previous) => ({
           ...previous,
           customerId: value,
-          name: selectedCustomer.name || "",
-          contact: selectedCustomer.phone || selectedCustomer.email || "",
+          name: customer.name || "",
+          contact: customer.phone || customer.email || "",
         }));
+
         return;
       }
     }
 
-    setNewBooking((previous) => ({ ...previous, [field]: value }));
+    setNewBooking((previous) => ({
+      ...previous,
+      [field]: value,
+    }));
   };
 
   const handleCreateBooking = async (event) => {
@@ -540,6 +653,7 @@ export default function Orders() {
       setNewBooking({ ...EMPTY_BOOKING });
     } catch (error) {
       console.error("Failed to create advance booking:", error);
+
       toast.error(
         error.response?.data?.message || "Failed to create advance booking.",
       );
@@ -549,12 +663,16 @@ export default function Orders() {
   };
 
   // ------------------------------------------------------------
-  // GENERAL ENQUIRY
-  // Keeps the original public website payload/API compatible.
+  // GENERAL ENQUIRY FORM
   // ------------------------------------------------------------
 
   const openEnquiryModal = () => {
-    setNewEnquiry({ name: "", contact: "", message: "" });
+    setNewEnquiry({
+      name: "",
+      contact: "",
+      message: "",
+    });
+
     setShowEnquiryModal(true);
   };
 
@@ -573,6 +691,7 @@ export default function Orders() {
     setSubmitting(true);
 
     try {
+      // Keep the original website/enquiry API contract.
       const response = await axios.post(
         `${API}/orders`,
         {
@@ -612,9 +731,15 @@ export default function Orders() {
       );
 
       setShowEnquiryModal(false);
-      setNewEnquiry({ name: "", contact: "", message: "" });
+
+      setNewEnquiry({
+        name: "",
+        contact: "",
+        message: "",
+      });
     } catch (error) {
       console.error("Failed to add enquiry:", error);
+
       toast.error(error.response?.data?.message || "Failed to add enquiry.");
     } finally {
       setSubmitting(false);
@@ -627,6 +752,7 @@ export default function Orders() {
 
   const openScheduleModal = (order) => {
     setScheduleOrder(order);
+
     setScheduleForm({
       nextContactAt: toDateTimeLocal(order.nextContactAt),
       collectionAt: toDateTimeLocal(order.collectionAt),
@@ -635,21 +761,27 @@ export default function Orders() {
         (order.nextContactAt ? "Scheduled" : "Not Scheduled"),
       bookingNotes: order.bookingNotes || "",
     });
+
     setShowScheduleModal(true);
   };
 
   const closeScheduleModal = () => {
     if (scheduleSaving) return;
+
     setShowScheduleModal(false);
     setScheduleOrder(null);
   };
 
   const handleScheduleChange = (field, value) => {
-    setScheduleForm((previous) => ({ ...previous, [field]: value }));
+    setScheduleForm((previous) => ({
+      ...previous,
+      [field]: value,
+    }));
   };
 
   const handleSaveSchedule = async (event) => {
     event.preventDefault();
+
     if (!scheduleOrder?._id) return;
 
     setScheduleSaving(true);
@@ -668,7 +800,7 @@ export default function Orders() {
         authConfig(),
       );
 
-      const updatedOrder = response.data?.order;
+      const updatedOrder = response.data?.order || response.data;
 
       if (updatedOrder?._id) {
         setOrders((previous) =>
@@ -683,10 +815,12 @@ export default function Orders() {
       }
 
       toast.success("Contact and collection schedule updated.");
+
       setShowScheduleModal(false);
       setScheduleOrder(null);
     } catch (error) {
       console.error("Failed to update booking details:", error);
+
       toast.error(
         error.response?.data?.message || "Failed to update the schedule.",
       );
@@ -701,7 +835,9 @@ export default function Orders() {
 
   const handleDeleteOrder = async (order) => {
     const confirmed = window.confirm(
-      `Delete the record for ${order.name || "this customer"}? This cannot be undone.`,
+      `Delete the record for ${
+        order.name || "this customer"
+      }? This cannot be undone.`,
     );
 
     if (!confirmed) return;
@@ -716,12 +852,13 @@ export default function Orders() {
       toast.success("Record deleted.");
     } catch (error) {
       console.error("Failed to delete order:", error);
+
       toast.error(error.response?.data?.message || "Failed to delete record.");
     }
   };
 
   // ------------------------------------------------------------
-  // SHARED ROW ACTIONS
+  // REUSABLE TABLE ELEMENTS
   // ------------------------------------------------------------
 
   const renderOrderStatus = (order) => (
@@ -778,6 +915,7 @@ export default function Orders() {
       {order.productType ? (
         <>
           <p className="font-semibold text-slate-800">{order.productType}</p>
+
           {order.quantity != null && (
             <p className="mt-1 text-slate-600">
               {order.quantity} {order.quantityUnit}
@@ -832,9 +970,23 @@ export default function Orders() {
     </div>
   );
 
-  // ------------------------------------------------------------
-  // RENDER
-  // ------------------------------------------------------------
+  const viewTitle =
+    activeView === "register"
+      ? "Chronological Booking Register"
+      : activeView === "service"
+        ? "First-Come, First-Served Service Queue"
+        : "Customer Contact Queue";
+
+  const viewDescription =
+    activeView === "register"
+      ? "All records, including completed and cancelled bookings."
+      : activeView === "service"
+        ? "Active bookings in booking-number order. The first customer is next to serve."
+        : "Follow-up worklist prioritized by contact urgency, not service order.";
+
+  // ============================================================
+  // PAGE UI
+  // ============================================================
 
   return (
     <div className="min-h-screen bg-slate-50 p-4 sm:p-6">
@@ -843,12 +995,14 @@ export default function Orders() {
           <p className="mb-1 text-sm font-semibold uppercase tracking-wider text-emerald-700">
             Mebrek Farms · Customer Management
           </p>
+
           <h1 className="text-2xl font-bold text-slate-800 sm:text-3xl">
             Orders & Advance Bookings
           </h1>
+
           <p className="mt-2 max-w-3xl text-sm text-slate-600">
-            Maintain a chronological booking register and a separate daily
-            customer follow-up worklist.
+            Manage the booking register, first-come first-served service queue,
+            and customer follow-ups.
           </p>
         </div>
 
@@ -885,12 +1039,15 @@ export default function Orders() {
 
       <div className="mb-6 rounded-xl border border-emerald-200 bg-emerald-50 p-4">
         <p className="font-semibold text-emerald-900">Advance-booking policy</p>
+
         <p className="mt-1 text-sm leading-6 text-emerald-900/80">
           Effective 1 November 2026, eggs and manure are handled through advance
-          booking. Website enquiries remain accepted and are assigned a booking
+          booking. Website enquiries remain accepted and receive a booking
           reference when saved.
         </p>
       </div>
+
+      {/* STATISTICS */}
 
       <div className="mb-6 grid grid-cols-1 gap-4 sm:grid-cols-2 xl:grid-cols-5">
         <StatCard
@@ -899,24 +1056,28 @@ export default function Orders() {
           detail="Website and manual entries"
           accent="emerald"
         />
+
         <StatCard
           label="Pending"
           value={stats.pending}
           detail="Awaiting resolution"
           accent="amber"
         />
+
         <StatCard
           label="Scheduled Contacts"
           value={stats.scheduled}
           detail="Active follow-ups"
           accent="blue"
         />
+
         <StatCard
           label="Overdue Contacts"
           value={stats.overdue}
           detail="Require attention"
           accent="red"
         />
+
         <StatCard
           label="Completed"
           value={stats.completed}
@@ -925,37 +1086,107 @@ export default function Orders() {
         />
       </div>
 
-      {/* THE TWO VIEWS HAVE DIFFERENT PURPOSES */}
+      {/* NEXT CUSTOMER TO SERVE */}
+
+      <div className="mb-6 rounded-xl border border-emerald-200 bg-white p-5 shadow-sm">
+        {serviceQueue.length > 0 ? (
+          <div className="flex flex-col gap-4 sm:flex-row sm:items-center sm:justify-between">
+            <div>
+              <p className="text-xs font-bold uppercase tracking-wider text-emerald-700">
+                Next customer to serve
+              </p>
+
+              <h2 className="mt-2 text-xl font-bold text-slate-800">
+                {serviceQueue[0].name || "Unnamed customer"}
+              </h2>
+
+              <p className="mt-1 text-sm text-slate-600">
+                Booking reference:{" "}
+                <span className="font-bold text-emerald-800">
+                  {formatBookingNumber(serviceQueue[0])}
+                </span>
+              </p>
+
+              <p className="mt-1 text-sm text-slate-600">
+                Booked: {formatDate(getOrderDate(serviceQueue[0]))}
+              </p>
+
+              {serviceQueue[0].productType && (
+                <p className="mt-1 text-sm text-slate-600">
+                  Request: {serviceQueue[0].productType}
+                  {serviceQueue[0].quantity != null
+                    ? ` — ${serviceQueue[0].quantity} ${
+                        serviceQueue[0].quantityUnit || ""
+                      }`
+                    : ""}
+                </p>
+              )}
+
+              {serviceQueue[0].contact && (
+                <p className="mt-1 text-sm text-slate-600">
+                  Contact: {serviceQueue[0].contact}
+                </p>
+              )}
+            </div>
+
+            <div className="rounded-lg bg-emerald-50 px-6 py-4 text-center">
+              <p className="text-xs font-semibold uppercase text-emerald-700">
+                Queue position
+              </p>
+
+              <p className="mt-1 text-3xl font-bold text-emerald-800">1</p>
+
+              <p className="text-xs text-emerald-700">
+                {serviceQueue.length} active{" "}
+                {serviceQueue.length === 1 ? "booking" : "bookings"}
+              </p>
+            </div>
+          </div>
+        ) : (
+          <div>
+            <p className="font-semibold text-slate-800">
+              No customers waiting to be served
+            </p>
+
+            <p className="mt-1 text-sm text-slate-500">
+              New eligible bookings will appear here automatically.
+            </p>
+          </div>
+        )}
+      </div>
+
+      {/* VIEW TABS */}
+
       <div className="mb-4 rounded-xl border border-slate-200 bg-white p-3 shadow-sm">
         <div className="flex flex-wrap gap-2">
-          <button
-            type="button"
+          <ViewButton
+            active={activeView === "register"}
             onClick={() => setActiveView("register")}
-            className={`rounded-lg px-4 py-2 text-sm font-semibold ${
-              activeView === "register"
-                ? "bg-emerald-700 text-white"
-                : "bg-slate-100 text-slate-700 hover:bg-slate-200"
-            }`}
           >
             Booking Register
-          </button>
+          </ViewButton>
 
-          <button
-            type="button"
+          <ViewButton
+            active={activeView === "service"}
+            onClick={() => setActiveView("service")}
+          >
+            Service Queue
+            <span className="ml-1 rounded-full bg-white/20 px-2 py-0.5 text-xs">
+              {serviceQueue.length}
+            </span>
+          </ViewButton>
+
+          <ViewButton
+            active={activeView === "queue"}
             onClick={() => setActiveView("queue")}
-            className={`flex items-center gap-2 rounded-lg px-4 py-2 text-sm font-semibold ${
-              activeView === "queue"
-                ? "bg-emerald-700 text-white"
-                : "bg-slate-100 text-slate-700 hover:bg-slate-200"
-            }`}
           >
             Contact Queue
             {stats.overdue > 0 && (
-              <span className="rounded-full bg-red-100 px-2 py-0.5 text-xs text-red-700">
+              <span className="ml-2 rounded-full bg-red-100 px-2 py-0.5 text-xs text-red-700">
                 {stats.overdue} overdue
               </span>
             )}
-          </button>
+          </ViewButton>
         </div>
 
         <div className="mt-3 grid gap-3 border-t border-slate-100 pt-3 sm:grid-cols-3">
@@ -988,11 +1219,11 @@ export default function Orders() {
         </div>
 
         <p className="mt-3 text-xs leading-5 text-slate-500">
-          {activeView === "register"
-            ? "Register: all records, oldest first, including completed and cancelled orders."
-            : "Queue: active follow-ups only. Overdue contacts appear first, followed by scheduled contacts and bookings needing a contact date."}
+          {viewDescription}
         </p>
       </div>
+
+      {/* SEARCH */}
 
       <div className="mb-5 rounded-xl border border-slate-200 bg-white p-4 shadow-sm">
         <label
@@ -1001,6 +1232,7 @@ export default function Orders() {
         >
           Search orders and customers
         </label>
+
         <input
           id="order-search"
           type="search"
@@ -1011,6 +1243,8 @@ export default function Orders() {
         />
       </div>
 
+      {/* LOADING / EMPTY STATE / TABLE */}
+
       {loading ? (
         <div className="rounded-xl border border-slate-200 bg-white p-16 text-center shadow-sm">
           <div className="mx-auto h-10 w-10 animate-spin rounded-full border-4 border-slate-200 border-t-emerald-700" />
@@ -1019,18 +1253,29 @@ export default function Orders() {
       ) : displayedOrders.length === 0 ? (
         <div className="rounded-xl border border-slate-200 bg-white p-12 text-center shadow-sm">
           <div className="mb-3 text-5xl" aria-hidden="true">
-            {activeView === "queue" ? "📞" : "📦"}
+            {activeView === "queue"
+              ? "📞"
+              : activeView === "service"
+                ? "🧾"
+                : "📦"}
           </div>
+
           <h2 className="text-xl font-bold text-slate-800">
-            {activeView === "queue"
-              ? "No customers in the contact queue"
-              : "No orders found"}
+            {activeView === "service"
+              ? "No customers waiting to be served"
+              : activeView === "queue"
+                ? "No customers in the contact queue"
+                : "No orders found"}
           </h2>
+
           <p className="mx-auto mt-2 max-w-xl text-sm text-slate-500">
-            {activeView === "queue"
-              ? "There are no active follow-ups matching your search. Completed and cancelled orders are kept in the register."
-              : "Try another search or record an advance booking to get started."}
+            {activeView === "service"
+              ? "New active bookings will appear here automatically."
+              : activeView === "queue"
+                ? "There are no active follow-ups matching your search. Completed and cancelled orders remain in the register."
+                : "Try another search or record an advance booking to get started."}
           </p>
+
           {activeView === "register" && (
             <button
               type="button"
@@ -1045,17 +1290,11 @@ export default function Orders() {
         <div className="overflow-hidden rounded-xl border border-slate-200 bg-white shadow-sm">
           <div className="flex flex-col gap-1 border-b border-slate-200 px-4 py-4 sm:flex-row sm:items-center sm:justify-between">
             <div>
-              <h2 className="font-bold text-slate-800">
-                {activeView === "register"
-                  ? "Chronological Booking Register"
-                  : "Customer Contact Queue"}
-              </h2>
-              <p className="mt-1 text-xs text-slate-500">
-                {activeView === "register"
-                  ? "Permanent references identify saved records. Legacy records without a saved reference are clearly labelled."
-                  : "Use this worklist to decide who needs to be contacted next and record each outcome."}
-              </p>
+              <h2 className="font-bold text-slate-800">{viewTitle}</h2>
+
+              <p className="mt-1 text-xs text-slate-500">{viewDescription}</p>
             </div>
+
             <span className="text-sm text-slate-500">
               {displayedOrders.length} record
               {displayedOrders.length === 1 ? "" : "s"}
@@ -1064,7 +1303,7 @@ export default function Orders() {
 
           <div className="overflow-x-auto">
             {activeView === "register" ? (
-              /* BOOKING REGISTER: history and record management */
+              /* BOOKING REGISTER */
               <table className="w-full min-w-[1200px] text-left text-sm">
                 <thead className="bg-slate-100 text-xs uppercase tracking-wide text-slate-600">
                   <tr>
@@ -1089,11 +1328,13 @@ export default function Orders() {
                         <p className="font-bold text-slate-800">
                           {formatBookingNumber(order)}
                         </p>
+
                         {order.bookingNumber == null && (
                           <p className="mt-1 max-w-[150px] text-xs text-amber-700">
                             Older record — number not assigned
                           </p>
                         )}
+
                         <span
                           className={`mt-2 inline-flex rounded-full px-2 py-1 text-xs font-medium ${
                             order.source === "Manual"
@@ -1105,24 +1346,21 @@ export default function Orders() {
                         </span>
                       </td>
 
-                      <td className="px-4 py-4 align-top">
-                        {renderCustomer(order)}
-                      </td>
+                      <td className="px-4 py-4">{renderCustomer(order)}</td>
 
-                      <td className="px-4 py-4 align-top">
-                        {renderProduct(order)}
-                      </td>
+                      <td className="px-4 py-4">{renderProduct(order)}</td>
 
-                      <td className="whitespace-nowrap px-4 py-4 align-top text-slate-600">
+                      <td className="whitespace-nowrap px-4 py-4 text-slate-600">
                         {formatDate(getOrderDate(order))}
                       </td>
 
-                      <td className="whitespace-nowrap px-4 py-4 align-top text-slate-600">
+                      <td className="whitespace-nowrap px-4 py-4 text-slate-600">
                         {formatDate(order.collectionAt)}
                       </td>
 
-                      <td className="px-4 py-4 align-top">
+                      <td className="px-4 py-4">
                         {renderContactStatus(order)}
+
                         {order.nextContactAt && (
                           <p className="mt-2 text-xs text-slate-500">
                             Next: {formatDate(order.nextContactAt)}
@@ -1130,19 +1368,87 @@ export default function Orders() {
                         )}
                       </td>
 
-                      <td className="px-4 py-4 align-top">
-                        {renderOrderStatus(order)}
-                      </td>
+                      <td className="px-4 py-4">{renderOrderStatus(order)}</td>
 
-                      <td className="px-4 py-4 align-top">
-                        {renderActions(order)}
-                      </td>
+                      <td className="px-4 py-4">{renderActions(order)}</td>
                     </tr>
                   ))}
                 </tbody>
               </table>
+            ) : activeView === "service" ? (
+              /* FIRST-COME, FIRST-SERVED SERVICE QUEUE */
+              <table className="w-full min-w-[1050px] text-left text-sm">
+                <thead className="bg-slate-100 text-xs uppercase tracking-wide text-slate-600">
+                  <tr>
+                    <th className="px-4 py-4">Queue position</th>
+                    <th className="px-4 py-4">Booking number</th>
+                    <th className="px-4 py-4">Customer</th>
+                    <th className="px-4 py-4">Product / request</th>
+                    <th className="px-4 py-4">Booking date</th>
+                    <th className="px-4 py-4">Order status</th>
+                    <th className="px-4 py-4">Actions</th>
+                  </tr>
+                </thead>
+
+                <tbody className="divide-y divide-slate-100">
+                  {paginatedOrders.map((order) => {
+                    const position = serviceQueuePositions.get(order._id);
+
+                    return (
+                      <tr
+                        key={order._id}
+                        className={`align-top transition ${
+                          position === 1 ? "bg-emerald-50" : "hover:bg-slate-50"
+                        }`}
+                      >
+                        <td className="px-4 py-4">
+                          <span
+                            className={`inline-flex min-w-10 items-center justify-center rounded-full px-3 py-2 text-sm font-bold ${
+                              position === 1
+                                ? "bg-emerald-700 text-white"
+                                : "bg-slate-100 text-slate-700"
+                            }`}
+                          >
+                            {position ?? "—"}
+                          </span>
+
+                          {position === 1 && (
+                            <p className="mt-2 whitespace-nowrap text-xs font-bold text-emerald-800">
+                              NEXT TO SERVE
+                            </p>
+                          )}
+                        </td>
+
+                        <td className="px-4 py-4">
+                          <p className="font-bold text-slate-800">
+                            {formatBookingNumber(order)}
+                          </p>
+
+                          <p className="mt-1 text-xs text-slate-500">
+                            {getSourceLabel(order)}
+                          </p>
+                        </td>
+
+                        <td className="px-4 py-4">{renderCustomer(order)}</td>
+
+                        <td className="px-4 py-4">{renderProduct(order)}</td>
+
+                        <td className="whitespace-nowrap px-4 py-4 text-slate-600">
+                          {formatDate(getOrderDate(order))}
+                        </td>
+
+                        <td className="px-4 py-4">
+                          {renderOrderStatus(order)}
+                        </td>
+
+                        <td className="px-4 py-4">{renderActions(order)}</td>
+                      </tr>
+                    );
+                  })}
+                </tbody>
+              </table>
             ) : (
-              /* CONTACT QUEUE: daily follow-up worklist */
+              /* CONTACT QUEUE */
               <table className="w-full min-w-[1050px] text-left text-sm">
                 <thead className="bg-slate-100 text-xs uppercase tracking-wide text-slate-600">
                   <tr>
@@ -1170,10 +1476,13 @@ export default function Orders() {
                       >
                         <td className="px-4 py-4">
                           <span
-                            className={`inline-flex whitespace-nowrap rounded-full px-2.5 py-1 text-xs font-bold ${getPriorityClass(order)}`}
+                            className={`inline-flex whitespace-nowrap rounded-full px-2.5 py-1 text-xs font-bold ${getPriorityClass(
+                              order,
+                            )}`}
                           >
                             {getPriorityLabel(order)}
                           </span>
+
                           <p className="mt-2 text-xs text-slate-500">
                             {order.status || "Pending"}
                           </p>
@@ -1183,6 +1492,7 @@ export default function Orders() {
                           <p className="font-bold text-slate-800">
                             {formatBookingNumber(order)}
                           </p>
+
                           <div className="mt-2">{renderCustomer(order)}</div>
                         </td>
 
@@ -1196,6 +1506,7 @@ export default function Orders() {
                               >
                                 {nextContact.toLocaleDateString()}
                               </p>
+
                               <p
                                 className={`mt-1 text-xs ${
                                   overdue
@@ -1208,6 +1519,7 @@ export default function Orders() {
                                   minute: "2-digit",
                                 })}
                               </p>
+
                               {overdue && (
                                 <p className="mt-2 text-xs font-bold text-red-700">
                                   Follow-up is overdue
@@ -1227,6 +1539,7 @@ export default function Orders() {
                               <p className="font-semibold text-slate-800">
                                 {order.productType}
                               </p>
+
                               <p className="mt-1 text-slate-600">
                                 {order.quantity ?? "Quantity unknown"}{" "}
                                 {order.quantityUnit || ""}
@@ -1237,6 +1550,7 @@ export default function Orders() {
                               General enquiry
                             </p>
                           )}
+
                           {order.message && (
                             <p className="mt-2 max-w-[220px] whitespace-normal break-words text-xs text-slate-500">
                               {order.message}
@@ -1246,6 +1560,7 @@ export default function Orders() {
 
                         <td className="px-4 py-4">
                           {renderContactStatus(order)}
+
                           {order.bookingNotes && (
                             <p className="mt-2 max-w-[220px] whitespace-normal break-words text-xs leading-5 text-slate-500">
                               {order.bookingNotes}
@@ -1266,6 +1581,7 @@ export default function Orders() {
                             >
                               Record call outcome
                             </button>
+
                             <button
                               type="button"
                               onClick={() => openScheduleModal(order)}
@@ -1284,6 +1600,7 @@ export default function Orders() {
           </div>
 
           {/* PAGINATION */}
+
           <div className="flex flex-col gap-3 border-t border-slate-200 px-4 py-4 sm:flex-row sm:items-center sm:justify-between">
             <p className="text-sm text-slate-500">
               Showing{" "}
@@ -1329,16 +1646,21 @@ export default function Orders() {
         </div>
       )}
 
-      {/* ADVANCE BOOKING MODAL */}
+      {/* ========================================================
+          ADVANCE BOOKING MODAL
+      ======================================================== */}
+
       {showBookingModal && (
         <Modal onClose={closeBookingModal}>
           <div className="mb-5">
             <p className="text-xs font-semibold uppercase tracking-wider text-emerald-700">
               New customer reservation
             </p>
+
             <h2 className="mt-1 text-2xl font-bold text-slate-800">
               Create Advance Booking
             </h2>
+
             <p className="mt-2 text-sm leading-6 text-slate-500">
               Select an existing customer or enter their details manually.
               Booking numbers are assigned when the record is saved.
@@ -1355,6 +1677,7 @@ export default function Orders() {
                 className="form-input"
               >
                 <option value="">Enter customer details manually</option>
+
                 {customers.map((customer) => (
                   <option key={customer._id} value={customer._id}>
                     {customer.name}
@@ -1362,6 +1685,7 @@ export default function Orders() {
                   </option>
                 ))}
               </select>
+
               <p className="mt-1 text-xs text-slate-500">
                 Only existing customers can be linked to a customer record.
               </p>
@@ -1421,6 +1745,7 @@ export default function Orders() {
                     placeholder="e.g. 20"
                     className="form-input"
                   />
+
                   <select
                     value={newBooking.quantityUnit}
                     onChange={(event) =>
@@ -1484,6 +1809,7 @@ export default function Orders() {
               >
                 Cancel
               </button>
+
               <button
                 type="submit"
                 disabled={submitting}
@@ -1496,7 +1822,10 @@ export default function Orders() {
         </Modal>
       )}
 
-      {/* GENERAL ENQUIRY MODAL */}
+      {/* ========================================================
+          GENERAL ENQUIRY MODAL
+      ======================================================== */}
+
       {showEnquiryModal && (
         <Modal
           onClose={() => {
@@ -1506,6 +1835,7 @@ export default function Orders() {
           <h2 className="text-2xl font-bold text-slate-800">
             Add General Enquiry
           </h2>
+
           <p className="mb-5 mt-2 text-sm leading-6 text-slate-500">
             Record an enquiry received by phone, WhatsApp, or in person. Website
             submissions continue to use the original API payload.
@@ -1567,6 +1897,7 @@ export default function Orders() {
               >
                 Cancel
               </button>
+
               <button
                 type="submit"
                 disabled={submitting}
@@ -1579,15 +1910,20 @@ export default function Orders() {
         </Modal>
       )}
 
-      {/* CONTACT / COLLECTION SCHEDULE MODAL */}
+      {/* ========================================================
+          CONTACT / COLLECTION SCHEDULE MODAL
+      ======================================================== */}
+
       {showScheduleModal && scheduleOrder && (
         <Modal onClose={closeScheduleModal}>
           <p className="text-xs font-semibold uppercase tracking-wider text-emerald-700">
             Booking follow-up
           </p>
+
           <h2 className="mt-1 text-2xl font-bold text-slate-800">
             Update Contact Schedule
           </h2>
+
           <p className="mb-5 mt-2 text-sm text-slate-500">
             {formatBookingNumber(scheduleOrder)} · Customer:{" "}
             <strong className="text-slate-700">{scheduleOrder.name}</strong>
@@ -1600,6 +1936,7 @@ export default function Orders() {
                 value={scheduleForm.nextContactAt}
                 onChange={(event) => {
                   const value = event.target.value;
+
                   setScheduleForm((previous) => ({
                     ...previous,
                     nextContactAt: value,
@@ -1662,6 +1999,7 @@ export default function Orders() {
               >
                 Cancel
               </button>
+
               <button
                 type="submit"
                 disabled={scheduleSaving}
@@ -1687,15 +2025,37 @@ export default function Orders() {
           outline: none;
           transition: border-color 150ms, box-shadow 150ms;
         }
+
         .form-input:focus {
           border-color: #047857;
           box-shadow: 0 0 0 2px #d1fae5;
         }
+
         .form-input::placeholder {
           color: #94a3b8;
         }
       `}</style>
     </div>
+  );
+}
+
+// ============================================================
+// REUSABLE COMPONENTS
+// ============================================================
+
+function ViewButton({ active, onClick, children }) {
+  return (
+    <button
+      type="button"
+      onClick={onClick}
+      className={`rounded-lg px-4 py-2 text-sm font-semibold ${
+        active
+          ? "bg-emerald-700 text-white"
+          : "bg-slate-100 text-slate-700 hover:bg-slate-200"
+      }`}
+    >
+      {children}
+    </button>
   );
 }
 
@@ -1715,7 +2075,9 @@ function StatCard({ label, value, detail, accent = "emerald" }) {
       }`}
     >
       <p className="text-sm font-medium text-slate-500">{label}</p>
+
       <p className="mt-2 text-3xl font-bold tabular-nums">{value}</p>
+
       <p className="mt-1 text-xs text-slate-500">{detail}</p>
     </div>
   );
@@ -1728,6 +2090,7 @@ function FormField({ label, required = false, children }) {
         {label}
         {required && <span className="ml-1 text-red-600">*</span>}
       </label>
+
       {children}
     </div>
   );
@@ -1738,7 +2101,9 @@ function Modal({ children, onClose }) {
     <div
       className="fixed inset-0 z-50 flex items-start justify-center overflow-y-auto bg-slate-950/50 p-3 backdrop-blur-sm sm:items-center sm:p-6"
       onMouseDown={(event) => {
-        if (event.target === event.currentTarget) onClose();
+        if (event.target === event.currentTarget) {
+          onClose();
+        }
       }}
     >
       <div className="my-auto w-full max-w-2xl rounded-2xl bg-white p-5 shadow-2xl sm:p-7">
