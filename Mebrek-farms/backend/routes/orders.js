@@ -5,17 +5,20 @@ const { protect } = require("../middleware/authMiddleware");
 const {
   createOrder,
   getOrders,
+  createManualBooking,
   updateOrderStatus,
+  updateBookingDetails,
   deleteOrder,
 } = require("../controllers/orderController");
 
-// PUBLIC — the website's order form hits this with no auth
+// PUBLIC — keep the public website's existing unauthenticated endpoint.
 router.post("/", createOrder);
 
-// PROTECTED — any logged-in admin account (staff, manager, superadmin)
+// PROTECTED — admin routes.
 router.get("/", protect, getOrders);
-
+router.post("/booking", protect, createManualBooking);
 router.put("/:id/status", protect, updateOrderStatus);
+router.put("/:id/booking-details", protect, updateBookingDetails);
 router.delete("/:id", protect, deleteOrder);
 
 module.exports = router;

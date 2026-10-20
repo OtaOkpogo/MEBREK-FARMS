@@ -1,122 +1,304 @@
+const mongoose = require("mongoose");
 const Order = require("../models/Order");
+const OrderCounter = require("../models/OrderCounter");
+const Customer = require("../models/Customer");
 
-// Create Order
+const ORDER_STATUSES = ["Pending", "Contacted", "Completed", "Cancelled"];
+const CONTACT_STATUSES = [
+  "Not Scheduled",
+  "Scheduled",
+  "Contacted",
+  "No Answer",
+  "Reschedule",
+  "Completed",
+];
+
+const getAdmin = (req) => req.admin || req.user || {};
+const getAdminId = (req) => getAdmin(req)._id || getAdmin(req).id || null;
+
+async function nextBookingNumber() {
+  const counter = await OrderCounter.findOneAndUpdate(
+    { _id: "orders" },
+    { $inc: { sequence: 1 } },
+    { new: true, upsert: true, setDefaultsOnInsert: true },
+  );
+  return counter.sequence;
+}
+
+function emitOrder(req, event, payload) {
+  const io = req.app.get("io");
+  if (io) io.emit(event, payload);
+}
+
+function combineNameContact(body, customer) {
+  return {
+    name: String(body.name || customer?.name || "").trim(),
+    contact: String(body.contact || customer?.phone || "").trim(),
+  };
+}
+
+// PUBLIC — intentionally accepts the original website payload unchanged.
+// Extra booking fields are optional, so website orders continue to work.
+
 exports.createOrder = async (req, res) => {
   try {
-    const { name, contact, message } = req.body;
+    const { name, contact, message } = req.body || {};
 
-    const order = await Order.create({
-      name,
-      contact,
-      message,
-    });
+    const cleanName = String(name || "").trim();
+    const cleanContact = String(contact || "").trim();
+    const cleanMessage = String(message || "").trim();
 
-    // Emit socket event
-    const io = req.app.get("io");
-
-    if (io) {
-      io.emit("newOrder", order);
-      console.log("📦 New order emitted:", order.name);
+    if (!cleanName || !cleanContact || !cleanMessage) {
+      return res.status(400).json({
+        message: "Name, contact and message are required",
+      });
     }
 
-    res.status(201).json({
+    // Reserve a permanent number for every new website order.
+    const bookingNumber = await nextBookingNumber();
+
+    const order = await Order.create({
+      bookingNumber,
+      name: cleanName,
+      contact: cleanContact,
+      message: cleanMessage,
+      source: "Website",
+      bookingAt: new Date(),
+      status: "Pending",
+      contactStatus: "Not Scheduled",
+    });
+
+    // Emit the saved document, including its booking number.
+    emitOrder(req, "newOrder", order);
+
+    console.log(
+      `New website order created: MF-${String(bookingNumber).padStart(5, "0")}`,
+      order.name,
+    );
+
+    return res.status(201).json({
       message: "Order submitted successfully",
+      bookingNumber: order.bookingNumber,
       order,
     });
   } catch (error) {
-    console.error(error);
+    console.error("CREATE WEBSITE ORDER ERROR:", error);
 
-    res.status(500).json({
+    return res.status(500).json({
+      message: "Failed to submit order",
       error: error.message,
     });
   }
 };
 
-// Get All Orders (Admin)
+// PROTECTED — returns all orders for the admin register.
 exports.getOrders = async (req, res) => {
   try {
-    const orders = await Order.find().sort({ createdAt: -1 });
-
-    res.json(orders);
+    const orders = await Order.find()
+      .populate("customer", "name phone email address customerType isActive")
+      .sort({ bookingAt: 1, createdAt: 1 });
+    return res.json(orders);
   } catch (error) {
-    console.error(error);
+    console.error("GET ORDERS ERROR:", error);
+    return res
+      .status(500)
+      .json({ message: "Failed to fetch orders", error: error.message });
+  }
+};
 
-    res.status(500).json({
+// PROTECTED — admin-entered advance booking.
+exports.createManualBooking = async (req, res) => {
+  try {
+    const body = req.body || {};
+    let customer = null;
+
+    if (body.customerId) {
+      if (!mongoose.isValidObjectId(body.customerId)) {
+        return res.status(400).json({ message: "Invalid customer selection" });
+      }
+      customer = await Customer.findOne({
+        _id: body.customerId,
+        isDeleted: false,
+        isActive: true,
+      });
+      if (!customer)
+        return res.status(404).json({ message: "Active customer not found" });
+    }
+
+    const { name, contact } = combineNameContact(body, customer);
+    if (!name || !contact) {
+      return res
+        .status(400)
+        .json({ message: "Customer name and phone number are required" });
+    }
+
+    const productType = ["Eggs", "Manure", "Other"].includes(body.productType)
+      ? body.productType
+      : null;
+    if (!productType)
+      return res.status(400).json({ message: "Select a valid product type" });
+
+    const quantity = Number(body.quantity);
+    if (!Number.isFinite(quantity) || quantity <= 0) {
+      return res
+        .status(400)
+        .json({ message: "Quantity must be greater than zero" });
+    }
+
+    const quantityUnit = String(body.quantityUnit || "").trim();
+    if (!quantityUnit)
+      return res.status(400).json({ message: "Quantity unit is required" });
+
+    const nextContactAt = body.nextContactAt
+      ? new Date(body.nextContactAt)
+      : null;
+    const collectionAt = body.collectionAt ? new Date(body.collectionAt) : null;
+    const bookingAt = body.bookingAt ? new Date(body.bookingAt) : new Date();
+
+    for (const [label, date] of [
+      ["Booking date", bookingAt],
+      ["Next contact date", nextContactAt],
+      ["Collection date", collectionAt],
+    ]) {
+      if (date && Number.isNaN(date.getTime())) {
+        return res.status(400).json({ message: `${label} is invalid` });
+      }
+    }
+
+    const bookingNumber = await nextBookingNumber();
+    const order = await Order.create({
+      bookingNumber,
+      customer: customer?._id || null,
+      name,
+      contact,
+      message: String(body.message || `${productType} advance booking`).trim(),
+      productType,
+      quantity,
+      quantityUnit,
+      bookingAt,
+      nextContactAt,
+      contactStatus: nextContactAt ? "Scheduled" : "Not Scheduled",
+      collectionAt,
+      bookingNotes: String(body.bookingNotes || "").trim(),
+      source: "Manual",
+      status: "Pending",
+      createdBy: {
+        id: getAdminId(req),
+        name: String(getAdmin(req).name || getAdmin(req).adminName || ""),
+      },
+    });
+
+    await order.populate(
+      "customer",
+      "name phone email address customerType isActive",
+    );
+    emitOrder(req, "newOrder", order);
+    emitOrder(req, "orderBookingCreated", order);
+
+    return res
+      .status(201)
+      .json({ message: "Advance booking created successfully", order });
+  } catch (error) {
+    console.error("CREATE MANUAL BOOKING ERROR:", error);
+    return res.status(500).json({
+      message: "Failed to create advance booking",
       error: error.message,
     });
   }
 };
 
-// Update Order Status (Admin)
 exports.updateOrderStatus = async (req, res) => {
   try {
     const { status } = req.body;
-
-    const allowedStatuses = ["Pending", "Contacted", "Completed", "Cancelled"];
-
-    if (!allowedStatuses.includes(status)) {
-      return res.status(400).json({
-        error: `Status must be one of: ${allowedStatuses.join(", ")}`,
-      });
+    if (!ORDER_STATUSES.includes(status)) {
+      return res
+        .status(400)
+        .json({ error: `Status must be one of: ${ORDER_STATUSES.join(", ")}` });
     }
 
     const order = await Order.findById(req.params.id);
-
-    if (!order) {
-      return res.status(404).json({
-        error: "Order not found",
-      });
-    }
+    if (!order) return res.status(404).json({ error: "Order not found" });
 
     order.status = status;
-    await order.save();
-
-    // Let the admin panel update in real time if another admin has
-    // the Orders page open, matching the newOrder socket pattern.
-    const io = req.app.get("io");
-
-    if (io) {
-      io.emit("orderStatusUpdated", order);
+    if (status === "Contacted" && order.contactStatus !== "Completed") {
+      order.contactStatus = "Contacted";
     }
-
-    res.json(order);
+    await order.save();
+    emitOrder(req, "orderStatusUpdated", order);
+    return res.json(order);
   } catch (error) {
-    console.error(error);
-
-    res.status(500).json({
-      error: error.message,
-    });
+    console.error("UPDATE ORDER STATUS ERROR:", error);
+    return res.status(500).json({ error: error.message });
   }
 };
-// Delete Order
+
+// Update contact schedule/status and collection schedule.
+exports.updateBookingDetails = async (req, res) => {
+  try {
+    const order = await Order.findById(req.params.id);
+    if (!order) return res.status(404).json({ message: "Order not found" });
+
+    const body = req.body || {};
+    if (body.nextContactAt !== undefined) {
+      if (body.nextContactAt === "" || body.nextContactAt === null) {
+        order.nextContactAt = null;
+        order.contactStatus = "Not Scheduled";
+      } else {
+        const date = new Date(body.nextContactAt);
+        if (Number.isNaN(date.getTime()))
+          return res.status(400).json({ message: "Invalid contact date/time" });
+        order.nextContactAt = date;
+        if (order.contactStatus === "Not Scheduled")
+          order.contactStatus = "Scheduled";
+      }
+    }
+    if (body.collectionAt !== undefined) {
+      if (!body.collectionAt) order.collectionAt = null;
+      else {
+        const date = new Date(body.collectionAt);
+        if (Number.isNaN(date.getTime()))
+          return res
+            .status(400)
+            .json({ message: "Invalid collection date/time" });
+        order.collectionAt = date;
+      }
+    }
+    if (body.contactStatus !== undefined) {
+      if (!CONTACT_STATUSES.includes(body.contactStatus)) {
+        return res.status(400).json({
+          message: `Contact status must be one of: ${CONTACT_STATUSES.join(", ")}`,
+        });
+      }
+      order.contactStatus = body.contactStatus;
+    }
+    if (body.bookingNotes !== undefined)
+      order.bookingNotes = String(body.bookingNotes || "").trim();
+
+    await order.save();
+    await order.populate(
+      "customer",
+      "name phone email address customerType isActive",
+    );
+    emitOrder(req, "orderBookingUpdated", order);
+    return res.json(order);
+  } catch (error) {
+    console.error("UPDATE BOOKING DETAILS ERROR:", error);
+    return res
+      .status(500)
+      .json({ message: "Failed to update booking", error: error.message });
+  }
+};
+
 exports.deleteOrder = async (req, res) => {
   try {
     const order = await Order.findById(req.params.id);
-
-    if (!order) {
-      return res.status(404).json({
-        error: "Order not found",
-      });
-    }
+    if (!order) return res.status(404).json({ error: "Order not found" });
 
     await Order.findByIdAndDelete(req.params.id);
-
-    const io = req.app.get("io");
-
-    if (io) {
-      io.emit("orderDeleted", {
-        id: req.params.id,
-      });
-    }
-
-    res.json({
-      message: "Order deleted successfully",
-    });
+    emitOrder(req, "orderDeleted", { id: req.params.id });
+    return res.json({ message: "Order deleted successfully" });
   } catch (error) {
-    console.error(error);
-
-    res.status(500).json({
-      error: error.message,
-    });
+    console.error("DELETE ORDER ERROR:", error);
+    return res.status(500).json({ error: error.message });
   }
 };
