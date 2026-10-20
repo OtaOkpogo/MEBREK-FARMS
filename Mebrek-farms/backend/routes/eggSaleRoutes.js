@@ -6,6 +6,7 @@ const { protect: auth, allowRoles } = require("../middleware/authMiddleware");
 
 const {
   getSales,
+  getSalesSummary,
   getSale,
   createSale,
   updateSale,
@@ -20,14 +21,19 @@ const {
 // EGG SALES LIST
 // GET /api/egg-sales
 // =====================================================
-
 router.get("/", auth, allowRoles("superadmin", "manager"), getSales);
+
+// =====================================================
+// PERIOD SALES SUMMARY (aggregate data only)
+// GET /api/egg-sales/summary?period=daily|weekly|monthly|yearly&date=YYYY-MM-DD
+// Keep this named route before /:id.
+// =====================================================
+router.get("/summary", auth, allowRoles("superadmin"), getSalesSummary);
 
 // =====================================================
 // OUTSTANDING CUSTOMERS
 // GET /api/egg-sales/outstanding
 // =====================================================
-
 router.get(
   "/outstanding",
   auth,
@@ -39,14 +45,12 @@ router.get(
 // DELETED SALES — SUPERADMIN ONLY
 // GET /api/egg-sales/deleted
 // =====================================================
-
 router.get("/deleted", auth, allowRoles("superadmin"), getDeletedSales);
 
 // =====================================================
 // CUSTOMER PURCHASE HISTORY
 // GET /api/egg-sales/customer/:customerId
 // =====================================================
-
 router.get(
   "/customer/:customerId",
   auth,
@@ -54,40 +58,11 @@ router.get(
   getSalesByCustomer,
 );
 
-// =====================================================
-// SINGLE SALE
-// GET /api/egg-sales/:id
-// Keep this after all named GET routes.
-// =====================================================
-
+// Keep dynamic ID routes after all named GET routes.
 router.get("/:id", auth, allowRoles("superadmin", "manager"), getSale);
-
-// =====================================================
-// CREATE SALE
-// POST /api/egg-sales
-// =====================================================
-
 router.post("/", auth, allowRoles("superadmin", "manager"), createSale);
-
-// =====================================================
-// UPDATE SALE
-// PUT /api/egg-sales/:id
-// =====================================================
-
 router.put("/:id", auth, allowRoles("superadmin", "manager"), updateSale);
-
-// =====================================================
-// RESTORE SALE — SUPERADMIN ONLY
-// PUT /api/egg-sales/:id/restore
-// =====================================================
-
 router.put("/:id/restore", auth, allowRoles("superadmin"), restoreSale);
-
-// =====================================================
-// SOFT DELETE SALE
-// DELETE /api/egg-sales/:id
-// =====================================================
-
 router.delete("/:id", auth, allowRoles("superadmin", "manager"), deleteSale);
 
 module.exports = router;

@@ -476,6 +476,224 @@ exports.getOutstandingCustomers = async (req, res) => {
 };
 
 // =====================================================
+// PERIOD SALES SUMMARY
+// Returns aggregate reporting data only; it does not expose
+// historical invoice records to the client.
+// GET /api/egg-sales/summary?period=daily|weekly|monthly|yearly&date=YYYY-MM-DD
+// =====================================================
+
+const EGG_CATEGORY_LABELS = {
+  big: "Big",
+  jumbo: "Jumbo",
+  turkey: "Turkey Egg",
+  normal: "Normal",
+  small: "Small",
+};
+
+exports.getSalesSummary = async (req, res) => {
+  try {
+    const role = req.user?.role;
+
+    if (role !== "superadmin") {
+      return res.status(403).json({
+        message: "Only superadmin can view egg sales summaries.",
+      });
+    }
+
+    const period = String(req.query.period || "daily").toLowerCase();
+    const dateInput = String(req.query.date || "");
+    const dateMatch = dateInput.match(/^(\d{4})-(\d{2})-(\d{2})$/);
+
+    if (!["daily", "weekly", "monthly", "yearly"].includes(period)) {
+      return res.status(400).json({ message: "Invalid reporting period." });
+    }
+
+    if (!dateMatch) {
+      return res.status(400).json({
+        message: "A valid reporting date in YYYY-MM-DD format is required.",
+      });
+    }
+
+    const year = Number(dateMatch[1]);
+    const month = Number(dateMatch[2]);
+    const day = Number(dateMatch[3]);
+    const selectedDate = new Date(Date.UTC(year, month - 1, day));
+
+    if (
+      selectedDate.getUTCFullYear() !== year ||
+      selectedDate.getUTCMonth() !== month - 1 ||
+      selectedDate.getUTCDate() !== day
+    ) {
+      return res.status(400).json({ message: "Invalid reporting date." });
+    }
+
+    let start = new Date(Date.UTC(year, month - 1, day));
+    let endExclusive = new Date(start);
+
+    if (period === "daily") {
+      endExclusive.setUTCDate(endExclusive.getUTCDate() + 1);
+    } else if (period === "weekly") {
+      // Farm sales week runs Sunday through Friday; Saturday is excluded.
+      const sundayOffset = start.getUTCDay();
+      start.setUTCDate(start.getUTCDate() - sundayOffset);
+      endExclusive = new Date(start);
+      // Saturday at 00:00 is exclusive, so the reporting period ends Friday.
+      endExclusive.setUTCDate(endExclusive.getUTCDate() + 6);
+    } else if (period === "monthly") {
+      start = new Date(Date.UTC(year, month - 1, 1));
+      endExclusive = new Date(Date.UTC(year, month, 1));
+    } else {
+      start = new Date(Date.UTC(year, 0, 1));
+      endExclusive = new Date(Date.UTC(year + 1, 0, 1));
+    }
+
+    const startKey = start.toISOString().slice(0, 10);
+    const endKey = new Date(endExclusive.getTime() - 1)
+      .toISOString()
+      .slice(0, 10);
+
+    // Aggregate reporting is available to managers, but invoice documents remain
+    // governed by the existing 24-hour / approved temporary-access rules.
+    const sales = await EggSale.find({
+      isDeleted: false,
+      date: { $gte: start, $lt: endExclusive },
+    })
+      .select(
+        "date totalAmount amountPaid balance lineItems cratesSold halfCratesSold looseEggs cratePrice eggPrice",
+      )
+      .lean();
+
+    const summary = {
+      revenue: 0,
+      received: 0,
+      outstanding: 0,
+      transactions: 0,
+    };
+
+    const categories = Object.fromEntries(
+      Object.entries(EGG_CATEGORY_LABELS).map(([key, label]) => [
+        key,
+        {
+          category: key,
+          label,
+          crates: 0,
+          revenue: 0,
+        },
+      ]),
+    );
+    categories.other = {
+      category: "other",
+      label: "Other / legacy",
+      crates: 0,
+      revenue: 0,
+    };
+
+    const buckets = new Map();
+
+    for (const sale of sales) {
+      const saleDate = sale.date ? new Date(sale.date) : null;
+      if (!saleDate || Number.isNaN(saleDate.getTime())) continue;
+
+      const saleDay = saleDate.toISOString().slice(0, 10);
+      summary.revenue += Number(sale.totalAmount || 0);
+      summary.received += Number(sale.amountPaid || 0);
+      summary.outstanding += Number(
+        sale.balance ??
+          Math.max(
+            0,
+            Number(sale.totalAmount || 0) - Number(sale.amountPaid || 0),
+          ),
+      );
+      summary.transactions += 1;
+
+      const bucketKey = period === "yearly" ? saleDay.slice(0, 7) : saleDay;
+      if (!buckets.has(bucketKey)) {
+        const bucketDate = new Date(
+          `${bucketKey}${period === "yearly" ? "-01" : ""}T12:00:00.000Z`,
+        );
+        buckets.set(bucketKey, {
+          key: bucketKey,
+          label:
+            period === "yearly"
+              ? bucketDate.toLocaleDateString("en-NG", {
+                  month: "short",
+                  timeZone: "UTC",
+                })
+              : bucketDate.toLocaleDateString("en-NG", {
+                  month: "short",
+                  day: "numeric",
+                  timeZone: "UTC",
+                }),
+          revenue: 0,
+          received: 0,
+        });
+      }
+      const bucket = buckets.get(bucketKey);
+      bucket.revenue += Number(sale.totalAmount || 0);
+      bucket.received += Number(sale.amountPaid || 0);
+
+      const lineItems =
+        Array.isArray(sale.lineItems) && sale.lineItems.length
+          ? sale.lineItems
+          : (() => {
+              const legacyPrice = Number(sale.cratePrice || 0);
+              const matchedCategory = Object.keys(EGG_CATEGORY_PRICES).find(
+                (key) => Number(EGG_CATEGORY_PRICES[key]) === legacyPrice,
+              );
+              return [
+                {
+                  category: matchedCategory || "other",
+                  cratesSold: sale.cratesSold || 0,
+                  halfCratesSold: sale.halfCratesSold || 0,
+                  looseEggs: sale.looseEggs || 0,
+                  subtotal:
+                    Number(sale.cratesSold || 0) * legacyPrice +
+                    (Number(sale.halfCratesSold || 0) * legacyPrice) / 2 +
+                    Number(sale.looseEggs || 0) * Number(sale.eggPrice || 0),
+                },
+              ];
+            })();
+
+      for (const item of lineItems) {
+        const categoryKey = Object.prototype.hasOwnProperty.call(
+          categories,
+          item.category,
+        )
+          ? item.category
+          : "other";
+        const category = categories[categoryKey];
+        const crates =
+          Number(item.cratesSold || 0) + Number(item.halfCratesSold || 0) / 2;
+        category.crates += crates;
+        category.revenue += Number(item.subtotal || 0);
+      }
+    }
+
+    const chart = Array.from(buckets.values()).sort((a, b) =>
+      a.key.localeCompare(b.key),
+    );
+
+    return res.json({
+      period,
+      startDate: startKey,
+      endDate: endKey,
+      summary,
+      categories: Object.values(categories),
+      chart,
+      // This explicitly distinguishes aggregate reporting from invoice access.
+      reportingScope: "all_non_deleted_sales_aggregate",
+      invoiceAccessNote:
+        "This response contains aggregate figures only. Older invoice details remain subject to existing access restrictions.",
+    });
+  } catch (err) {
+    console.error("GET EGG SALES SUMMARY ERROR:", err);
+    return res.status(500).json({
+      message: err.message || "Unable to load egg sales summary.",
+    });
+  }
+};
+
+// =====================================================
 // GET ALL SALES
 // Managers: non-deleted sales dated within the last 24 hours.
 // Superadmins: full sales history.
