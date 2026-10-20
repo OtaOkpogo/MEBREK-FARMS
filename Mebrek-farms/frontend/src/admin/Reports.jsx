@@ -52,13 +52,13 @@ const BATTERY_CAGE_PENS = [
 ];
 
 const COLORS = [
-  "#166534",
-  "#0f766e",
-  "#d97706",
-  "#dc2626",
-  "#7c3aed",
-  "#2563eb",
-  "#be185d",
+  "#52745B",
+  "#6F9690",
+  "#C49A58",
+  "#B96F68",
+  "#8B83A8",
+  "#6D8EAF",
+  "#B77F9A",
 ];
 
 const PAGE_SIZE_OPTIONS = [10, 25, 50, 100];
@@ -604,17 +604,17 @@ function SectionHeading({ eyebrow, title, description, action }) {
     <div className="mb-5 flex flex-col justify-between gap-3 sm:flex-row sm:items-end">
       <div>
         {eyebrow && (
-          <p className="mb-1 text-xs font-extrabold uppercase tracking-[0.18em] text-green-800">
+          <p className="mb-1 text-xs font-extrabold uppercase tracking-[0.18em] text-[#496b50]">
             {eyebrow}
           </p>
         )}
 
-        <h2 className="text-lg font-bold tracking-tight text-slate-900">
+        <h2 className="text-lg font-bold tracking-tight text-[#2b3a30]">
           {title}
         </h2>
 
         {description && (
-          <p className="mt-1 text-sm leading-5 text-slate-600">{description}</p>
+          <p className="mt-1 text-sm leading-5 text-[#657368]">{description}</p>
         )}
       </div>
 
@@ -626,47 +626,47 @@ function SectionHeading({ eyebrow, title, description, action }) {
 function MetricCard({ label, value, icon, tone, description }) {
   const tones = {
     blue: {
-      icon: "bg-blue-50 text-blue-800 ring-blue-200",
-      accent: "bg-blue-600",
+      icon: "bg-[#edf2f7] text-[#466783] ring-[#d8e3ed]",
+      accent: "bg-[#6d8eaf]",
     },
     green: {
-      icon: "bg-green-100 text-green-900 ring-green-200",
-      accent: "bg-green-700",
+      icon: "bg-[#edf4e9] text-[#34533e] ring-green-200",
+      accent: "bg-[#557b5e]",
     },
     amber: {
-      icon: "bg-amber-100 text-amber-900 ring-amber-200",
-      accent: "bg-amber-600",
+      icon: "bg-[#f7f1e5] text-[#806638] ring-[#e9dcc1]",
+      accent: "bg-[#c49a58]",
     },
     red: {
-      icon: "bg-rose-100 text-rose-900 ring-rose-200",
-      accent: "bg-rose-600",
+      icon: "bg-[#f8ece9] text-[#8d5149] ring-rose-200",
+      accent: "bg-[#b96f68]",
     },
     purple: {
-      icon: "bg-violet-100 text-violet-900 ring-violet-200",
-      accent: "bg-violet-600",
+      icon: "bg-[#f0eef6] text-[#6d648d] ring-[#e1dced]",
+      accent: "bg-[#8b83a8]",
     },
     slate: {
-      icon: "bg-slate-100 text-slate-800 ring-slate-200",
-      accent: "bg-slate-600",
+      icon: "bg-[#eef1e9] text-[#34463a] ring-slate-200",
+      accent: "bg-[#87958a]",
     },
   };
 
   const style = tones[tone] || tones.green;
 
   return (
-    <div className="group relative overflow-hidden rounded-2xl border border-slate-200 bg-white p-5 shadow-sm transition duration-200 hover:-translate-y-0.5 hover:border-green-400 hover:shadow-md">
+    <div className="group relative overflow-hidden rounded-2xl border border-[#e0e6dc] bg-white p-5 shadow-sm transition duration-200 hover:-translate-y-0.5 hover:border-[#a9bda9] hover:shadow-md">
       <div className={`absolute inset-x-0 top-0 h-1 ${style.accent}`} />
 
       <div className="flex items-start justify-between gap-3">
         <div className="min-w-0">
-          <p className="text-sm font-semibold text-slate-700">{label}</p>
+          <p className="text-sm font-semibold text-[#4b5c50]">{label}</p>
 
-          <p className="mt-3 break-words text-2xl font-extrabold tracking-tight text-slate-950 sm:text-3xl">
+          <p className="mt-3 break-words text-2xl font-extrabold tracking-tight text-[#243329] sm:text-3xl">
             {typeof value === "number" ? formatNumber(value) : value}
           </p>
 
           {description && (
-            <p className="mt-2 text-xs leading-5 text-slate-600">
+            <p className="mt-2 text-xs leading-5 text-[#657368]">
               {description}
             </p>
           )}
@@ -1099,17 +1099,17 @@ export default function Reports() {
 
   if (!hasReportsAccess) {
     return (
-      <div className="min-h-[60vh] bg-slate-100 p-5 md:p-8">
-        <div className="mx-auto max-w-3xl rounded-2xl border border-rose-200 bg-white p-8 shadow-sm">
-          <div className="mb-4 flex h-14 w-14 items-center justify-center rounded-2xl bg-rose-100 text-2xl">
+      <div className="min-h-[60vh] bg-[#eef1e9] p-5 md:p-8">
+        <div className="mx-auto max-w-3xl rounded-2xl border border-[#efd8d3] bg-white p-8 shadow-sm">
+          <div className="mb-4 flex h-14 w-14 items-center justify-center rounded-2xl bg-[#f8ece9] text-2xl">
             🔒
           </div>
 
-          <h2 className="text-xl font-bold text-slate-950">
+          <h2 className="text-xl font-bold text-[#243329]">
             Access Restricted
           </h2>
 
-          <p className="mt-2 text-sm leading-6 text-slate-700">
+          <p className="mt-2 text-sm leading-6 text-[#4b5c50]">
             Reports are available to Super Admin and Manager accounts only.
           </p>
         </div>
@@ -1122,50 +1122,50 @@ export default function Reports() {
   // ==========================================================
 
   return (
-    <div className="relative min-h-screen space-y-7 bg-slate-100 p-4 md:p-6 xl:p-8">
+    <div className="relative min-h-screen space-y-7 bg-[#f5f6f0] p-4 text-[#26352c] md:p-6 xl:p-8">
       {loading && (
-        <div className="absolute inset-0 z-30 flex items-start justify-center rounded-2xl bg-slate-100/80 pt-32 backdrop-blur-[2px]">
+        <div className="absolute inset-0 z-30 flex items-start justify-center rounded-2xl bg-[#f5f6f0]/90 pt-32 backdrop-blur-[2px]">
           <div className="flex items-center gap-3 rounded-2xl border border-green-200 bg-white px-6 py-4 shadow-xl">
             <div className="h-6 w-6 animate-spin rounded-full border-4 border-green-800 border-t-transparent" />
-            <span className="text-sm font-bold text-slate-800">
+            <span className="text-sm font-bold text-[#34463a]">
               Loading report...
             </span>
           </div>
         </div>
       )}
 
-      {/* DARK, HIGH-CONTRAST PAGE HEADER */}
+      {/* WARM, FARM-INSPIRED PAGE HEADER */}
 
-      <section className="relative overflow-hidden rounded-3xl border border-green-950 bg-gradient-to-br from-green-950 via-green-900 to-teal-900 p-6 text-white shadow-xl sm:p-8">
-        <div className="pointer-events-none absolute -right-12 -top-24 h-64 w-64 rounded-full bg-emerald-400/10 blur-3xl" />
-        <div className="pointer-events-none absolute -bottom-24 right-1/3 h-52 w-52 rounded-full bg-teal-300/10 blur-3xl" />
+      <section className="relative overflow-hidden rounded-3xl border border-[#d6e1d3] bg-gradient-to-br from-[#edf3e8] via-[#e7eee3] to-[#e4efeb] p-6 text-[#263d30] shadow-sm sm:p-8">
+        <div className="pointer-events-none absolute -right-12 -top-24 h-64 w-64 rounded-full bg-[#9dbb9f]/20 blur-3xl" />
+        <div className="pointer-events-none absolute -bottom-24 right-1/3 h-52 w-52 rounded-full bg-[#b3d0c7]/30 blur-3xl" />
 
         <div className="relative flex flex-col justify-between gap-6 lg:flex-row lg:items-center">
           <div>
-            <div className="mb-4 inline-flex items-center gap-2 rounded-full border border-white/25 bg-white/10 px-3 py-1.5 text-xs font-bold tracking-wide text-white">
-              <span className="h-2 w-2 rounded-full bg-lime-400" />
+            <div className="mb-4 inline-flex items-center gap-2 rounded-full border border-[#cbd9c8] bg-white/70 px-3 py-1.5 text-xs font-bold tracking-wide text-[#365641]">
+              <span className="h-2 w-2 rounded-full bg-[#799b67]" />
               MEBREK FARMS ANALYTICS
             </div>
 
-            <h1 className="text-3xl font-extrabold tracking-tight text-white sm:text-4xl">
-              Reports &amp; Insights
+            <h1 className="text-3xl font-extrabold tracking-tight text-[#244631] sm:text-4xl">
+              Reports &amp; Farm Insights
             </h1>
 
-            <p className="mt-3 max-w-2xl text-sm leading-6 text-green-50 sm:text-base">
-              Monitor farm performance, review production records, and export
-              reports for management decisions.
+            <p className="mt-3 max-w-2xl text-sm leading-6 text-[#526657] sm:text-base">
+              See how your farm is performing, explore important records, and
+              download clear reports for better day-to-day decisions.
             </p>
 
-            <div className="mt-5 flex flex-wrap items-center gap-2 text-xs font-bold text-white">
-              <span className="rounded-full border border-white/25 bg-white/10 px-3 py-1.5">
+            <div className="mt-5 flex flex-wrap items-center gap-2 text-xs font-bold text-[#385343]">
+              <span className="rounded-full border border-[#cbd9c8] bg-white/70 px-3 py-1.5">
                 {reportType}
               </span>
 
-              <span className="rounded-full border border-white/25 bg-white/10 px-3 py-1.5">
+              <span className="rounded-full border border-[#cbd9c8] bg-white/70 px-3 py-1.5">
                 {formatReportDate(startDate)} – {formatReportDate(endDate)}
               </span>
 
-              <span className="rounded-full border border-white/25 bg-white/10 px-3 py-1.5">
+              <span className="rounded-full border border-[#cbd9c8] bg-white/70 px-3 py-1.5">
                 {formatNumber(filteredRecords.length, 0)} records
               </span>
             </div>
@@ -1176,7 +1176,7 @@ export default function Reports() {
               type="button"
               onClick={loadReport}
               disabled={loading}
-              className="inline-flex items-center justify-center gap-2 rounded-xl border border-white/30 bg-white/10 px-4 py-3 text-sm font-bold text-white shadow-sm transition hover:bg-white/20 focus:outline-none focus:ring-4 focus:ring-white/20 disabled:cursor-not-allowed disabled:opacity-50"
+              className="inline-flex items-center justify-center gap-2 rounded-xl border border-[#cbd9c8] bg-white/70 px-4 py-3 text-sm font-bold text-[#34533e] shadow-sm transition hover:bg-white focus:outline-none focus:ring-4 focus:ring-[#7b9c7b]/25 disabled:cursor-not-allowed disabled:opacity-50"
             >
               <span aria-hidden="true">↻</span>
               Refresh
@@ -1186,7 +1186,7 @@ export default function Reports() {
               type="button"
               onClick={exportExcel}
               disabled={loading || filteredRecords.length === 0}
-              className="inline-flex items-center justify-center gap-2 rounded-xl border border-green-500 bg-green-600 px-4 py-3 text-sm font-bold text-white shadow-sm transition hover:bg-green-500 focus:outline-none focus:ring-4 focus:ring-green-300/30 disabled:cursor-not-allowed disabled:opacity-50"
+              className="inline-flex items-center justify-center gap-2 rounded-xl border border-[#4d7557] bg-[#557b5e] px-4 py-3 text-sm font-bold text-white shadow-sm transition hover:bg-[#46694f] focus:outline-none focus:ring-4 focus:ring-[#7b9c7b]/25 disabled:cursor-not-allowed disabled:opacity-50"
             >
               <span aria-hidden="true">↓</span>
               Excel
@@ -1196,7 +1196,7 @@ export default function Reports() {
               type="button"
               onClick={exportPDF}
               disabled={loading || filteredRecords.length === 0}
-              className="inline-flex items-center justify-center gap-2 rounded-xl border border-white bg-white px-4 py-3 text-sm font-bold text-green-950 shadow-sm transition hover:bg-green-50 focus:outline-none focus:ring-4 focus:ring-white/30 disabled:cursor-not-allowed disabled:opacity-50"
+              className="inline-flex items-center justify-center gap-2 rounded-xl border border-[#d5e0d1] bg-white px-4 py-3 text-sm font-bold text-[#34533e] shadow-sm transition hover:bg-[#f3f7f0] focus:outline-none focus:ring-4 focus:ring-[#7b9c7b]/25 disabled:cursor-not-allowed disabled:opacity-50"
             >
               <span aria-hidden="true">▤</span>
               PDF
@@ -1207,16 +1207,16 @@ export default function Reports() {
 
       {/* FILTERS */}
 
-      <section className="rounded-2xl border border-slate-200 bg-white p-5 shadow-sm sm:p-6">
+      <section className="rounded-2xl border border-[#e0e6dc] bg-white p-5 shadow-sm sm:p-6">
         <SectionHeading
           eyebrow="Report controls"
           title="Find the information you need"
-          description="Choose a report, select a date range, or search through your records."
+          description="Start with a report type, narrow the dates, then search for a specific record when needed."
           action={
-            <span className="inline-flex w-fit items-center gap-2 rounded-full border border-green-200 bg-green-100 px-3 py-1.5 text-xs font-bold text-green-950">
+            <span className="inline-flex w-fit items-center gap-2 rounded-full border border-[#d6e4d2] bg-[#edf4e9] px-3 py-1.5 text-xs font-bold text-[#34533e]">
               <span
                 className={`h-2 w-2 rounded-full ${
-                  loading ? "bg-amber-500" : "bg-green-700"
+                  loading ? "bg-amber-500" : "bg-[#557b5e]"
                 }`}
               />
               {loading ? "Updating" : "Ready"}
@@ -1228,7 +1228,7 @@ export default function Reports() {
           <div>
             <label
               htmlFor="reportType"
-              className="mb-2 block text-xs font-extrabold uppercase tracking-wider text-slate-700"
+              className="mb-2 block text-xs font-extrabold uppercase tracking-wider text-[#4b5c50]"
             >
               Report type
             </label>
@@ -1240,7 +1240,7 @@ export default function Reports() {
                 setReportType(event.target.value);
                 setPage(1);
               }}
-              className="w-full rounded-xl border border-slate-300 bg-slate-50 px-3.5 py-3 text-sm font-semibold text-slate-900 outline-none transition focus:border-green-700 focus:bg-white focus:ring-4 focus:ring-green-700/15"
+              className="w-full rounded-xl border border-[#d8dfd4] bg-[#f8f9f5] px-3.5 py-3 text-sm font-semibold text-[#2b3a30] outline-none transition focus:border-[#789779] focus:bg-white focus:ring-4 focus:ring-[#789779]/20"
             >
               {REPORT_TYPES.map((type) => (
                 <option key={type} value={type}>
@@ -1253,7 +1253,7 @@ export default function Reports() {
           <div>
             <label
               htmlFor="startDate"
-              className="mb-2 block text-xs font-extrabold uppercase tracking-wider text-slate-700"
+              className="mb-2 block text-xs font-extrabold uppercase tracking-wider text-[#4b5c50]"
             >
               Start date
             </label>
@@ -1267,14 +1267,14 @@ export default function Reports() {
                 setStartDate(event.target.value);
                 setPage(1);
               }}
-              className="w-full rounded-xl border border-slate-300 bg-slate-50 px-3.5 py-3 text-sm font-semibold text-slate-900 outline-none transition focus:border-green-700 focus:bg-white focus:ring-4 focus:ring-green-700/15"
+              className="w-full rounded-xl border border-[#d8dfd4] bg-[#f8f9f5] px-3.5 py-3 text-sm font-semibold text-[#2b3a30] outline-none transition focus:border-[#789779] focus:bg-white focus:ring-4 focus:ring-[#789779]/20"
             />
           </div>
 
           <div>
             <label
               htmlFor="endDate"
-              className="mb-2 block text-xs font-extrabold uppercase tracking-wider text-slate-700"
+              className="mb-2 block text-xs font-extrabold uppercase tracking-wider text-[#4b5c50]"
             >
               End date
             </label>
@@ -1288,40 +1288,40 @@ export default function Reports() {
                 setEndDate(event.target.value);
                 setPage(1);
               }}
-              className="w-full rounded-xl border border-slate-300 bg-slate-50 px-3.5 py-3 text-sm font-semibold text-slate-900 outline-none transition focus:border-green-700 focus:bg-white focus:ring-4 focus:ring-green-700/15"
+              className="w-full rounded-xl border border-[#d8dfd4] bg-[#f8f9f5] px-3.5 py-3 text-sm font-semibold text-[#2b3a30] outline-none transition focus:border-[#789779] focus:bg-white focus:ring-4 focus:ring-[#789779]/20"
             />
           </div>
 
           <div>
             <label
               htmlFor="reportSearch"
-              className="mb-2 block text-xs font-extrabold uppercase tracking-wider text-slate-700"
+              className="mb-2 block text-xs font-extrabold uppercase tracking-wider text-[#4b5c50]"
             >
               Search records
             </label>
 
             <div className="relative">
-              <span className="pointer-events-none absolute left-3.5 top-1/2 -translate-y-1/2 text-slate-600">
+              <span className="pointer-events-none absolute left-3.5 top-1/2 -translate-y-1/2 text-[#657368]">
                 ⌕
               </span>
 
               <input
                 id="reportSearch"
                 type="search"
-                placeholder="Search report..."
+                placeholder="Search names, dates, pens, or records..."
                 value={searchTerm}
                 onChange={(event) => {
                   setSearchTerm(event.target.value);
                   setPage(1);
                 }}
-                className="w-full rounded-xl border border-slate-300 bg-slate-50 py-3 pl-10 pr-3.5 text-sm font-medium text-slate-900 outline-none transition placeholder:text-slate-500 focus:border-green-700 focus:bg-white focus:ring-4 focus:ring-green-700/15"
+                className="w-full rounded-xl border border-[#d8dfd4] bg-[#f8f9f5] py-3 pl-10 pr-3.5 text-sm font-medium text-[#2b3a30] outline-none transition placeholder:text-slate-500 focus:border-[#789779] focus:bg-white focus:ring-4 focus:ring-[#789779]/20"
               />
             </div>
           </div>
         </div>
 
         {reportType === "Battery Cage Combined" && (
-          <div className="mt-5 flex items-start gap-3 rounded-xl border border-green-300 bg-green-100 p-4 text-sm text-green-950">
+          <div className="mt-5 flex items-start gap-3 rounded-xl border border-[#d6e4d2] bg-[#edf4e9] p-4 text-sm text-[#34533e]">
             <span className="text-xl" aria-hidden="true">
               ℹ
             </span>
@@ -1329,7 +1329,7 @@ export default function Reports() {
             <div>
               <p className="font-extrabold">Combined Battery Cage report</p>
 
-              <p className="mt-1 leading-5 text-green-950">
+              <p className="mt-1 leading-5 text-[#34533e]">
                 Combines production from Battery Cage Rows 1, 2, and 3 by date.
                 Individual pen records remain unchanged.
               </p>
@@ -1373,23 +1373,23 @@ export default function Reports() {
           />
 
           <div className="grid grid-cols-1 gap-5 2xl:grid-cols-2">
-            <div className="min-w-0 rounded-2xl border border-slate-200 bg-white p-4 shadow-sm sm:p-6">
+            <div className="min-w-0 rounded-2xl border border-[#e0e6dc] bg-white p-4 shadow-sm sm:p-6">
               <div className="mb-5 flex items-start justify-between gap-3">
                 <div>
-                  <h3 className="font-bold text-slate-900">
+                  <h3 className="font-bold text-[#2b3a30]">
                     {isProductionReport
                       ? "Egg Production by Date"
                       : `${reportType} Overview`}
                   </h3>
 
-                  <p className="mt-1 text-xs text-slate-600">
+                  <p className="mt-1 text-xs text-[#657368]">
                     {isProductionReport
                       ? "Total eggs recorded for each production date"
                       : "Values returned by the selected report"}
                   </p>
                 </div>
 
-                <span className="rounded-xl bg-green-100 px-3 py-2 text-lg text-green-900">
+                <span className="rounded-xl bg-[#edf4e9] px-3 py-2 text-lg text-[#34533e]">
                   ▥
                 </span>
               </div>
@@ -1401,7 +1401,7 @@ export default function Reports() {
                     margin={{ top: 8, right: 12, left: 0, bottom: 8 }}
                   >
                     <CartesianGrid
-                      stroke="#e2e8f0"
+                      stroke="#e2e8df"
                       strokeDasharray="4 4"
                       vertical={false}
                     />
@@ -1467,19 +1467,19 @@ export default function Reports() {
             </div>
 
             {isProductionReport && (
-              <div className="min-w-0 rounded-2xl border border-slate-200 bg-white p-4 shadow-sm sm:p-6">
+              <div className="min-w-0 rounded-2xl border border-[#e0e6dc] bg-white p-4 shadow-sm sm:p-6">
                 <div className="mb-5 flex items-start justify-between gap-3">
                   <div>
-                    <h3 className="font-bold text-slate-900">
+                    <h3 className="font-bold text-[#2b3a30]">
                       Production and Mortality Trend
                     </h3>
 
-                    <p className="mt-1 text-xs text-slate-600">
+                    <p className="mt-1 text-xs text-[#657368]">
                       Egg totals and recorded bird losses by date
                     </p>
                   </div>
 
-                  <span className="rounded-xl bg-green-100 px-3 py-2 text-lg text-green-900">
+                  <span className="rounded-xl bg-[#edf4e9] px-3 py-2 text-lg text-[#34533e]">
                     ↗
                   </span>
                 </div>
@@ -1490,7 +1490,7 @@ export default function Reports() {
                       data={chartData}
                       margin={{ top: 8, right: 8, left: 0, bottom: 8 }}
                     >
-                      <CartesianGrid stroke="#e2e8f0" strokeDasharray="4 4" />
+                      <CartesianGrid stroke="#e2e8df" strokeDasharray="4 4" />
 
                       <XAxis
                         dataKey="name"
@@ -1583,19 +1583,19 @@ export default function Reports() {
 
       {/* RECORDS TABLE */}
 
-      <section className="overflow-hidden rounded-2xl border border-slate-200 bg-white shadow-sm">
-        <div className="flex flex-col justify-between gap-4 border-b border-slate-200 p-5 sm:flex-row sm:items-center sm:p-6">
+      <section className="overflow-hidden rounded-2xl border border-[#e0e6dc] bg-white shadow-sm">
+        <div className="flex flex-col justify-between gap-4 border-b border-[#e0e6dc] p-5 sm:flex-row sm:items-center sm:p-6">
           <div className="flex items-start gap-3">
-            <div className="flex h-11 w-11 shrink-0 items-center justify-center rounded-xl bg-green-100 text-xl text-green-950">
+            <div className="flex h-11 w-11 shrink-0 items-center justify-center rounded-xl bg-[#edf4e9] text-xl text-[#34533e]">
               ▤
             </div>
 
             <div>
-              <h2 className="text-lg font-bold text-slate-950">
+              <h2 className="text-lg font-bold text-[#243329]">
                 {reportType} Records
               </h2>
 
-              <p className="mt-1 text-sm text-slate-600">
+              <p className="mt-1 text-sm text-[#657368]">
                 {formatNumber(filteredRecords.length, 0)} record(s) found
               </p>
             </div>
@@ -1604,7 +1604,7 @@ export default function Reports() {
           <div className="flex items-center gap-2">
             <label
               htmlFor="pageSize"
-              className="whitespace-nowrap text-xs font-bold text-slate-700"
+              className="whitespace-nowrap text-xs font-bold text-[#4b5c50]"
             >
               Rows per page
             </label>
@@ -1616,7 +1616,7 @@ export default function Reports() {
                 setPageSize(Number(event.target.value));
                 setPage(1);
               }}
-              className="rounded-xl border border-slate-300 bg-slate-50 px-3 py-2.5 text-sm font-bold text-slate-800 outline-none focus:border-green-700 focus:ring-4 focus:ring-green-700/15"
+              className="rounded-xl border border-[#d8dfd4] bg-[#f8f9f5] px-3 py-2.5 text-sm font-bold text-[#34463a] outline-none focus:border-green-700 focus:ring-4 focus:ring-green-700/15"
             >
               {PAGE_SIZE_OPTIONS.map((size) => (
                 <option key={size} value={size}>
@@ -1629,15 +1629,15 @@ export default function Reports() {
 
         {filteredRecords.length === 0 ? (
           <div className="px-6 py-16 text-center">
-            <div className="mx-auto flex h-16 w-16 items-center justify-center rounded-2xl bg-green-100 text-3xl">
+            <div className="mx-auto flex h-16 w-16 items-center justify-center rounded-2xl bg-[#edf4e9] text-3xl">
               📋
             </div>
 
-            <h3 className="mt-5 text-base font-bold text-slate-900">
+            <h3 className="mt-5 text-base font-bold text-[#2b3a30]">
               No records to display
             </h3>
 
-            <p className="mx-auto mt-2 max-w-sm text-sm leading-6 text-slate-600">
+            <p className="mx-auto mt-2 max-w-sm text-sm leading-6 text-[#657368]">
               No records match your current report and date selection. Try a
               different date range or search term.
             </p>
@@ -1646,7 +1646,7 @@ export default function Reports() {
               <button
                 type="button"
                 onClick={() => setSearchTerm("")}
-                className="mt-4 rounded-lg bg-green-100 px-4 py-2 text-sm font-bold text-green-950 transition hover:bg-green-200"
+                className="mt-4 rounded-lg bg-[#edf4e9] px-4 py-2 text-sm font-bold text-[#34533e] transition hover:bg-[#e1ecdc]"
               >
                 Clear search
               </button>
@@ -1655,8 +1655,8 @@ export default function Reports() {
         ) : (
           <>
             <div className="w-full overflow-x-auto">
-              <table className="min-w-full divide-y divide-slate-200 text-sm">
-                <thead className="bg-green-900">
+              <table className="min-w-full divide-y divide-[#e5e9e1] text-sm">
+                <thead className="bg-[#557b5e]">
                   <tr>
                     {columns.map((column) => (
                       <th
@@ -1670,14 +1670,14 @@ export default function Reports() {
                   </tr>
                 </thead>
 
-                <tbody className="divide-y divide-slate-200">
+                <tbody className="divide-y divide-[#e5e9e1]">
                   {paginatedRecords.map((record, index) => (
                     <tr
                       key={
                         record._id ||
                         `${getCalendarDateKey(record.Date)}-${index}`
                       }
-                      className="transition-colors hover:bg-emerald-50"
+                      className="transition-colors hover:bg-[#f2f6ef]"
                     >
                       {columns.map((column) => {
                         const value = record[column];
@@ -1690,18 +1690,18 @@ export default function Reports() {
                         return (
                           <td
                             key={column}
-                            className="whitespace-nowrap px-5 py-3.5 font-medium text-slate-800"
+                            className="max-w-[24rem] whitespace-normal break-words px-5 py-3.5 align-top font-medium leading-6 text-[#34463a]"
                           >
                             {column === "Date" ? (
-                              <span className="font-semibold text-slate-800">
+                              <span className="font-semibold text-[#34463a]">
                                 {formatReportDate(value)}
                               </span>
                             ) : isPercentage ? (
-                              <span className="inline-flex rounded-full border border-green-200 bg-green-100 px-2.5 py-1 text-xs font-extrabold text-green-950">
+                              <span className="inline-flex rounded-full border border-[#d6e4d2] bg-[#edf4e9] px-2.5 py-1 text-xs font-extrabold text-[#34533e]">
                                 {formatNumber(value)}%
                               </span>
                             ) : isMortality && getNumber(value) > 0 ? (
-                              <span className="inline-flex rounded-full border border-rose-200 bg-rose-100 px-2.5 py-1 text-xs font-extrabold text-rose-900">
+                              <span className="inline-flex rounded-full border border-[#efd8d3] bg-[#f8ece9] px-2.5 py-1 text-xs font-extrabold text-[#8d5149]">
                                 {formatCellValue(value)}
                               </span>
                             ) : (
@@ -1718,18 +1718,18 @@ export default function Reports() {
 
             {/* PAGINATION */}
 
-            <div className="flex flex-col items-center justify-between gap-4 border-t border-slate-200 bg-slate-100 px-5 py-4 sm:flex-row sm:px-6">
-              <p className="text-xs font-medium text-slate-700">
+            <div className="flex flex-col items-center justify-between gap-4 border-t border-[#e0e6dc] bg-[#eef1e9] px-5 py-4 sm:flex-row sm:px-6">
+              <p className="text-xs font-medium text-[#4b5c50]">
                 Showing{" "}
-                <span className="font-extrabold text-slate-950">
+                <span className="font-extrabold text-[#243329]">
                   {(page - 1) * pageSize + 1}
                 </span>{" "}
                 to{" "}
-                <span className="font-extrabold text-slate-950">
+                <span className="font-extrabold text-[#243329]">
                   {Math.min(page * pageSize, filteredRecords.length)}
                 </span>{" "}
                 of{" "}
-                <span className="font-extrabold text-slate-950">
+                <span className="font-extrabold text-[#243329]">
                   {formatNumber(filteredRecords.length, 0)}
                 </span>{" "}
                 records
@@ -1740,12 +1740,12 @@ export default function Reports() {
                   type="button"
                   disabled={page <= 1}
                   onClick={() => setPage((current) => Math.max(1, current - 1))}
-                  className="rounded-xl border border-slate-300 bg-white px-4 py-2.5 text-sm font-bold text-slate-800 transition hover:border-green-700 hover:bg-green-50 disabled:cursor-not-allowed disabled:opacity-40"
+                  className="rounded-xl border border-[#d8dfd4] bg-white px-4 py-2.5 text-sm font-bold text-[#34463a] transition hover:border-[#789779] hover:bg-[#f3f7f0] disabled:cursor-not-allowed disabled:opacity-40"
                 >
                   ← Previous
                 </button>
 
-                <span className="rounded-xl bg-green-900 px-4 py-2.5 text-xs font-extrabold text-white">
+                <span className="rounded-xl bg-[#557b5e] px-4 py-2.5 text-xs font-extrabold text-white">
                   {page} / {totalPages}
                 </span>
 
@@ -1755,7 +1755,7 @@ export default function Reports() {
                   onClick={() =>
                     setPage((current) => Math.min(totalPages, current + 1))
                   }
-                  className="rounded-xl border border-slate-300 bg-white px-4 py-2.5 text-sm font-bold text-slate-800 transition hover:border-green-700 hover:bg-green-50 disabled:cursor-not-allowed disabled:opacity-40"
+                  className="rounded-xl border border-[#d8dfd4] bg-white px-4 py-2.5 text-sm font-bold text-[#34463a] transition hover:border-[#789779] hover:bg-[#f3f7f0] disabled:cursor-not-allowed disabled:opacity-40"
                 >
                   Next →
                 </button>
@@ -1767,7 +1767,7 @@ export default function Reports() {
 
       {/* FOOTER */}
 
-      <div className="flex flex-col justify-between gap-2 border-t border-slate-300 pt-4 text-xs font-medium text-slate-600 sm:flex-row sm:items-center">
+      <div className="flex flex-col justify-between gap-2 border-t border-[#d8dfd4] pt-4 text-xs font-medium text-[#657368] sm:flex-row sm:items-center">
         <p>
           © {new Date().getFullYear()} Mebrek Farms · Reports &amp; Analytics
         </p>
