@@ -10,6 +10,16 @@ export const fetchSales = async (params = {}) => {
   return res.data;
 };
 
+// Fetch aggregate daily / weekly / monthly / yearly reporting data.
+// This endpoint returns summary figures only, not invoice documents.
+export const fetchSalesSummary = async ({ period = "daily", date } = {}) => {
+  if (!date) throw new Error("A reporting date is required.");
+  const res = await api.get("/egg-sales/summary", {
+    params: { period, date },
+  });
+  return res.data;
+};
+
 // Fetch outstanding customers
 export const fetchOutstandingCustomers = async (params = {}) => {
   const res = await api.get("/egg-sales/outstanding", { params });
@@ -109,10 +119,7 @@ export const deleteSaleAccessRequest = async (id) => {
   return res.data;
 };
 
-/**
- * Mark an older-sale access request as viewed.
- * Requires a matching backend endpoint.
- */
+/** Mark an older-sale access request as viewed. */
 export const markSaleAccessRequestViewed = async (id) => {
   const res = await api.put(
     `/sale-access-requests/${id}/viewed`,

@@ -19,6 +19,7 @@ import SaleAccessPanel from "../components/SaleAccessPanel";
 
 import {
   fetchSales,
+  fetchSalesSummary,
   fetchOutstandingCustomers,
   createSale,
   updateSale,
@@ -127,6 +128,31 @@ const parseDateDMY = (value) => {
 };
 
 const formatDate = (value) => formatDateDMY(value) || "-";
+
+// Parse sale dates as local calendar dates to avoid UTC day-boundary shifts.
+const getSaleDateLocal = (sale) => {
+  const candidates = [sale?.date, sale?.createdAt, sale?.created_at];
+
+  for (const candidate of candidates) {
+    if (!candidate) continue;
+    const value = String(candidate).trim();
+    const iso = value.match(/^(\d{4})-(\d{2})-(\d{2})/);
+    const dmy = value.match(/^(\d{2})\/(\d{2})\/(\d{4})$/);
+    let date;
+
+    if (iso) {
+      date = new Date(Number(iso[1]), Number(iso[2]) - 1, Number(iso[3]));
+    } else if (dmy) {
+      date = new Date(Number(dmy[3]), Number(dmy[2]) - 1, Number(dmy[1]));
+    } else {
+      date = new Date(value);
+    }
+
+    if (!Number.isNaN(date.getTime())) return date;
+  }
+
+  return null;
+};
 
 // Sort sale records by sale date (newest first), supporting ISO and DD/MM/YYYY values.
 const getSaleDateTimestamp = (sale) => {
@@ -346,6 +372,16 @@ export default function EggSales() {
   const [search, setSearch] = useState("");
   const [statusFilter, setStatusFilter] = useState("All");
   const [showDeleted, setShowDeleted] = useState(false);
+
+  // Sales breakdown period: daily, weekly, monthly, or yearly.
+  const [salesPeriod, setSalesPeriod] = useState("daily");
+  const [salesPeriodDate, setSalesPeriodDate] = useState(() => {
+    const today = new Date();
+    return `${today.getFullYear()}-${String(today.getMonth() + 1).padStart(2, "0")}-${String(today.getDate()).padStart(2, "0")}`;
+  });
+  const [periodSummaryData, setPeriodSummaryData] = useState(null);
+  const [periodSummaryLoading, setPeriodSummaryLoading] = useState(false);
+  const [periodSummaryError, setPeriodSummaryError] = useState("");
   const [outstandingSearch, setOutstandingSearch] = useState("");
   const [outstandingCustomers, setOutstandingCustomers] = useState([]);
   const [outstandingLoading, setOutstandingLoading] = useState(false);
@@ -468,6 +504,49 @@ export default function EggSales() {
       setLoading(false);
     }
   };
+
+  // ===================================================
+  // LOAD SERVER-SIDE PERIOD SALES SUMMARY
+  // ===================================================
+
+  useEffect(() => {
+    if (user?.role !== "superadmin") {
+      setPeriodSummaryData(null);
+      setPeriodSummaryError("");
+      setPeriodSummaryLoading(false);
+      return undefined;
+    }
+
+    let cancelled = false;
+    const loadSummary = async () => {
+      try {
+        setPeriodSummaryLoading(true);
+        setPeriodSummaryError("");
+        setPeriodSummaryData(null);
+        const response = await fetchSalesSummary({
+          period: salesPeriod,
+          date: salesPeriodDate,
+        });
+        if (!cancelled) setPeriodSummaryData(response);
+      } catch (error) {
+        if (!cancelled) {
+          setPeriodSummaryError(
+            error?.response?.data?.message ||
+              error?.message ||
+              "Unable to load the sales breakdown.",
+          );
+          setPeriodSummaryData(null);
+        }
+      } finally {
+        if (!cancelled) setPeriodSummaryLoading(false);
+      }
+    };
+
+    loadSummary();
+    return () => {
+      cancelled = true;
+    };
+  }, [user?.role, salesPeriod, salesPeriodDate]);
 
   // ===================================================
   // LOAD CUSTOMERS
@@ -1335,6 +1414,76 @@ export default function EggSales() {
   }, [activeSales]);
 
   // ===================================================
+  // DAILY / WEEKLY / MONTHLY / YEARLY SALES BREAKDOWN
+  // ===================================================
+
+  const periodSummary = useMemo(() => {
+    const [yearPart, monthPart, dayPart] = salesPeriodDate
+      .split("-")
+      .map(Number);
+    const referenceDate = new Date(yearPart, monthPart - 1, dayPart || 1);
+    const start = new Date(referenceDate);
+    const end = new Date(referenceDate);
+    let periodLabel = "";
+
+    if (salesPeriod === "daily") {
+      periodLabel = referenceDate.toLocaleDateString("en-NG", {
+        day: "numeric",
+        month: "long",
+        year: "numeric",
+      });
+    } else if (salesPeriod === "weekly") {
+      // Farm sales week runs Sunday through Friday; Saturday is excluded.
+      const sundayOffset = referenceDate.getDay();
+      start.setDate(referenceDate.getDate() - sundayOffset);
+      end.setTime(start.getTime());
+      end.setDate(start.getDate() + 5);
+      periodLabel = `${start.toLocaleDateString("en-NG", { day: "numeric", month: "short" })} – ${end.toLocaleDateString("en-NG", { day: "numeric", month: "short", year: "numeric" })} (Sun–Fri)`;
+    } else if (salesPeriod === "monthly") {
+      start.setDate(1);
+      end.setFullYear(
+        referenceDate.getFullYear(),
+        referenceDate.getMonth() + 1,
+        0,
+      );
+      periodLabel = referenceDate.toLocaleDateString("en-NG", {
+        month: "long",
+        year: "numeric",
+      });
+    } else {
+      start.setFullYear(referenceDate.getFullYear(), 0, 1);
+      end.setFullYear(referenceDate.getFullYear(), 11, 31);
+      periodLabel = String(referenceDate.getFullYear());
+    }
+    start.setHours(0, 0, 0, 0);
+    end.setHours(23, 59, 59, 999);
+
+    const server = periodSummaryData || {};
+    const summary = server.summary || {};
+    const categories = Array.isArray(server.categories)
+      ? server.categories
+      : EGG_CATEGORIES.map((category) => ({
+          category: category.value,
+          label: category.label,
+          crates: 0,
+          revenue: 0,
+        }));
+    const chart = Array.isArray(server.chart) ? server.chart : [];
+
+    return {
+      revenue: Number(summary.revenue || 0),
+      received: Number(summary.received || 0),
+      outstanding: Number(summary.outstanding || 0),
+      transactions: Number(summary.transactions || 0),
+      categories,
+      chart,
+      periodLabel,
+      start,
+      end,
+    };
+  }, [periodSummaryData, salesPeriod, salesPeriodDate]);
+
+  // ===================================================
   // SELECTED CUSTOMER SUMMARY
   // ===================================================
 
@@ -1368,6 +1517,284 @@ export default function EggSales() {
           </div>
         )}
       </div>
+
+      {/* PERIOD SALES BREAKDOWN: superadmin only */}
+      {isSuperadmin && (
+        <section className="overflow-hidden rounded-2xl border border-emerald-100 bg-white shadow-sm">
+          <div className="border-b border-emerald-100 bg-gradient-to-r from-emerald-50 via-white to-lime-50 p-5">
+            <div className="flex flex-col gap-4 xl:flex-row xl:items-center xl:justify-between">
+              <div>
+                <p className="text-xs font-bold uppercase tracking-[0.18em] text-emerald-700">
+                  Sales intelligence
+                </p>
+                <h2 className="mt-1 text-xl font-bold text-slate-800">
+                  Egg Sales Breakdown
+                </h2>
+                <p className="mt-1 text-sm leading-6 text-slate-600">
+                  Compare sales, payments and egg categories across a day, week,
+                  month or year.
+                </p>
+              </div>
+              <div className="flex flex-col gap-3 sm:flex-row sm:items-center">
+                <div className="inline-flex flex-wrap rounded-xl border border-emerald-100 bg-white p-1">
+                  {[
+                    { value: "daily", label: "Daily" },
+                    { value: "weekly", label: "Weekly" },
+                    { value: "monthly", label: "Monthly" },
+                    { value: "yearly", label: "Yearly" },
+                  ].map((period) => (
+                    <button
+                      key={period.value}
+                      type="button"
+                      onClick={() => setSalesPeriod(period.value)}
+                      aria-pressed={salesPeriod === period.value}
+                      className={`rounded-lg px-3 py-2 text-sm font-semibold transition ${salesPeriod === period.value ? "bg-emerald-700 text-white shadow-sm" : "text-slate-600 hover:bg-emerald-50 hover:text-emerald-800"}`}
+                    >
+                      {period.label}
+                    </button>
+                  ))}
+                </div>
+                <label className="flex items-center gap-2 text-sm font-medium text-slate-600">
+                  <span className="whitespace-nowrap">
+                    {salesPeriod === "yearly"
+                      ? "Choose year"
+                      : salesPeriod === "monthly"
+                        ? "Choose month"
+                        : "Choose date"}
+                  </span>
+                  <input
+                    type={
+                      salesPeriod === "yearly"
+                        ? "number"
+                        : salesPeriod === "monthly"
+                          ? "month"
+                          : "date"
+                    }
+                    value={
+                      salesPeriod === "yearly"
+                        ? salesPeriodDate.slice(0, 4)
+                        : salesPeriod === "monthly"
+                          ? salesPeriodDate.slice(0, 7)
+                          : salesPeriodDate
+                    }
+                    min={salesPeriod === "yearly" ? "2000" : undefined}
+                    max={
+                      salesPeriod === "yearly"
+                        ? String(new Date().getFullYear() + 10)
+                        : undefined
+                    }
+                    onChange={(event) => {
+                      const value = event.target.value;
+                      if (!value) return;
+                      setSalesPeriodDate(
+                        salesPeriod === "yearly"
+                          ? `${value}-01-01`
+                          : salesPeriod === "monthly"
+                            ? `${value}-01`
+                            : value,
+                      );
+                    }}
+                    className="min-w-0 rounded-lg border border-slate-300 bg-white px-3 py-2 text-sm text-slate-700 outline-none focus:border-emerald-600 focus:ring-2 focus:ring-emerald-100"
+                    aria-label="Select sales reporting period"
+                  />
+                </label>
+              </div>
+            </div>
+            <p className="mt-3 text-sm font-semibold text-emerald-800">
+              Showing: {periodSummary.periodLabel}
+            </p>
+            <p className="mt-1 text-xs leading-5 text-slate-500">
+              Summary uses all non-deleted sales for the selected sale-date
+              period. Older invoice details remain protected by the existing
+              access rules.
+            </p>
+            {periodSummaryLoading && (
+              <p className="mt-2 text-sm text-slate-500" role="status">
+                Updating sales breakdown…
+              </p>
+            )}
+            {periodSummaryError && (
+              <p
+                className="mt-2 rounded-lg bg-rose-50 px-3 py-2 text-sm text-rose-700"
+                role="alert"
+              >
+                {periodSummaryError}
+              </p>
+            )}
+          </div>
+
+          <div className="grid grid-cols-1 gap-3 p-4 sm:grid-cols-2 xl:grid-cols-4">
+            {[
+              {
+                label: "Sales revenue",
+                value: formatCurrency(periodSummary.revenue),
+                note: "Value of sales recorded",
+                style: "text-emerald-800 bg-emerald-50",
+              },
+              {
+                label: "Money received",
+                value: formatCurrency(periodSummary.received),
+                note: "Payments recorded",
+                style: "text-blue-800 bg-blue-50",
+              },
+              {
+                label: "Outstanding",
+                value: formatCurrency(periodSummary.outstanding),
+                note: "Unpaid balance for this period",
+                style: "text-rose-800 bg-rose-50",
+              },
+              {
+                label: "Transactions",
+                value: periodSummary.transactions.toLocaleString(),
+                note: "Number of active sale records",
+                style: "text-slate-800 bg-slate-50",
+              },
+            ].map((metric) => (
+              <div
+                key={metric.label}
+                className={`rounded-xl p-4 ${metric.style}`}
+              >
+                <p className="text-sm font-medium opacity-80">{metric.label}</p>
+                <p className="mt-2 break-words text-2xl font-bold tracking-tight">
+                  {metric.value}
+                </p>
+                <p className="mt-1 text-xs opacity-75">{metric.note}</p>
+              </div>
+            ))}
+          </div>
+
+          <div className="grid grid-cols-1 gap-4 px-4 pb-4 xl:grid-cols-[1.5fr_1fr]">
+            <div className="rounded-xl border border-slate-100 p-4">
+              <div className="mb-3 flex flex-wrap items-start justify-between gap-2">
+                <div>
+                  <h3 className="font-semibold text-slate-800">
+                    {salesPeriod === "yearly"
+                      ? "Monthly trend"
+                      : salesPeriod === "daily"
+                        ? "Sales for selected day"
+                        : "Sales trend"}
+                  </h3>
+                  <p className="mt-1 text-xs text-slate-500">
+                    Revenue compared with payments received
+                  </p>
+                </div>
+                <span className="rounded-full bg-emerald-50 px-3 py-1 text-xs font-semibold text-emerald-800">
+                  {periodSummary.chart.length}{" "}
+                  {salesPeriod === "yearly"
+                    ? "months with sales"
+                    : salesPeriod === "daily"
+                      ? "day"
+                      : "days with sales"}
+                </span>
+              </div>
+              {periodSummary.chart.length ? (
+                <div className="h-64">
+                  <ResponsiveContainer width="100%" height="100%">
+                    <BarChart
+                      data={periodSummary.chart}
+                      margin={{ top: 8, right: 8, left: 4, bottom: 4 }}
+                    >
+                      <CartesianGrid strokeDasharray="3 3" stroke="#E2E8F0" />
+                      <XAxis
+                        dataKey="label"
+                        tick={{ fill: "#64748B", fontSize: 11 }}
+                        axisLine={{ stroke: "#CBD5E1" }}
+                        tickLine={false}
+                      />
+                      <YAxis
+                        tickFormatter={(value) =>
+                          value >= 1000000
+                            ? `₦${(value / 1000000).toFixed(1)}m`
+                            : value >= 1000
+                              ? `₦${(value / 1000).toFixed(0)}k`
+                              : `₦${value}`
+                        }
+                        tick={{ fill: "#64748B", fontSize: 11 }}
+                        axisLine={false}
+                        tickLine={false}
+                        width={62}
+                      />
+                      <Tooltip
+                        formatter={(value) => formatCurrency(value)}
+                        contentStyle={{
+                          borderRadius: 10,
+                          border: "1px solid #E2E8F0",
+                        }}
+                      />
+                      <Legend />
+                      <Bar
+                        dataKey="revenue"
+                        name="Sales revenue"
+                        fill="#43866A"
+                        radius={[5, 5, 0, 0]}
+                        maxBarSize={36}
+                      />
+                      <Bar
+                        dataKey="received"
+                        name="Received"
+                        fill="#8AAE9B"
+                        radius={[5, 5, 0, 0]}
+                        maxBarSize={36}
+                      />
+                    </BarChart>
+                  </ResponsiveContainer>
+                </div>
+              ) : (
+                <div className="flex h-64 items-center justify-center rounded-lg bg-slate-50 px-5 text-center text-sm text-slate-500">
+                  {periodSummaryLoading
+                    ? "Loading sales for this period…"
+                    : "No egg sales were recorded for this period."}
+                </div>
+              )}
+            </div>
+
+            <div className="rounded-xl border border-slate-100 p-4">
+              <h3 className="font-semibold text-slate-800">
+                Egg category breakdown
+              </h3>
+              <p className="mt-1 text-xs leading-5 text-slate-500">
+                Full and half crates sold during the selected period. Loose eggs
+                are excluded from crate totals.
+              </p>
+              <div className="mt-4 space-y-3">
+                {periodSummary.categories.map((category) => {
+                  const maxCrates = Math.max(
+                    1,
+                    ...periodSummary.categories.map((item) => item.crates),
+                  );
+                  return (
+                    <div key={category.label}>
+                      <div className="mb-1 flex items-center justify-between gap-3 text-sm">
+                        <span className="font-medium text-slate-700">
+                          {category.label}
+                        </span>
+                        <span className="font-semibold tabular-nums text-slate-800">
+                          {category.crates.toLocaleString(undefined, {
+                            maximumFractionDigits: 1,
+                          })}{" "}
+                          crates
+                        </span>
+                      </div>
+                      <div className="h-2 overflow-hidden rounded-full bg-slate-100">
+                        <div
+                          className="h-full rounded-full bg-emerald-600 transition-all"
+                          style={{
+                            width: `${Math.min(100, (category.crates / maxCrates) * 100)}%`,
+                          }}
+                        />
+                      </div>
+                      <p className="mt-1 text-right text-xs text-slate-500">
+                        Category item subtotal:{" "}
+                        {formatCurrency(category.revenue)}
+                      </p>
+                    </div>
+                  );
+                })}
+              </div>
+            </div>
+          </div>
+        </section>
+      )}
 
       {/* KPI CARDS */}
 
