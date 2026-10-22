@@ -29,10 +29,11 @@ import {
 
 const PAGE_SIZE = 10;
 
-const CATEGORIES = [
+const EXPENSE_CATEGORIES = [
   "Feed",
   "Drugs",
   "Labour",
+  "Salaries",
   "Fuel",
   "Repairs",
   "Utilities",
@@ -78,18 +79,15 @@ const initialFilters = {
 
 const emptyReport = {
   filters: {},
-
   summary: {
     totalExpenses: 0,
     totalAmount: 0,
     averageExpense: 0,
     largestExpense: 0,
   },
-
   dailyTrend: [],
   monthlyTrend: [],
   yearlyTrend: [],
-
   categoryBreakdown: [],
   paymentMethodBreakdown: [],
 };
@@ -107,18 +105,14 @@ const formatCurrency = (value) => {
   })}`;
 };
 
-const formatNumber = (value) => {
-  return Number(value || 0).toLocaleString("en-NG");
-};
+const formatNumber = (value) => Number(value || 0).toLocaleString("en-NG");
 
 const formatDate = (value) => {
   if (!value) return "—";
 
   const date = new Date(value);
 
-  if (Number.isNaN(date.getTime())) {
-    return value;
-  }
+  if (Number.isNaN(date.getTime())) return value;
 
   return date.toLocaleDateString("en-NG", {
     year: "numeric",
@@ -132,9 +126,7 @@ const formatDateTime = (value) => {
 
   const date = new Date(value);
 
-  if (Number.isNaN(date.getTime())) {
-    return value;
-  }
+  if (Number.isNaN(date.getTime())) return value;
 
   return date.toLocaleString("en-NG", {
     year: "numeric",
@@ -145,21 +137,16 @@ const formatDateTime = (value) => {
   });
 };
 
-const getExpenseId = (expense) => {
-  return expense?._id || expense?.id;
-};
+const getExpenseId = (expense) => expense?._id || expense?.id;
 
-const getCreatedByName = (expense) => {
-  return expense?.createdByName || expense?.createdBy?.name || "Unknown";
-};
+const getCreatedByName = (expense) =>
+  expense?.createdByName || expense?.createdBy?.name || "Unknown";
 
-const getUpdatedByName = (expense) => {
-  return expense?.updatedByName || expense?.updatedBy?.name || "—";
-};
+const getUpdatedByName = (expense) =>
+  expense?.updatedByName || expense?.updatedBy?.name || "—";
 
-const getDeletedByName = (expense) => {
-  return expense?.deletedByName || expense?.deletedBy?.name || "—";
-};
+const getDeletedByName = (expense) =>
+  expense?.deletedByName || expense?.deletedBy?.name || "—";
 
 // ============================================================
 // BUILD JANUARY - DECEMBER CHART DATA
@@ -167,30 +154,11 @@ const getDeletedByName = (expense) => {
 
 const buildMonthlyChartData = (monthlyTrend) => {
   const source = Array.isArray(monthlyTrend) ? monthlyTrend : [];
-
   const currentYear = new Date().getFullYear();
-
-  /*
-   * Expected backend format:
-   *
-   * {
-   *   year: 2026,
-   *   month: 1,
-   *   totalAmount: 350000,
-   *   count: 5
-   * }
-   *
-   * The function also supports:
-   *
-   * {
-   *   label: "2026-01",
-   *   totalAmount: 350000
-   * }
-   */
 
   const years = source
     .map((item) => Number(item?.year))
-    .filter((year) => Number.isFinite(year));
+    .filter(Number.isFinite);
 
   const selectedYear = years.length > 0 ? Math.max(...years) : currentYear;
 
@@ -201,32 +169,27 @@ const buildMonthlyChartData = (monthlyTrend) => {
       const itemMonth = Number(item?.month);
       const itemYear = Number(item?.year);
 
-      // Preferred backend format
       if (Number.isFinite(itemYear) && Number.isFinite(itemMonth)) {
         return itemYear === selectedYear && itemMonth === monthNumber;
       }
 
-      // Fallback for labels such as 2026-01
       const label = String(item?.label || "");
-
       const expectedLabel = `${selectedYear}-${String(monthNumber).padStart(2, "0")}`;
 
       return label === expectedLabel;
     });
 
-    const totalAmount = matchingRows.reduce((sum, item) => {
-      return sum + Number(item?.totalAmount || 0);
-    }, 0);
-
-    const count = matchingRows.reduce((sum, item) => {
-      return sum + Number(item?.count || 0);
-    }, 0);
-
     return {
       month: monthName,
       monthShort: monthName.substring(0, 3),
-      totalAmount,
-      count,
+      totalAmount: matchingRows.reduce(
+        (sum, item) => sum + Number(item?.totalAmount || 0),
+        0,
+      ),
+      count: matchingRows.reduce(
+        (sum, item) => sum + Number(item?.count || 0),
+        0,
+      ),
     };
   });
 };
@@ -236,40 +199,18 @@ const buildMonthlyChartData = (monthlyTrend) => {
 // ============================================================
 
 export default function Expenses() {
-  // ==========================================================
-  // DATA
-  // ==========================================================
-
   const [expenses, setExpenses] = useState([]);
   const [deletedExpenses, setDeletedExpenses] = useState([]);
 
-  // ==========================================================
-  // LOADING / ACTION STATES
-  // ==========================================================
-
   const [loading, setLoading] = useState(true);
-
   const [deletedLoading, setDeletedLoading] = useState(false);
-
   const [reportLoading, setReportLoading] = useState(false);
-
   const [saving, setSaving] = useState(false);
-
   const [actionId, setActionId] = useState(null);
 
-  // ==========================================================
-  // UI STATE
-  // ==========================================================
-
   const [activeTab, setActiveTab] = useState("active");
-
   const [editingId, setEditingId] = useState(null);
-
   const [selectedExpense, setSelectedExpense] = useState(null);
-
-  // ==========================================================
-  // PAGINATION
-  // ==========================================================
 
   const [currentPage, setCurrentPage] = useState(1);
 
@@ -282,57 +223,39 @@ export default function Expenses() {
     hasPreviousPage: false,
   });
 
-  // ==========================================================
-  // FORM
-  // ==========================================================
-
   const [formData, setFormData] = useState(initialForm);
-
-  // ==========================================================
-  // FILTERS
-  // ==========================================================
-
   const [filters, setFilters] = useState(initialFilters);
-
-  // ==========================================================
-  // SERVER-SIDE REPORT
-  // ==========================================================
-
   const [expenseReport, setExpenseReport] = useState(emptyReport);
 
-  // ==========================================================
-  // MONTHLY CHART DATA
-  // ==========================================================
+  const monthlyChartData = useMemo(
+    () => buildMonthlyChartData(expenseReport.monthlyTrend),
+    [expenseReport.monthlyTrend],
+  );
 
-  const monthlyChartData = useMemo(() => {
-    return buildMonthlyChartData(expenseReport.monthlyTrend);
-  }, [expenseReport.monthlyTrend]);
-
-  const chartTotal = useMemo(() => {
-    return monthlyChartData.reduce((sum, item) => {
-      return sum + Number(item.totalAmount || 0);
-    }, 0);
-  }, [monthlyChartData]);
+  const chartTotal = useMemo(
+    () =>
+      monthlyChartData.reduce(
+        (sum, item) => sum + Number(item.totalAmount || 0),
+        0,
+      ),
+    [monthlyChartData],
+  );
 
   const chartYear = useMemo(() => {
-    const monthlyTrend = Array.isArray(expenseReport.monthlyTrend)
+    const source = Array.isArray(expenseReport.monthlyTrend)
       ? expenseReport.monthlyTrend
       : [];
 
-    const years = monthlyTrend
+    const years = source
       .map((item) => Number(item?.year))
-      .filter((year) => Number.isFinite(year));
+      .filter(Number.isFinite);
 
-    if (years.length > 0) {
-      return Math.max(...years);
-    }
-
-    return new Date().getFullYear();
+    return years.length > 0 ? Math.max(...years) : new Date().getFullYear();
   }, [expenseReport.monthlyTrend]);
 
-  // ==========================================================
+  // ============================================================
   // LOAD ACTIVE EXPENSES
-  // ==========================================================
+  // ============================================================
 
   const loadExpenses = useCallback(async () => {
     try {
@@ -384,9 +307,9 @@ export default function Expenses() {
     filters.endDate,
   ]);
 
-  // ==========================================================
+  // ============================================================
   // LOAD DELETED EXPENSES
-  // ==========================================================
+  // ============================================================
 
   const loadDeletedExpenses = useCallback(async () => {
     try {
@@ -408,9 +331,9 @@ export default function Expenses() {
     }
   }, []);
 
-  // ==========================================================
+  // ============================================================
   // LOAD SERVER-SIDE REPORT
-  // ==========================================================
+  // ============================================================
 
   const loadExpenseReport = useCallback(async () => {
     try {
@@ -425,31 +348,22 @@ export default function Expenses() {
 
       setExpenseReport({
         filters: report?.filters || {},
-
         summary: {
           totalExpenses: report?.summary?.totalExpenses || 0,
-
           totalAmount: report?.summary?.totalAmount || 0,
-
           averageExpense: report?.summary?.averageExpense || 0,
-
           largestExpense: report?.summary?.largestExpense || 0,
         },
-
         dailyTrend: Array.isArray(report?.dailyTrend) ? report.dailyTrend : [],
-
         monthlyTrend: Array.isArray(report?.monthlyTrend)
           ? report.monthlyTrend
           : [],
-
         yearlyTrend: Array.isArray(report?.yearlyTrend)
           ? report.yearlyTrend
           : [],
-
         categoryBreakdown: Array.isArray(report?.categoryBreakdown)
           ? report.categoryBreakdown
           : [],
-
         paymentMethodBreakdown: Array.isArray(report?.paymentMethodBreakdown)
           ? report.paymentMethodBreakdown
           : [],
@@ -472,9 +386,9 @@ export default function Expenses() {
     filters.paymentMethod,
   ]);
 
-  // ==========================================================
+  // ============================================================
   // EFFECTS
-  // ==========================================================
+  // ============================================================
 
   useEffect(() => {
     loadExpenses();
@@ -490,9 +404,9 @@ export default function Expenses() {
     }
   }, [activeTab, loadDeletedExpenses]);
 
-  // ==========================================================
-  // FORM HANDLERS
-  // ==========================================================
+  // ============================================================
+  // FORM AND FILTER HANDLERS
+  // ============================================================
 
   const handleChange = (event) => {
     const { name, value } = event.target;
@@ -524,9 +438,9 @@ export default function Expenses() {
     setCurrentPage(1);
   };
 
-  // ==========================================================
-  // FORM SUBMIT
-  // ==========================================================
+  // ============================================================
+  // SUBMIT EXPENSE
+  // ============================================================
 
   const handleSubmit = async (event) => {
     event.preventDefault();
@@ -547,7 +461,6 @@ export default function Expenses() {
     }
 
     const quantity = Number(formData.quantity);
-
     const unitCost = Number(formData.unitCost);
 
     if (!Number.isFinite(quantity) || quantity < 0) {
@@ -576,11 +489,9 @@ export default function Expenses() {
 
       if (editingId) {
         await updateExpense(editingId, payload);
-
         toast.success("Expense updated successfully.");
       } else {
         await createExpense(payload);
-
         toast.success("Expense created successfully.");
       }
 
@@ -597,9 +508,9 @@ export default function Expenses() {
     }
   };
 
-  // ==========================================================
+  // ============================================================
   // EDIT
-  // ==========================================================
+  // ============================================================
 
   const handleEdit = (expense) => {
     setEditingId(getExpenseId(expense));
@@ -608,19 +519,12 @@ export default function Expenses() {
       date: expense?.date
         ? new Date(expense.date).toISOString().split("T")[0]
         : initialForm.date,
-
       category: expense?.category || "Feed",
-
       description: expense?.description || "",
-
       quantity: expense?.quantity ?? 1,
-
       unitCost: expense?.unitCost ?? "",
-
       supplier: expense?.supplier || "",
-
       paymentMethod: expense?.paymentMethod || "Cash",
-
       remarks: expense?.remarks || "",
     });
 
@@ -630,9 +534,9 @@ export default function Expenses() {
     });
   };
 
-  // ==========================================================
+  // ============================================================
   // DELETE
-  // ==========================================================
+  // ============================================================
 
   const handleDelete = async (expense) => {
     const id = getExpenseId(expense);
@@ -673,9 +577,9 @@ export default function Expenses() {
     }
   };
 
-  // ==========================================================
+  // ============================================================
   // RESTORE
-  // ==========================================================
+  // ============================================================
 
   const handleRestore = async (expense) => {
     const id = getExpenseId(expense);
@@ -714,9 +618,9 @@ export default function Expenses() {
     }
   };
 
-  // ==========================================================
+  // ============================================================
   // PAGINATION
-  // ==========================================================
+  // ============================================================
 
   const goToPage = (page) => {
     if (
@@ -737,14 +641,9 @@ export default function Expenses() {
   const pageNumbers = useMemo(() => {
     const totalPages = pagination.totalPages || 0;
 
-    if (totalPages <= 1) {
-      return [];
-    }
-
-    const pages = [];
+    if (totalPages <= 1) return [];
 
     let start = Math.max(1, currentPage - 2);
-
     let end = Math.min(totalPages, currentPage + 2);
 
     if (currentPage <= 3) {
@@ -754,9 +653,10 @@ export default function Expenses() {
 
     if (currentPage >= totalPages - 2) {
       start = Math.max(1, totalPages - 4);
-
       end = totalPages;
     }
+
+    const pages = [];
 
     for (let page = start; page <= end; page += 1) {
       pages.push(page);
@@ -765,9 +665,9 @@ export default function Expenses() {
     return pages;
   }, [currentPage, pagination.totalPages]);
 
-  // ==========================================================
+  // ============================================================
   // EXPORT CURRENT PAGE TO EXCEL
-  // ==========================================================
+  // ============================================================
 
   const exportExpensesToExcel = () => {
     if (!expenses.length) {
@@ -777,32 +677,20 @@ export default function Expenses() {
 
     const rows = expenses.map((expense) => ({
       "Expense Number": expense?.expenseNumber || "",
-
       Date: formatDate(expense?.date),
-
       Category: expense?.category || "",
-
       Description: expense?.description || "",
-
       Quantity: expense?.quantity ?? 0,
-
       "Unit Cost": expense?.unitCost ?? 0,
-
       Amount: expense?.amount ?? 0,
-
       Supplier: expense?.supplier || "",
-
       "Payment Method": expense?.paymentMethod || "",
-
       "Created By": getCreatedByName(expense),
-
       "Updated By": getUpdatedByName(expense),
-
       Remarks: expense?.remarks || "",
     }));
 
     const worksheet = XLSX.utils.json_to_sheet(rows);
-
     const workbook = XLSX.utils.book_new();
 
     XLSX.utils.book_append_sheet(workbook, worksheet, "Expenses");
@@ -812,9 +700,9 @@ export default function Expenses() {
     toast.success("Current expense page exported to Excel.");
   };
 
-  // ==========================================================
+  // ============================================================
   // EXPORT REPORT TO EXCEL
-  // ==========================================================
+  // ============================================================
 
   const exportReportToExcel = () => {
     const workbook = XLSX.utils.book_new();
@@ -911,28 +799,22 @@ export default function Expenses() {
     toast.success("Financial expense report exported to Excel.");
   };
 
-  // ==========================================================
+  // ============================================================
   // EXPORT REPORT TO PDF
-  // ==========================================================
+  // ============================================================
 
   const exportReportToPDF = () => {
     const doc = new jsPDF();
 
     doc.setFontSize(18);
-
     doc.text("Mebrek Farms - Expense Financial Report", 14, 18);
 
     doc.setFontSize(10);
-
     doc.text(`Generated: ${formatDateTime(new Date())}`, 14, 26);
 
-    let yPosition = 34;
-
     autoTable(doc, {
-      startY: yPosition,
-
+      startY: 34,
       head: [["Metric", "Value"]],
-
       body: [
         ["Total Expenses", formatNumber(expenseReport.summary.totalExpenses)],
         ["Total Amount", formatCurrency(expenseReport.summary.totalAmount)],
@@ -947,19 +829,14 @@ export default function Expenses() {
       ],
     });
 
-    yPosition = doc.lastAutoTable.finalY + 10;
+    let yPosition = doc.lastAutoTable.finalY + 10;
 
     doc.setFontSize(14);
-
     doc.text("Daily Expenses", 14, yPosition);
 
-    yPosition += 4;
-
     autoTable(doc, {
-      startY: yPosition,
-
+      startY: yPosition + 4,
       head: [["Date", "Expenses", "Total"]],
-
       body: expenseReport.dailyTrend.map((item) => [
         item.date,
         formatNumber(item.count),
@@ -970,16 +847,11 @@ export default function Expenses() {
     yPosition = doc.lastAutoTable.finalY + 10;
 
     doc.setFontSize(14);
-
     doc.text("Monthly Expenses", 14, yPosition);
 
-    yPosition += 4;
-
     autoTable(doc, {
-      startY: yPosition,
-
+      startY: yPosition + 4,
       head: [["Month", "Expenses", "Total"]],
-
       body: expenseReport.monthlyTrend.map((item) => [
         item.label || `${item.year}-${item.month}`,
         formatNumber(item.count),
@@ -990,16 +862,11 @@ export default function Expenses() {
     yPosition = doc.lastAutoTable.finalY + 10;
 
     doc.setFontSize(14);
-
     doc.text("Yearly Expenses", 14, yPosition);
 
-    yPosition += 4;
-
     autoTable(doc, {
-      startY: yPosition,
-
+      startY: yPosition + 4,
       head: [["Year", "Expenses", "Total"]],
-
       body: expenseReport.yearlyTrend.map((item) => [
         String(item.year),
         formatNumber(item.count),
@@ -1012,34 +879,28 @@ export default function Expenses() {
     toast.success("Financial expense report exported to PDF.");
   };
 
-  // ==========================================================
+  // ============================================================
   // FORM TOTAL
-  // ==========================================================
+  // ============================================================
 
-  const formAmount = useMemo(() => {
-    const quantity = Number(formData.quantity || 0);
+  const formAmount = useMemo(
+    () => Number(formData.quantity || 0) * Number(formData.unitCost || 0),
+    [formData.quantity, formData.unitCost],
+  );
 
-    const unitCost = Number(formData.unitCost || 0);
-
-    return quantity * unitCost;
-  }, [formData.quantity, formData.unitCost]);
-
-  // ==========================================================
+  // ============================================================
   // RENDER
-  // ==========================================================
+  // ============================================================
 
   return (
     <div className="p-4 md:p-6 space-y-6">
-      {/* ================================================== */}
       {/* HEADER */}
-      {/* ================================================== */}
 
       <div className="flex flex-col lg:flex-row lg:items-center lg:justify-between gap-4">
         <div>
           <h1 className="text-2xl md:text-3xl font-bold text-gray-900">
             Expenses
           </h1>
-
           <p className="text-sm text-gray-500 mt-1">
             Manage farm expenses, financial records, audit history and expense
             reports.
@@ -1075,9 +936,7 @@ export default function Expenses() {
         </div>
       </div>
 
-      {/* ================================================== */}
-      {/* FORM */}
-      {/* ================================================== */}
+      {/* EXPENSE FORM */}
 
       <div className="bg-white rounded-xl shadow-sm border border-gray-200 p-5">
         <div className="flex items-center justify-between mb-5">
@@ -1085,7 +944,6 @@ export default function Expenses() {
             <h2 className="text-lg font-semibold text-gray-900">
               {editingId ? "Edit Expense" : "Record New Expense"}
             </h2>
-
             <p className="text-sm text-gray-500">
               Amount is calculated automatically from quantity × unit cost.
             </p>
@@ -1110,7 +968,6 @@ export default function Expenses() {
             <label className="block text-sm font-medium text-gray-700 mb-1">
               Date
             </label>
-
             <input
               type="date"
               name="date"
@@ -1125,7 +982,6 @@ export default function Expenses() {
             <label className="block text-sm font-medium text-gray-700 mb-1">
               Category
             </label>
-
             <select
               name="category"
               value={formData.category}
@@ -1133,7 +989,7 @@ export default function Expenses() {
               className="w-full rounded-lg border border-gray-300 px-3 py-2 bg-white"
               required
             >
-              {CATEGORIES.map((category) => (
+              {EXPENSE_CATEGORIES.map((category) => (
                 <option key={category} value={category}>
                   {category}
                 </option>
@@ -1145,13 +1001,12 @@ export default function Expenses() {
             <label className="block text-sm font-medium text-gray-700 mb-1">
               Description
             </label>
-
             <input
               type="text"
               name="description"
               value={formData.description}
               onChange={handleChange}
-              placeholder="e.g. 20 bags of layer feed"
+              placeholder="e.g. Staff salary payment"
               className="w-full rounded-lg border border-gray-300 px-3 py-2"
               required
             />
@@ -1161,7 +1016,6 @@ export default function Expenses() {
             <label className="block text-sm font-medium text-gray-700 mb-1">
               Quantity
             </label>
-
             <input
               type="number"
               name="quantity"
@@ -1178,7 +1032,6 @@ export default function Expenses() {
             <label className="block text-sm font-medium text-gray-700 mb-1">
               Unit Cost
             </label>
-
             <input
               type="number"
               name="unitCost"
@@ -1196,7 +1049,6 @@ export default function Expenses() {
             <label className="block text-sm font-medium text-gray-700 mb-1">
               Amount
             </label>
-
             <div className="w-full rounded-lg border border-gray-200 bg-gray-50 px-3 py-2 font-semibold text-gray-900">
               {formatCurrency(formAmount)}
             </div>
@@ -1204,15 +1056,14 @@ export default function Expenses() {
 
           <div>
             <label className="block text-sm font-medium text-gray-700 mb-1">
-              Supplier
+              Supplier / Recipient
             </label>
-
             <input
               type="text"
               name="supplier"
               value={formData.supplier}
               onChange={handleChange}
-              placeholder="Supplier name"
+              placeholder="Supplier or staff name"
               className="w-full rounded-lg border border-gray-300 px-3 py-2"
             />
           </div>
@@ -1221,7 +1072,6 @@ export default function Expenses() {
             <label className="block text-sm font-medium text-gray-700 mb-1">
               Payment Method
             </label>
-
             <select
               name="paymentMethod"
               value={formData.paymentMethod}
@@ -1240,7 +1090,6 @@ export default function Expenses() {
             <label className="block text-sm font-medium text-gray-700 mb-1">
               Remarks
             </label>
-
             <textarea
               name="remarks"
               value={formData.remarks}
@@ -1267,9 +1116,7 @@ export default function Expenses() {
         </form>
       </div>
 
-      {/* ================================================== */}
-      {/* SUMMARY */}
-      {/* ================================================== */}
+      {/* FINANCIAL SUMMARY */}
 
       <div>
         <div className="flex items-center justify-between mb-3">
@@ -1277,55 +1124,52 @@ export default function Expenses() {
             <h2 className="text-xl font-semibold text-gray-900">
               Financial Summary
             </h2>
-
             <p className="text-sm text-gray-500">
               Server-side totals across all matching active expenses.
             </p>
           </div>
-
           {reportLoading && (
             <span className="text-sm text-gray-500">Updating report...</span>
           )}
         </div>
 
         <div className="grid grid-cols-1 sm:grid-cols-2 xl:grid-cols-4 gap-4">
-          <div className="bg-white rounded-xl border border-gray-200 shadow-sm p-5">
-            <p className="text-sm text-gray-500">Total Expenses</p>
-
-            <p className="text-2xl font-bold text-gray-900 mt-1">
-              {formatNumber(expenseReport.summary.totalExpenses)}
-            </p>
-          </div>
-
-          <div className="bg-white rounded-xl border border-gray-200 shadow-sm p-5">
-            <p className="text-sm text-gray-500">Total Amount</p>
-
-            <p className="text-2xl font-bold text-green-700 mt-1">
-              {formatCurrency(expenseReport.summary.totalAmount)}
-            </p>
-          </div>
-
-          <div className="bg-white rounded-xl border border-gray-200 shadow-sm p-5">
-            <p className="text-sm text-gray-500">Average Expense</p>
-
-            <p className="text-2xl font-bold text-gray-900 mt-1">
-              {formatCurrency(expenseReport.summary.averageExpense)}
-            </p>
-          </div>
-
-          <div className="bg-white rounded-xl border border-gray-200 shadow-sm p-5">
-            <p className="text-sm text-gray-500">Largest Expense</p>
-
-            <p className="text-2xl font-bold text-red-700 mt-1">
-              {formatCurrency(expenseReport.summary.largestExpense)}
-            </p>
-          </div>
+          {[
+            {
+              label: "Total Expenses",
+              value: formatNumber(expenseReport.summary.totalExpenses),
+              className: "text-gray-900",
+            },
+            {
+              label: "Total Amount",
+              value: formatCurrency(expenseReport.summary.totalAmount),
+              className: "text-green-700",
+            },
+            {
+              label: "Average Expense",
+              value: formatCurrency(expenseReport.summary.averageExpense),
+              className: "text-gray-900",
+            },
+            {
+              label: "Largest Expense",
+              value: formatCurrency(expenseReport.summary.largestExpense),
+              className: "text-red-700",
+            },
+          ].map((item) => (
+            <div
+              key={item.label}
+              className="bg-white rounded-xl border border-gray-200 shadow-sm p-5"
+            >
+              <p className="text-sm text-gray-500">{item.label}</p>
+              <p className={`text-2xl font-bold mt-1 ${item.className}`}>
+                {item.value}
+              </p>
+            </div>
+          ))}
         </div>
       </div>
 
-      {/* ================================================== */}
       {/* FILTERS */}
-      {/* ================================================== */}
 
       <div className="bg-white rounded-xl shadow-sm border border-gray-200 p-5">
         <div className="flex flex-col md:flex-row md:items-center md:justify-between gap-3 mb-4">
@@ -1333,12 +1177,10 @@ export default function Expenses() {
             <h2 className="text-lg font-semibold text-gray-900">
               Expense Filters
             </h2>
-
             <p className="text-sm text-gray-500">
               Filters affect the expense table and financial reports.
             </p>
           </div>
-
           <button
             type="button"
             onClick={resetFilters}
@@ -1353,7 +1195,6 @@ export default function Expenses() {
             <label className="block text-sm font-medium text-gray-700 mb-1">
               Search
             </label>
-
             <input
               type="text"
               name="search"
@@ -1368,7 +1209,6 @@ export default function Expenses() {
             <label className="block text-sm font-medium text-gray-700 mb-1">
               Category
             </label>
-
             <select
               name="category"
               value={filters.category}
@@ -1376,8 +1216,7 @@ export default function Expenses() {
               className="w-full rounded-lg border border-gray-300 px-3 py-2 bg-white"
             >
               <option value="All">All Categories</option>
-
-              {CATEGORIES.map((category) => (
+              {EXPENSE_CATEGORIES.map((category) => (
                 <option key={category} value={category}>
                   {category}
                 </option>
@@ -1389,7 +1228,6 @@ export default function Expenses() {
             <label className="block text-sm font-medium text-gray-700 mb-1">
               Payment
             </label>
-
             <select
               name="paymentMethod"
               value={filters.paymentMethod}
@@ -1397,7 +1235,6 @@ export default function Expenses() {
               className="w-full rounded-lg border border-gray-300 px-3 py-2 bg-white"
             >
               <option value="All">All Payments</option>
-
               {PAYMENT_METHODS.map((method) => (
                 <option key={method} value={method}>
                   {method}
@@ -1410,7 +1247,6 @@ export default function Expenses() {
             <label className="block text-sm font-medium text-gray-700 mb-1">
               From
             </label>
-
             <input
               type="date"
               name="startDate"
@@ -1424,7 +1260,6 @@ export default function Expenses() {
             <label className="block text-sm font-medium text-gray-700 mb-1">
               To
             </label>
-
             <input
               type="date"
               name="endDate"
@@ -1436,9 +1271,7 @@ export default function Expenses() {
         </div>
       </div>
 
-      {/* ================================================== */}
-      {/* JANUARY - DECEMBER EXPENDITURE CHART */}
-      {/* ================================================== */}
+      {/* MONTHLY CHART */}
 
       <div className="bg-white rounded-xl shadow-sm border border-gray-200 p-5">
         <div className="flex flex-col md:flex-row md:items-center md:justify-between gap-3 mb-5">
@@ -1446,17 +1279,14 @@ export default function Expenses() {
             <h2 className="text-xl font-semibold text-gray-900">
               January–December Expenditure
             </h2>
-
             <p className="text-sm text-gray-500 mt-1">
               Monthly expenditure for{" "}
               <span className="font-medium text-gray-700">{chartYear}</span>.
               Months with no expenditure are shown as ₦0.
             </p>
           </div>
-
           <div className="text-right">
             <p className="text-xs text-gray-500">Chart Total</p>
-
             <p className="text-xl font-bold text-green-700">
               {formatCurrency(chartTotal)}
             </p>
@@ -1480,34 +1310,19 @@ export default function Expenses() {
                 }}
               >
                 <CartesianGrid strokeDasharray="3 3" />
-
-                <XAxis
-                  dataKey="monthShort"
-                  tick={{
-                    fontSize: 12,
-                  }}
-                />
-
+                <XAxis dataKey="monthShort" tick={{ fontSize: 12 }} />
                 <YAxis
-                  tickFormatter={(value) => {
-                    const amount = Number(value || 0);
-
-                    return `₦${amount.toLocaleString("en-NG", {
+                  tickFormatter={(value) =>
+                    `₦${Number(value || 0).toLocaleString("en-NG", {
                       notation: "compact",
                       maximumFractionDigits: 1,
-                    })}`;
-                  }}
+                    })}`
+                  }
                 />
-
                 <Tooltip
-                  formatter={(value) => {
-                    return [formatCurrency(value), "Expenditure"];
-                  }}
-                  labelFormatter={(label) => {
-                    return `${label} ${chartYear}`;
-                  }}
+                  formatter={(value) => [formatCurrency(value), "Expenditure"]}
+                  labelFormatter={(label) => `${label} ${chartYear}`}
                 />
-
                 <Bar
                   dataKey="totalAmount"
                   name="Expenditure"
@@ -1519,7 +1334,6 @@ export default function Expenses() {
           </div>
         )}
 
-        {/* 12 MONTH VALUES */}
         <div className="mt-4 grid grid-cols-2 sm:grid-cols-4 lg:grid-cols-6 xl:grid-cols-12 gap-2">
           {monthlyChartData.map((item) => (
             <div
@@ -1527,7 +1341,6 @@ export default function Expenses() {
               className="rounded-lg bg-gray-50 border border-gray-100 p-2 text-center"
             >
               <p className="text-xs text-gray-500">{item.monthShort}</p>
-
               <p className="text-xs font-semibold text-gray-800 mt-1">
                 {formatCurrency(item.totalAmount)}
               </p>
@@ -1536,16 +1349,13 @@ export default function Expenses() {
         </div>
       </div>
 
-      {/* ================================================== */}
-      {/* DAILY / MONTHLY / YEARLY REPORTS */}
-      {/* ================================================== */}
+      {/* DAILY / MONTHLY / YEARLY TRENDS */}
 
       <div>
         <div className="mb-4">
           <h2 className="text-xl font-semibold text-gray-900">
             Expense Trends
           </h2>
-
           <p className="text-sm text-gray-500">
             Daily, monthly and yearly expense totals from the complete
             server-side report.
@@ -1553,294 +1363,157 @@ export default function Expenses() {
         </div>
 
         <div className="grid grid-cols-1 xl:grid-cols-3 gap-6">
-          {/* DAILY */}
-
-          <div className="bg-white rounded-xl shadow-sm border border-gray-200 p-5">
-            <div className="flex items-center justify-between mb-4">
-              <div>
-                <h3 className="text-lg font-semibold text-gray-900">
-                  Daily Expenses
-                </h3>
-
-                <p className="text-sm text-gray-500">By day</p>
+          {[
+            {
+              title: "Daily Expenses",
+              subtitle: "By day",
+              data: expenseReport.dailyTrend,
+              key: (item, index) => item.date || index,
+              firstHeader: "Date",
+              firstValue: (item) => formatDate(item.date),
+            },
+            {
+              title: "Monthly Expenses",
+              subtitle: "By month",
+              data: expenseReport.monthlyTrend,
+              key: (item, index) =>
+                item.label || `${item.year}-${item.month}-${index}`,
+              firstHeader: "Month",
+              firstValue: (item) => item.label || `${item.year}-${item.month}`,
+            },
+            {
+              title: "Yearly Expenses",
+              subtitle: "By year",
+              data: expenseReport.yearlyTrend,
+              key: (item) => item.year,
+              firstHeader: "Year",
+              firstValue: (item) => item.year,
+            },
+          ].map((section) => (
+            <div
+              key={section.title}
+              className="bg-white rounded-xl shadow-sm border border-gray-200 p-5"
+            >
+              <div className="flex items-center justify-between mb-4">
+                <div>
+                  <h3 className="text-lg font-semibold text-gray-900">
+                    {section.title}
+                  </h3>
+                  <p className="text-sm text-gray-500">{section.subtitle}</p>
+                </div>
+                {reportLoading && (
+                  <span className="text-xs text-gray-500">Loading...</span>
+                )}
               </div>
 
-              {reportLoading && (
-                <span className="text-xs text-gray-500">Loading...</span>
+              {section.data.length === 0 ? (
+                <div className="py-10 text-center text-gray-500 text-sm">
+                  No {section.title.toLowerCase()} data available.
+                </div>
+              ) : (
+                <div className="overflow-x-auto max-h-96">
+                  <table className="min-w-full text-sm">
+                    <thead className="sticky top-0 bg-white">
+                      <tr className="border-b border-gray-200">
+                        <th className="text-left py-2 px-2">
+                          {section.firstHeader}
+                        </th>
+                        <th className="text-right py-2 px-2">Count</th>
+                        <th className="text-right py-2 px-2">Total</th>
+                      </tr>
+                    </thead>
+                    <tbody>
+                      {section.data.map((item, index) => (
+                        <tr
+                          key={section.key(item, index)}
+                          className="border-b border-gray-100"
+                        >
+                          <td className="py-2 px-2 whitespace-nowrap">
+                            {section.firstValue(item)}
+                          </td>
+                          <td className="py-2 px-2 text-right">
+                            {formatNumber(item.count)}
+                          </td>
+                          <td className="py-2 px-2 text-right font-medium whitespace-nowrap">
+                            {formatCurrency(item.totalAmount)}
+                          </td>
+                        </tr>
+                      ))}
+                    </tbody>
+                  </table>
+                </div>
               )}
             </div>
-
-            {expenseReport.dailyTrend.length === 0 ? (
-              <div className="py-10 text-center text-gray-500 text-sm">
-                No daily expense data available.
-              </div>
-            ) : (
-              <div className="overflow-x-auto max-h-96">
-                <table className="min-w-full text-sm">
-                  <thead className="sticky top-0 bg-white">
-                    <tr className="border-b border-gray-200">
-                      <th className="text-left py-2 px-2">Date</th>
-
-                      <th className="text-right py-2 px-2">Count</th>
-
-                      <th className="text-right py-2 px-2">Total</th>
-                    </tr>
-                  </thead>
-
-                  <tbody>
-                    {expenseReport.dailyTrend.map((item) => (
-                      <tr key={item.date} className="border-b border-gray-100">
-                        <td className="py-2 px-2 whitespace-nowrap">
-                          {formatDate(item.date)}
-                        </td>
-
-                        <td className="py-2 px-2 text-right">
-                          {formatNumber(item.count)}
-                        </td>
-
-                        <td className="py-2 px-2 text-right font-medium whitespace-nowrap">
-                          {formatCurrency(item.totalAmount)}
-                        </td>
-                      </tr>
-                    ))}
-                  </tbody>
-                </table>
-              </div>
-            )}
-          </div>
-
-          {/* MONTHLY */}
-
-          <div className="bg-white rounded-xl shadow-sm border border-gray-200 p-5">
-            <div className="flex items-center justify-between mb-4">
-              <div>
-                <h3 className="text-lg font-semibold text-gray-900">
-                  Monthly Expenses
-                </h3>
-
-                <p className="text-sm text-gray-500">By month</p>
-              </div>
-
-              {reportLoading && (
-                <span className="text-xs text-gray-500">Loading...</span>
-              )}
-            </div>
-
-            {expenseReport.monthlyTrend.length === 0 ? (
-              <div className="py-10 text-center text-gray-500 text-sm">
-                No monthly expense data available.
-              </div>
-            ) : (
-              <div className="overflow-x-auto max-h-96">
-                <table className="min-w-full text-sm">
-                  <thead className="sticky top-0 bg-white">
-                    <tr className="border-b border-gray-200">
-                      <th className="text-left py-2 px-2">Month</th>
-
-                      <th className="text-right py-2 px-2">Count</th>
-
-                      <th className="text-right py-2 px-2">Total</th>
-                    </tr>
-                  </thead>
-
-                  <tbody>
-                    {expenseReport.monthlyTrend.map((item, index) => (
-                      <tr
-                        key={
-                          item.label || `${item.year}-${item.month}-${index}`
-                        }
-                        className="border-b border-gray-100"
-                      >
-                        <td className="py-2 px-2 whitespace-nowrap">
-                          {item.label || `${item.year}-${item.month}`}
-                        </td>
-
-                        <td className="py-2 px-2 text-right">
-                          {formatNumber(item.count)}
-                        </td>
-
-                        <td className="py-2 px-2 text-right font-medium whitespace-nowrap">
-                          {formatCurrency(item.totalAmount)}
-                        </td>
-                      </tr>
-                    ))}
-                  </tbody>
-                </table>
-              </div>
-            )}
-          </div>
-
-          {/* YEARLY */}
-
-          <div className="bg-white rounded-xl shadow-sm border border-gray-200 p-5">
-            <div className="flex items-center justify-between mb-4">
-              <div>
-                <h3 className="text-lg font-semibold text-gray-900">
-                  Yearly Expenses
-                </h3>
-
-                <p className="text-sm text-gray-500">By year</p>
-              </div>
-
-              {reportLoading && (
-                <span className="text-xs text-gray-500">Loading...</span>
-              )}
-            </div>
-
-            {expenseReport.yearlyTrend.length === 0 ? (
-              <div className="py-10 text-center text-gray-500 text-sm">
-                No yearly expense data available.
-              </div>
-            ) : (
-              <div className="overflow-x-auto max-h-96">
-                <table className="min-w-full text-sm">
-                  <thead className="sticky top-0 bg-white">
-                    <tr className="border-b border-gray-200">
-                      <th className="text-left py-2 px-2">Year</th>
-
-                      <th className="text-right py-2 px-2">Count</th>
-
-                      <th className="text-right py-2 px-2">Total</th>
-                    </tr>
-                  </thead>
-
-                  <tbody>
-                    {expenseReport.yearlyTrend.map((item) => (
-                      <tr key={item.year} className="border-b border-gray-100">
-                        <td className="py-2 px-2">{item.year}</td>
-
-                        <td className="py-2 px-2 text-right">
-                          {formatNumber(item.count)}
-                        </td>
-
-                        <td className="py-2 px-2 text-right font-medium whitespace-nowrap">
-                          {formatCurrency(item.totalAmount)}
-                        </td>
-                      </tr>
-                    ))}
-                  </tbody>
-                </table>
-              </div>
-            )}
-          </div>
+          ))}
         </div>
       </div>
 
-      {/* ================================================== */}
       {/* CATEGORY / PAYMENT BREAKDOWN */}
-      {/* ================================================== */}
 
       <div className="grid grid-cols-1 lg:grid-cols-2 gap-6">
-        {/* CATEGORY */}
+        {[
+          {
+            title: "Expense by Category",
+            subtitle: "Total active expenses by category.",
+            data: expenseReport.categoryBreakdown,
+            key: (item) => item.category || item._id,
+            label: (item) => item.category || item._id || "Other",
+          },
+          {
+            title: "Expense by Payment Method",
+            subtitle: "Total active expenses by payment method.",
+            data: expenseReport.paymentMethodBreakdown,
+            key: (item) => item.paymentMethod || item._id,
+            label: (item) => item.paymentMethod || item._id || "Unknown",
+          },
+        ].map((section) => (
+          <div
+            key={section.title}
+            className="bg-white rounded-xl shadow-sm border border-gray-200 p-5"
+          >
+            <h3 className="text-lg font-semibold text-gray-900">
+              {section.title}
+            </h3>
+            <p className="text-sm text-gray-500 mb-4">{section.subtitle}</p>
 
-        <div className="bg-white rounded-xl shadow-sm border border-gray-200 p-5">
-          <h3 className="text-lg font-semibold text-gray-900">
-            Expense by Category
-          </h3>
-
-          <p className="text-sm text-gray-500 mb-4">
-            Total active expenses by category.
-          </p>
-
-          {expenseReport.categoryBreakdown.length === 0 ? (
-            <div className="py-10 text-center text-gray-500 text-sm">
-              No category data available.
-            </div>
-          ) : (
-            <div className="overflow-x-auto">
-              <table className="min-w-full text-sm">
-                <thead>
-                  <tr className="border-b border-gray-200">
-                    <th className="text-left py-2 px-2">Category</th>
-
-                    <th className="text-right py-2 px-2">Count</th>
-
-                    <th className="text-right py-2 px-2">Total</th>
-                  </tr>
-                </thead>
-
-                <tbody>
-                  {expenseReport.categoryBreakdown.map((item) => (
-                    <tr
-                      key={item.category || item._id}
-                      className="border-b border-gray-100"
-                    >
-                      <td className="py-2 px-2">
-                        {item.category || item._id || "Other"}
-                      </td>
-
-                      <td className="py-2 px-2 text-right">
-                        {formatNumber(item.count)}
-                      </td>
-
-                      <td className="py-2 px-2 text-right font-medium">
-                        {formatCurrency(item.totalAmount)}
-                      </td>
+            {section.data.length === 0 ? (
+              <div className="py-10 text-center text-gray-500 text-sm">
+                No data available.
+              </div>
+            ) : (
+              <div className="overflow-x-auto">
+                <table className="min-w-full text-sm">
+                  <thead>
+                    <tr className="border-b border-gray-200">
+                      <th className="text-left py-2 px-2">Category / Method</th>
+                      <th className="text-right py-2 px-2">Count</th>
+                      <th className="text-right py-2 px-2">Total</th>
                     </tr>
-                  ))}
-                </tbody>
-              </table>
-            </div>
-          )}
-        </div>
-
-        {/* PAYMENT */}
-
-        <div className="bg-white rounded-xl shadow-sm border border-gray-200 p-5">
-          <h3 className="text-lg font-semibold text-gray-900">
-            Expense by Payment Method
-          </h3>
-
-          <p className="text-sm text-gray-500 mb-4">
-            Total active expenses by payment method.
-          </p>
-
-          {expenseReport.paymentMethodBreakdown.length === 0 ? (
-            <div className="py-10 text-center text-gray-500 text-sm">
-              No payment data available.
-            </div>
-          ) : (
-            <div className="overflow-x-auto">
-              <table className="min-w-full text-sm">
-                <thead>
-                  <tr className="border-b border-gray-200">
-                    <th className="text-left py-2 px-2">Payment Method</th>
-
-                    <th className="text-right py-2 px-2">Count</th>
-
-                    <th className="text-right py-2 px-2">Total</th>
-                  </tr>
-                </thead>
-
-                <tbody>
-                  {expenseReport.paymentMethodBreakdown.map((item) => (
-                    <tr
-                      key={item.paymentMethod || item._id}
-                      className="border-b border-gray-100"
-                    >
-                      <td className="py-2 px-2">
-                        {item.paymentMethod || item._id || "Unknown"}
-                      </td>
-
-                      <td className="py-2 px-2 text-right">
-                        {formatNumber(item.count)}
-                      </td>
-
-                      <td className="py-2 px-2 text-right font-medium">
-                        {formatCurrency(item.totalAmount)}
-                      </td>
-                    </tr>
-                  ))}
-                </tbody>
-              </table>
-            </div>
-          )}
-        </div>
+                  </thead>
+                  <tbody>
+                    {section.data.map((item) => (
+                      <tr
+                        key={section.key(item)}
+                        className="border-b border-gray-100"
+                      >
+                        <td className="py-2 px-2">{section.label(item)}</td>
+                        <td className="py-2 px-2 text-right">
+                          {formatNumber(item.count)}
+                        </td>
+                        <td className="py-2 px-2 text-right font-medium">
+                          {formatCurrency(item.totalAmount)}
+                        </td>
+                      </tr>
+                    ))}
+                  </tbody>
+                </table>
+              </div>
+            )}
+          </div>
+        ))}
       </div>
 
-      {/* ================================================== */}
-      {/* ACTIVE / DELETED TABS */}
-      {/* ================================================== */}
+      {/* ACTIVE / DELETED EXPENSE TABS */}
 
       <div className="bg-white rounded-xl shadow-sm border border-gray-200 overflow-hidden">
         <div className="border-b border-gray-200 px-5 pt-5">
@@ -1856,7 +1529,6 @@ export default function Expenses() {
             >
               Active Expenses
             </button>
-
             <button
               type="button"
               onClick={() => setActiveTab("deleted")}
@@ -1871,9 +1543,7 @@ export default function Expenses() {
           </div>
         </div>
 
-        {/* ================================================== */}
-        {/* ACTIVE TABLE */}
-        {/* ================================================== */}
+        {/* ACTIVE EXPENSES */}
 
         {activeTab === "active" && (
           <div className="p-5">
@@ -1882,13 +1552,11 @@ export default function Expenses() {
                 <h2 className="text-lg font-semibold text-gray-900">
                   Expense Records
                 </h2>
-
                 <p className="text-sm text-gray-500">
                   Showing {expenses.length} of{" "}
                   {formatNumber(pagination.totalRecords)} matching records.
                 </p>
               </div>
-
               <button
                 type="button"
                 onClick={() => {
@@ -1909,7 +1577,6 @@ export default function Expenses() {
             ) : expenses.length === 0 ? (
               <div className="py-16 text-center">
                 <p className="text-gray-500">No expenses found.</p>
-
                 <button
                   type="button"
                   onClick={resetFilters}
@@ -1925,29 +1592,18 @@ export default function Expenses() {
                     <thead>
                       <tr className="bg-gray-50 border-b border-gray-200">
                         <th className="text-left px-3 py-3">Reference</th>
-
                         <th className="text-left px-3 py-3">Date</th>
-
                         <th className="text-left px-3 py-3">Category</th>
-
                         <th className="text-left px-3 py-3">Description</th>
-
                         <th className="text-right px-3 py-3">Qty</th>
-
                         <th className="text-right px-3 py-3">Unit Cost</th>
-
                         <th className="text-right px-3 py-3">Amount</th>
-
                         <th className="text-left px-3 py-3">Supplier</th>
-
                         <th className="text-left px-3 py-3">Payment</th>
-
                         <th className="text-left px-3 py-3">Created By</th>
-
                         <th className="text-right px-3 py-3">Actions</th>
                       </tr>
                     </thead>
-
                     <tbody>
                       {expenses.map((expense) => {
                         const id = getExpenseId(expense);
@@ -1960,51 +1616,40 @@ export default function Expenses() {
                             <td className="px-3 py-3 font-medium text-green-700 whitespace-nowrap">
                               {expense?.expenseNumber || "—"}
                             </td>
-
                             <td className="px-3 py-3 whitespace-nowrap">
                               {formatDate(expense?.date)}
                             </td>
-
                             <td className="px-3 py-3">
                               {expense?.category || "—"}
                             </td>
-
                             <td className="px-3 py-3 min-w-[220px]">
                               <div className="font-medium text-gray-900">
                                 {expense?.description || "—"}
                               </div>
-
                               {expense?.remarks && (
                                 <div className="text-xs text-gray-500 mt-1">
                                   {expense.remarks}
                                 </div>
                               )}
                             </td>
-
                             <td className="px-3 py-3 text-right">
                               {formatNumber(expense?.quantity)}
                             </td>
-
                             <td className="px-3 py-3 text-right whitespace-nowrap">
                               {formatCurrency(expense?.unitCost)}
                             </td>
-
                             <td className="px-3 py-3 text-right font-semibold whitespace-nowrap">
                               {formatCurrency(expense?.amount)}
                             </td>
-
                             <td className="px-3 py-3">
                               {expense?.supplier || "—"}
                             </td>
-
                             <td className="px-3 py-3">
                               {expense?.paymentMethod || "—"}
                             </td>
-
                             <td className="px-3 py-3 whitespace-nowrap">
                               {getCreatedByName(expense)}
                             </td>
-
                             <td className="px-3 py-3">
                               <div className="flex justify-end gap-2">
                                 <button
@@ -2014,7 +1659,6 @@ export default function Expenses() {
                                 >
                                   View
                                 </button>
-
                                 <button
                                   type="button"
                                   onClick={() => handleEdit(expense)}
@@ -2022,7 +1666,6 @@ export default function Expenses() {
                                 >
                                   Edit
                                 </button>
-
                                 <button
                                   type="button"
                                   onClick={() => handleDelete(expense)}
@@ -2094,9 +1737,7 @@ export default function Expenses() {
           </div>
         )}
 
-        {/* ================================================== */}
-        {/* DELETED TABLE */}
-        {/* ================================================== */}
+        {/* DELETED EXPENSES */}
 
         {activeTab === "deleted" && (
           <div className="p-5">
@@ -2105,12 +1746,10 @@ export default function Expenses() {
                 <h2 className="text-lg font-semibold text-gray-900">
                   Deleted Expenses
                 </h2>
-
                 <p className="text-sm text-gray-500">
                   Deleted records remain available for audit and restoration.
                 </p>
               </div>
-
               <button
                 type="button"
                 onClick={loadDeletedExpenses}
@@ -2135,23 +1774,15 @@ export default function Expenses() {
                   <thead>
                     <tr className="bg-gray-50 border-b border-gray-200">
                       <th className="text-left px-3 py-3">Reference</th>
-
                       <th className="text-left px-3 py-3">Date</th>
-
                       <th className="text-left px-3 py-3">Category</th>
-
                       <th className="text-left px-3 py-3">Description</th>
-
                       <th className="text-right px-3 py-3">Amount</th>
-
                       <th className="text-left px-3 py-3">Deleted By</th>
-
                       <th className="text-left px-3 py-3">Deleted At</th>
-
                       <th className="text-right px-3 py-3">Actions</th>
                     </tr>
                   </thead>
-
                   <tbody>
                     {deletedExpenses.map((expense) => {
                       const id = getExpenseId(expense);
@@ -2164,31 +1795,24 @@ export default function Expenses() {
                           <td className="px-3 py-3 font-medium text-gray-700 whitespace-nowrap">
                             {expense?.expenseNumber || "—"}
                           </td>
-
                           <td className="px-3 py-3 whitespace-nowrap">
                             {formatDate(expense?.date)}
                           </td>
-
                           <td className="px-3 py-3">
                             {expense?.category || "—"}
                           </td>
-
                           <td className="px-3 py-3 min-w-[220px]">
                             {expense?.description || "—"}
                           </td>
-
                           <td className="px-3 py-3 text-right font-semibold whitespace-nowrap">
                             {formatCurrency(expense?.amount)}
                           </td>
-
                           <td className="px-3 py-3 whitespace-nowrap">
                             {getDeletedByName(expense)}
                           </td>
-
                           <td className="px-3 py-3 whitespace-nowrap">
                             {formatDateTime(expense?.deletedAt)}
                           </td>
-
                           <td className="px-3 py-3">
                             <div className="flex justify-end gap-2">
                               <button
@@ -2198,7 +1822,6 @@ export default function Expenses() {
                               >
                                 View
                               </button>
-
                               <button
                                 type="button"
                                 onClick={() => handleRestore(expense)}
@@ -2220,9 +1843,7 @@ export default function Expenses() {
         )}
       </div>
 
-      {/* ================================================== */}
-      {/* DETAILS MODAL */}
-      {/* ================================================== */}
+      {/* EXPENSE DETAILS MODAL */}
 
       {selectedExpense && (
         <div
@@ -2239,12 +1860,10 @@ export default function Expenses() {
                 <h2 className="text-xl font-semibold text-gray-900">
                   Expense Details
                 </h2>
-
                 <p className="text-sm text-gray-500">
                   {selectedExpense.expenseNumber || "Expense Record"}
                 </p>
               </div>
-
               <button
                 type="button"
                 onClick={() => setSelectedExpense(null)}
@@ -2255,49 +1874,37 @@ export default function Expenses() {
             </div>
 
             <div className="p-5 space-y-6">
-              {/* EXPENSE INFORMATION */}
-
               <div>
                 <h3 className="font-semibold text-gray-900 mb-3">
                   Expense Information
                 </h3>
-
                 <div className="grid grid-cols-1 sm:grid-cols-2 gap-4">
                   <div>
                     <p className="text-xs text-gray-500">Expense Number</p>
-
                     <p className="font-medium">
                       {selectedExpense.expenseNumber || "—"}
                     </p>
                   </div>
-
                   <div>
                     <p className="text-xs text-gray-500">Date</p>
-
                     <p className="font-medium">
                       {formatDate(selectedExpense.date)}
                     </p>
                   </div>
-
                   <div>
                     <p className="text-xs text-gray-500">Category</p>
-
                     <p className="font-medium">
                       {selectedExpense.category || "—"}
                     </p>
                   </div>
-
                   <div>
                     <p className="text-xs text-gray-500">Payment Method</p>
-
                     <p className="font-medium">
                       {selectedExpense.paymentMethod || "—"}
                     </p>
                   </div>
-
                   <div className="sm:col-span-2">
                     <p className="text-xs text-gray-500">Description</p>
-
                     <p className="font-medium">
                       {selectedExpense.description || "—"}
                     </p>
@@ -2305,33 +1912,25 @@ export default function Expenses() {
                 </div>
               </div>
 
-              {/* FINANCIAL INFORMATION */}
-
               <div>
                 <h3 className="font-semibold text-gray-900 mb-3">
                   Financial Information
                 </h3>
-
                 <div className="grid grid-cols-1 sm:grid-cols-3 gap-4">
                   <div className="bg-gray-50 rounded-lg p-3">
                     <p className="text-xs text-gray-500">Quantity</p>
-
                     <p className="font-semibold">
                       {formatNumber(selectedExpense.quantity)}
                     </p>
                   </div>
-
                   <div className="bg-gray-50 rounded-lg p-3">
                     <p className="text-xs text-gray-500">Unit Cost</p>
-
                     <p className="font-semibold">
                       {formatCurrency(selectedExpense.unitCost)}
                     </p>
                   </div>
-
                   <div className="bg-green-50 rounded-lg p-3">
                     <p className="text-xs text-gray-500">Total Amount</p>
-
                     <p className="font-bold text-green-700">
                       {formatCurrency(selectedExpense.amount)}
                     </p>
@@ -2339,41 +1938,33 @@ export default function Expenses() {
                 </div>
               </div>
 
-              {/* SUPPLIER */}
-
               <div>
-                <h3 className="font-semibold text-gray-900 mb-3">Supplier</h3>
-
+                <h3 className="font-semibold text-gray-900 mb-3">
+                  Supplier / Recipient
+                </h3>
                 <p className="text-gray-700">
-                  {selectedExpense.supplier || "No supplier recorded."}
+                  {selectedExpense.supplier ||
+                    "No supplier or recipient recorded."}
                 </p>
               </div>
 
-              {/* REMARKS */}
-
               <div>
                 <h3 className="font-semibold text-gray-900 mb-3">Remarks</h3>
-
                 <p className="text-gray-700 whitespace-pre-wrap">
                   {selectedExpense.remarks || "No remarks recorded."}
                 </p>
               </div>
 
-              {/* AUDIT */}
-
               <div>
                 <h3 className="font-semibold text-gray-900 mb-3">
                   Audit Trail
                 </h3>
-
                 <div className="space-y-3">
                   <div className="border-l-2 border-green-500 pl-3">
                     <p className="text-sm font-medium text-gray-900">Created</p>
-
                     <p className="text-sm text-gray-600">
                       {getCreatedByName(selectedExpense)}
                     </p>
-
                     <p className="text-xs text-gray-500">
                       {formatDateTime(selectedExpense.createdAt)}
                     </p>
@@ -2385,11 +1976,9 @@ export default function Expenses() {
                         <p className="text-sm font-medium text-gray-900">
                           Last Updated
                         </p>
-
                         <p className="text-sm text-gray-600">
                           {getUpdatedByName(selectedExpense)}
                         </p>
-
                         <p className="text-xs text-gray-500">
                           {formatDateTime(selectedExpense.updatedAt)}
                         </p>
@@ -2401,11 +1990,9 @@ export default function Expenses() {
                       <p className="text-sm font-medium text-red-700">
                         Deleted
                       </p>
-
                       <p className="text-sm text-gray-600">
                         {getDeletedByName(selectedExpense)}
                       </p>
-
                       <p className="text-xs text-gray-500">
                         {formatDateTime(selectedExpense.deletedAt)}
                       </p>
@@ -2429,7 +2016,6 @@ export default function Expenses() {
                   type="button"
                   onClick={() => {
                     setSelectedExpense(null);
-
                     handleEdit(selectedExpense);
                   }}
                   className="px-4 py-2 rounded-lg bg-blue-600 text-white hover:bg-blue-700"
@@ -2443,7 +2029,6 @@ export default function Expenses() {
                   type="button"
                   onClick={() => {
                     setSelectedExpense(null);
-
                     handleRestore(selectedExpense);
                   }}
                   className="px-4 py-2 rounded-lg bg-green-600 text-white hover:bg-green-700"
