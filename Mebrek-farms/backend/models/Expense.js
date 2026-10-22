@@ -27,6 +27,7 @@ const expenseSchema = new mongoose.Schema(
         "Feed",
         "Drugs",
         "Labour",
+        "Salaries",
         "Fuel",
         "Repairs",
         "Utilities",

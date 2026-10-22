@@ -2,6 +2,24 @@ const Expense = require("../models/Expense");
 const Counter = require("../models/Counter");
 
 // ============================================================
+// CONSTANTS
+// ============================================================
+
+const ALLOWED_EXPENSE_CATEGORIES = [
+  "Feed",
+  "Drugs",
+  "Labour",
+  "Salaries",
+  "Fuel",
+  "Repairs",
+  "Utilities",
+  "Transport",
+  "Other",
+];
+
+const ALLOWED_PAYMENT_METHODS = ["Cash", "Transfer", "POS"];
+
+// ============================================================
 // HELPERS
 // ============================================================
 
@@ -25,18 +43,11 @@ const getAdminInfo = (req) => {
 
 const generateExpenseNumber = async () => {
   const year = new Date().getFullYear();
-
   const counterKey = `expense-${year}`;
 
   const counter = await Counter.findOneAndUpdate(
-    {
-      _id: counterKey,
-    },
-    {
-      $inc: {
-        seq: 1,
-      },
-    },
+    { _id: counterKey },
+    { $inc: { seq: 1 } },
     {
       new: true,
       upsert: true,
@@ -61,23 +72,7 @@ const validateExpenseData = ({
 }) => {
   const errors = [];
 
-  const allowedCategories = [
-    "Feed",
-    "Drugs",
-    "Labour",
-    "Fuel",
-    "Repairs",
-    "Utilities",
-    "Transport",
-    "Other",
-  ];
-
-  const allowedPaymentMethods = ["Cash", "Transfer", "POS"];
-
-  // ----------------------------------------------------------
   // DATE
-  // ----------------------------------------------------------
-
   if (!date) {
     errors.push("Expense date is required.");
   } else {
@@ -88,20 +83,14 @@ const validateExpenseData = ({
     }
   }
 
-  // ----------------------------------------------------------
   // CATEGORY
-  // ----------------------------------------------------------
-
   if (!category) {
     errors.push("Expense category is required.");
-  } else if (!allowedCategories.includes(category)) {
+  } else if (!ALLOWED_EXPENSE_CATEGORIES.includes(category)) {
     errors.push("Invalid expense category.");
   }
 
-  // ----------------------------------------------------------
   // DESCRIPTION
-  // ----------------------------------------------------------
-
   if (!description || !String(description).trim()) {
     errors.push("Expense description is required.");
   } else if (String(description).trim().length < 2) {
@@ -110,10 +99,7 @@ const validateExpenseData = ({
     errors.push("Expense description cannot exceed 500 characters.");
   }
 
-  // ----------------------------------------------------------
   // QUANTITY
-  // ----------------------------------------------------------
-
   const parsedQuantity = Number(quantity);
 
   if (!Number.isFinite(parsedQuantity)) {
@@ -122,10 +108,7 @@ const validateExpenseData = ({
     errors.push("Quantity cannot be negative.");
   }
 
-  // ----------------------------------------------------------
   // UNIT COST
-  // ----------------------------------------------------------
-
   const parsedUnitCost = Number(unitCost);
 
   if (!Number.isFinite(parsedUnitCost)) {
@@ -134,11 +117,8 @@ const validateExpenseData = ({
     errors.push("Unit cost cannot be negative.");
   }
 
-  // ----------------------------------------------------------
   // PAYMENT METHOD
-  // ----------------------------------------------------------
-
-  if (paymentMethod && !allowedPaymentMethods.includes(paymentMethod)) {
+  if (paymentMethod && !ALLOWED_PAYMENT_METHODS.includes(paymentMethod)) {
     errors.push("Invalid payment method.");
   }
 
@@ -150,9 +130,7 @@ const validateExpenseData = ({
 // ============================================================
 
 const applyDateFilter = (query, startDate, endDate) => {
-  if (!startDate && !endDate) {
-    return;
-  }
+  if (!startDate && !endDate) return;
 
   query.date = {};
 
@@ -182,9 +160,7 @@ const applyDateFilter = (query, startDate, endDate) => {
 // ============================================================
 
 const applySearchFilter = (query, search) => {
-  if (!search || !String(search).trim()) {
-    return;
-  }
+  if (!search || !String(search).trim()) return;
 
   const searchRegex = new RegExp(
     String(search)
@@ -194,27 +170,13 @@ const applySearchFilter = (query, search) => {
   );
 
   query.$or = [
-    {
-      expenseNumber: searchRegex,
-    },
-    {
-      description: searchRegex,
-    },
-    {
-      supplier: searchRegex,
-    },
-    {
-      category: searchRegex,
-    },
-    {
-      paymentMethod: searchRegex,
-    },
-    {
-      remarks: searchRegex,
-    },
-    {
-      createdByName: searchRegex,
-    },
+    { expenseNumber: searchRegex },
+    { description: searchRegex },
+    { supplier: searchRegex },
+    { category: searchRegex },
+    { paymentMethod: searchRegex },
+    { remarks: searchRegex },
+    { createdByName: searchRegex },
   ];
 };
 
@@ -235,10 +197,6 @@ exports.createExpense = async (req, res) => {
       remarks = "",
     } = req.body;
 
-    // --------------------------------------------------------
-    // VALIDATE
-    // --------------------------------------------------------
-
     const validationErrors = validateExpenseData({
       date,
       category,
@@ -257,52 +215,26 @@ exports.createExpense = async (req, res) => {
 
     const parsedQuantity = Number(quantity);
     const parsedUnitCost = Number(unitCost);
-
-    // --------------------------------------------------------
-    // SERVER-SIDE AMOUNT CALCULATION
-    // --------------------------------------------------------
-
     const amount = parsedQuantity * parsedUnitCost;
 
-    // --------------------------------------------------------
-    // ADMIN INFORMATION
-    // --------------------------------------------------------
-
     const { id: adminId, name: adminName } = getAdminInfo(req);
-
-    // --------------------------------------------------------
-    // ATOMIC EXPENSE NUMBER
-    // --------------------------------------------------------
-
     const expenseNumber = await generateExpenseNumber();
-
-    // --------------------------------------------------------
-    // CREATE
-    // --------------------------------------------------------
 
     const expense = await Expense.create({
       expenseNumber,
-
       date,
       category,
       description: String(description).trim(),
-
       quantity: parsedQuantity,
       unitCost: parsedUnitCost,
       amount,
-
       supplier: String(supplier || "").trim(),
-
       paymentMethod,
-
       remarks: String(remarks || "").trim(),
-
       createdBy: adminId,
       createdByName: adminName,
-
       updatedBy: null,
       updatedByName: "",
-
       isDeleted: false,
       deletedAt: null,
       deletedBy: null,
@@ -316,10 +248,6 @@ exports.createExpense = async (req, res) => {
   } catch (error) {
     console.error("CREATE EXPENSE ERROR:", error);
 
-    // --------------------------------------------------------
-    // DUPLICATE EXPENSE NUMBER
-    // --------------------------------------------------------
-
     if (error.code === 11000) {
       if (error.keyPattern?.expenseNumber) {
         return res.status(409).json({
@@ -331,10 +259,6 @@ exports.createExpense = async (req, res) => {
         message: "A duplicate expense record was detected.",
       });
     }
-
-    // --------------------------------------------------------
-    // MONGOOSE VALIDATION
-    // --------------------------------------------------------
 
     if (error.name === "ValidationError") {
       const errors = Object.values(error.errors).map((item) => item.message);
@@ -354,7 +278,7 @@ exports.createExpense = async (req, res) => {
 
 // ============================================================
 // GET ACTIVE EXPENSES
-// WITH SERVER-SIDE PAGINATION + FILTERING
+// SERVER-SIDE PAGINATION + FILTERING
 // ============================================================
 
 exports.getExpenses = async (req, res) => {
@@ -369,12 +293,7 @@ exports.getExpenses = async (req, res) => {
       endDate = "",
     } = req.query;
 
-    // --------------------------------------------------------
-    // PAGINATION
-    // --------------------------------------------------------
-
     let parsedPage = Number.parseInt(page, 10);
-
     let parsedLimit = Number.parseInt(limit, 10);
 
     if (!Number.isFinite(parsedPage) || parsedPage < 1) {
@@ -385,45 +304,15 @@ exports.getExpenses = async (req, res) => {
       parsedLimit = 10;
     }
 
-    // Prevent unnecessarily large requests.
-    if (parsedLimit > 100) {
-      parsedLimit = 100;
-    }
-
-    // --------------------------------------------------------
-    // BASE QUERY
-    // --------------------------------------------------------
+    if (parsedLimit > 100) parsedLimit = 100;
 
     const query = {
-      $or: [
-        {
-          isDeleted: false,
-        },
-        {
-          isDeleted: {
-            $exists: false,
-          },
-        },
-      ],
+      $or: [{ isDeleted: false }, { isDeleted: { $exists: false } }],
     };
 
-    // --------------------------------------------------------
-    // CATEGORY
-    // --------------------------------------------------------
-
-    const allowedCategories = [
-      "Feed",
-      "Drugs",
-      "Labour",
-      "Fuel",
-      "Repairs",
-      "Utilities",
-      "Transport",
-      "Other",
-    ];
-
+    // CATEGORY FILTER — INCLUDES SALARIES
     if (category && category !== "All") {
-      if (!allowedCategories.includes(category)) {
+      if (!ALLOWED_EXPENSE_CATEGORIES.includes(category)) {
         return res.status(400).json({
           message: "Invalid expense category.",
         });
@@ -432,14 +321,9 @@ exports.getExpenses = async (req, res) => {
       query.category = category;
     }
 
-    // --------------------------------------------------------
-    // PAYMENT METHOD
-    // --------------------------------------------------------
-
-    const allowedPaymentMethods = ["Cash", "Transfer", "POS"];
-
+    // PAYMENT METHOD FILTER
     if (paymentMethod && paymentMethod !== "All") {
-      if (!allowedPaymentMethods.includes(paymentMethod)) {
+      if (!ALLOWED_PAYMENT_METHODS.includes(paymentMethod)) {
         return res.status(400).json({
           message: "Invalid payment method.",
         });
@@ -448,40 +332,19 @@ exports.getExpenses = async (req, res) => {
       query.paymentMethod = paymentMethod;
     }
 
-    // --------------------------------------------------------
-    // SEARCH
-    // --------------------------------------------------------
-
     applySearchFilter(query, search);
-
-    // --------------------------------------------------------
-    // DATE RANGE
-    // --------------------------------------------------------
-
     applyDateFilter(query, startDate, endDate);
-
-    // --------------------------------------------------------
-    // TOTAL COUNT
-    // --------------------------------------------------------
 
     const totalRecords = await Expense.countDocuments(query);
 
     const totalPages =
       totalRecords === 0 ? 0 : Math.ceil(totalRecords / parsedLimit);
 
-    // --------------------------------------------------------
-    // KEEP REQUESTED PAGE IN RANGE
-    // --------------------------------------------------------
-
     if (totalPages > 0 && parsedPage > totalPages) {
       parsedPage = totalPages;
     }
 
     const skip = (parsedPage - 1) * parsedLimit;
-
-    // --------------------------------------------------------
-    // FETCH PAGE
-    // --------------------------------------------------------
 
     const expenses = await Expense.find(query)
       .populate("createdBy", "name email role")
@@ -497,18 +360,14 @@ exports.getExpenses = async (req, res) => {
 
     return res.status(200).json({
       expenses,
-
       pagination: {
         page: parsedPage,
         limit: parsedLimit,
         totalRecords,
         totalPages,
-
         hasNextPage: parsedPage < totalPages,
-
         hasPreviousPage: parsedPage > 1 && totalPages > 0,
       },
-
       filters: {
         search,
         category,
@@ -545,9 +404,7 @@ exports.getDeletedExpenses = async (req, res) => {
       })
       .lean();
 
-    return res.status(200).json({
-      expenses,
-    });
+    return res.status(200).json({ expenses });
   } catch (error) {
     console.error("GET DELETED EXPENSES ERROR:", error);
 
@@ -577,10 +434,6 @@ exports.updateExpense = async (req, res) => {
       remarks = "",
     } = req.body;
 
-    // --------------------------------------------------------
-    // VALIDATE
-    // --------------------------------------------------------
-
     const validationErrors = validateExpenseData({
       date,
       category,
@@ -599,32 +452,13 @@ exports.updateExpense = async (req, res) => {
 
     const parsedQuantity = Number(quantity);
     const parsedUnitCost = Number(unitCost);
-
     const amount = parsedQuantity * parsedUnitCost;
-
-    // --------------------------------------------------------
-    // ADMIN
-    // --------------------------------------------------------
 
     const { id: adminId, name: adminName } = getAdminInfo(req);
 
-    // --------------------------------------------------------
-    // ONLY ACTIVE EXPENSES CAN BE UPDATED
-    // --------------------------------------------------------
-
     const expense = await Expense.findOne({
       _id: id,
-
-      $or: [
-        {
-          isDeleted: false,
-        },
-        {
-          isDeleted: {
-            $exists: false,
-          },
-        },
-      ],
+      $or: [{ isDeleted: false }, { isDeleted: { $exists: false } }],
     });
 
     if (!expense) {
@@ -633,26 +467,15 @@ exports.updateExpense = async (req, res) => {
       });
     }
 
-    // --------------------------------------------------------
-    // UPDATE
-    // --------------------------------------------------------
-
     expense.date = date;
     expense.category = category;
     expense.description = String(description).trim();
-
     expense.quantity = parsedQuantity;
     expense.unitCost = parsedUnitCost;
-
-    // Never trust amount supplied by frontend.
     expense.amount = amount;
-
     expense.supplier = String(supplier || "").trim();
-
     expense.paymentMethod = paymentMethod;
-
     expense.remarks = String(remarks || "").trim();
-
     expense.updatedBy = adminId;
     expense.updatedByName = adminName;
 
@@ -699,22 +522,11 @@ exports.updateExpense = async (req, res) => {
 exports.deleteExpense = async (req, res) => {
   try {
     const { id } = req.params;
-
     const { id: adminId, name: adminName } = getAdminInfo(req);
 
     const expense = await Expense.findOne({
       _id: id,
-
-      $or: [
-        {
-          isDeleted: false,
-        },
-        {
-          isDeleted: {
-            $exists: false,
-          },
-        },
-      ],
+      $or: [{ isDeleted: false }, { isDeleted: { $exists: false } }],
     });
 
     if (!expense) {
@@ -723,16 +535,9 @@ exports.deleteExpense = async (req, res) => {
       });
     }
 
-    // --------------------------------------------------------
-    // SOFT DELETE
-    // --------------------------------------------------------
-
     expense.isDeleted = true;
-
     expense.deletedAt = new Date();
-
     expense.deletedBy = adminId;
-
     expense.deletedByName = adminName;
 
     await expense.save();
@@ -776,16 +581,9 @@ exports.restoreExpense = async (req, res) => {
       });
     }
 
-    // --------------------------------------------------------
-    // RESTORE
-    // --------------------------------------------------------
-
     expense.isDeleted = false;
-
     expense.deletedAt = null;
-
     expense.deletedBy = null;
-
     expense.deletedByName = "";
 
     await expense.save();
@@ -822,65 +620,35 @@ exports.restoreExpense = async (req, res) => {
 exports.getExpenseStats = async (req, res) => {
   try {
     const activeFilter = {
-      $or: [
-        {
-          isDeleted: false,
-        },
-        {
-          isDeleted: {
-            $exists: false,
-          },
-        },
-      ],
+      $or: [{ isDeleted: false }, { isDeleted: { $exists: false } }],
     };
 
     const stats = await Expense.aggregate([
-      {
-        $match: activeFilter,
-      },
-
+      { $match: activeFilter },
       {
         $facet: {
           overall: [
             {
               $group: {
                 _id: null,
-
-                totalExpenses: {
-                  $sum: 1,
-                },
-
+                totalExpenses: { $sum: 1 },
                 totalAmount: {
-                  $sum: {
-                    $ifNull: ["$amount", 0],
-                  },
+                  $sum: { $ifNull: ["$amount", 0] },
                 },
               },
             },
           ],
-
           categoryBreakdown: [
             {
               $group: {
                 _id: "$category",
-
-                count: {
-                  $sum: 1,
-                },
-
+                count: { $sum: 1 },
                 totalAmount: {
-                  $sum: {
-                    $ifNull: ["$amount", 0],
-                  },
+                  $sum: { $ifNull: ["$amount", 0] },
                 },
               },
             },
-
-            {
-              $sort: {
-                totalAmount: -1,
-              },
-            },
+            { $sort: { totalAmount: -1 } },
           ],
         },
       },
@@ -895,17 +663,13 @@ exports.getExpenseStats = async (req, res) => {
 
     const categoryBreakdown = (result.categoryBreakdown || []).map((item) => ({
       category: item._id || "Other",
-
       count: item.count || 0,
-
       totalAmount: item.totalAmount || 0,
     }));
 
     return res.status(200).json({
       totalExpenses: overall.totalExpenses || 0,
-
       totalAmount: overall.totalAmount || 0,
-
       categoryBreakdown,
     });
   } catch (error) {
@@ -926,27 +690,11 @@ exports.getExpenseReport = async (req, res) => {
   try {
     const { startDate, endDate, category, paymentMethod } = req.query;
 
-    // --------------------------------------------------------
-    // BASE FILTER
-    // --------------------------------------------------------
-
     const match = {
-      $or: [
-        {
-          isDeleted: false,
-        },
-        {
-          isDeleted: {
-            $exists: false,
-          },
-        },
-      ],
+      $or: [{ isDeleted: false }, { isDeleted: { $exists: false } }],
     };
 
-    // --------------------------------------------------------
     // DATE FILTER
-    // --------------------------------------------------------
-
     if (startDate || endDate) {
       match.date = {};
 
@@ -975,23 +723,9 @@ exports.getExpenseReport = async (req, res) => {
       }
     }
 
-    // --------------------------------------------------------
-    // CATEGORY
-    // --------------------------------------------------------
-
-    const allowedCategories = [
-      "Feed",
-      "Drugs",
-      "Labour",
-      "Fuel",
-      "Repairs",
-      "Utilities",
-      "Transport",
-      "Other",
-    ];
-
+    // CATEGORY FILTER — INCLUDES SALARIES
     if (category && category !== "All") {
-      if (!allowedCategories.includes(category)) {
+      if (!ALLOWED_EXPENSE_CATEGORIES.includes(category)) {
         return res.status(400).json({
           message: "Invalid expense category.",
         });
@@ -1000,14 +734,9 @@ exports.getExpenseReport = async (req, res) => {
       match.category = category;
     }
 
-    // --------------------------------------------------------
-    // PAYMENT METHOD
-    // --------------------------------------------------------
-
-    const allowedPaymentMethods = ["Cash", "Transfer", "POS"];
-
+    // PAYMENT METHOD FILTER
     if (paymentMethod && paymentMethod !== "All") {
-      if (!allowedPaymentMethods.includes(paymentMethod)) {
+      if (!ALLOWED_PAYMENT_METHODS.includes(paymentMethod)) {
         return res.status(400).json({
           message: "Invalid payment method.",
         });
@@ -1016,136 +745,68 @@ exports.getExpenseReport = async (req, res) => {
       match.paymentMethod = paymentMethod;
     }
 
-    // --------------------------------------------------------
     // AGGREGATION
-    // --------------------------------------------------------
-
     const report = await Expense.aggregate([
-      {
-        $match: match,
-      },
-
+      { $match: match },
       {
         $facet: {
-          // ------------------------------------------------
-          // SUMMARY
-          // ------------------------------------------------
-
           summary: [
             {
               $group: {
                 _id: null,
-
-                totalExpenses: {
-                  $sum: 1,
-                },
-
+                totalExpenses: { $sum: 1 },
                 totalAmount: {
-                  $sum: {
-                    $ifNull: ["$amount", 0],
-                  },
+                  $sum: { $ifNull: ["$amount", 0] },
                 },
-
                 averageExpense: {
-                  $avg: {
-                    $ifNull: ["$amount", 0],
-                  },
+                  $avg: { $ifNull: ["$amount", 0] },
                 },
-
                 largestExpense: {
-                  $max: {
-                    $ifNull: ["$amount", 0],
-                  },
+                  $max: { $ifNull: ["$amount", 0] },
                 },
               },
             },
           ],
-
-          // ------------------------------------------------
-          // CATEGORY
-          // ------------------------------------------------
 
           categoryBreakdown: [
             {
               $group: {
                 _id: "$category",
-
-                count: {
-                  $sum: 1,
-                },
-
+                count: { $sum: 1 },
                 totalAmount: {
-                  $sum: {
-                    $ifNull: ["$amount", 0],
-                  },
+                  $sum: { $ifNull: ["$amount", 0] },
                 },
               },
             },
-
-            {
-              $sort: {
-                totalAmount: -1,
-              },
-            },
+            { $sort: { totalAmount: -1 } },
           ],
-
-          // ------------------------------------------------
-          // PAYMENT METHOD
-          // ------------------------------------------------
 
           paymentMethodBreakdown: [
             {
               $group: {
                 _id: "$paymentMethod",
-
-                count: {
-                  $sum: 1,
-                },
-
+                count: { $sum: 1 },
                 totalAmount: {
-                  $sum: {
-                    $ifNull: ["$amount", 0],
-                  },
+                  $sum: { $ifNull: ["$amount", 0] },
                 },
               },
             },
-
-            {
-              $sort: {
-                totalAmount: -1,
-              },
-            },
+            { $sort: { totalAmount: -1 } },
           ],
-
-          // ------------------------------------------------
-          // MONTHLY TREND
-          // ------------------------------------------------
 
           monthlyTrend: [
             {
               $group: {
                 _id: {
-                  year: {
-                    $year: "$date",
-                  },
-
-                  month: {
-                    $month: "$date",
-                  },
+                  year: { $year: "$date" },
+                  month: { $month: "$date" },
                 },
-
                 totalAmount: {
-                  $sum: {
-                    $ifNull: ["$amount", 0],
-                  },
+                  $sum: { $ifNull: ["$amount", 0] },
                 },
-
-                count: {
-                  $sum: 1,
-                },
+                count: { $sum: 1 },
               },
             },
-
             {
               $sort: {
                 "_id.year": 1,
@@ -1168,57 +829,42 @@ exports.getExpenseReport = async (req, res) => {
 
     const categoryResults = (result.categoryBreakdown || []).map((item) => ({
       category: item._id || "Other",
-
       count: item.count || 0,
-
       totalAmount: item.totalAmount || 0,
     }));
 
     const paymentResults = (result.paymentMethodBreakdown || []).map(
       (item) => ({
         paymentMethod: item._id || "Cash",
-
         count: item.count || 0,
-
         totalAmount: item.totalAmount || 0,
       }),
     );
 
     const monthlyResults = (result.monthlyTrend || []).map((item) => ({
       year: item._id.year,
-
       month: item._id.month,
-
       count: item.count || 0,
-
       totalAmount: item.totalAmount || 0,
     }));
 
     return res.status(200).json({
       filters: {
         startDate: startDate || null,
-
         endDate: endDate || null,
-
         category: category || "All",
-
         paymentMethod: paymentMethod || "All",
       },
 
       summary: {
         totalExpenses: summary.totalExpenses || 0,
-
         totalAmount: summary.totalAmount || 0,
-
         averageExpense: summary.averageExpense || 0,
-
         largestExpense: summary.largestExpense || 0,
       },
 
       categoryBreakdown: categoryResults,
-
       paymentMethodBreakdown: paymentResults,
-
       monthlyTrend: monthlyResults,
     });
   } catch (error) {

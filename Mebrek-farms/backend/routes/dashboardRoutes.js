@@ -60,7 +60,6 @@ const FARM_TIME_ZONE = "Africa/Lagos";
 
 // ================= DATE HELPERS =================
 
-// Get the farm's calendar date, independent of the server timezone.
 const getFarmDateParts = (date = new Date()) => {
   const parts = new Intl.DateTimeFormat("en-CA", {
     timeZone: FARM_TIME_ZONE,
@@ -84,9 +83,11 @@ const getFarmDateParts = (date = new Date()) => {
   };
 };
 
-// Use UTC midnight as a consistent database boundary for calendar dates.
+// Create UTC boundaries for farm calendar dates.
 const calendarDateToUTC = (year, month, day) =>
   new Date(Date.UTC(year, month - 1, day));
+
+// ================= SUPERADMIN REPORTING PERIODS =================
 
 const getEggProductionPeriods = () => {
   const { year, month, day } = getFarmDateParts();
@@ -94,9 +95,8 @@ const getEggProductionPeriods = () => {
   const todayStart = calendarDateToUTC(year, month, day);
   const tomorrowStart = calendarDateToUTC(year, month, day + 1);
 
-  // Sunday is day 0.
-  // Sunday 00:00 through Saturday 00:00 means Sunday-Friday
-  // are included and Saturday is excluded.
+  // Sunday is the first day of the reporting week.
+  // The Saturday boundary is exclusive.
   const dayOfWeek = todayStart.getUTCDay();
 
   const weekStart = calendarDateToUTC(year, month, day - dayOfWeek);
@@ -132,66 +132,71 @@ const getEggProductionPeriods = () => {
   };
 };
 
-// ================= EGG PRODUCTION SUMMARY =================
+// ================= EGG PRODUCTION AGGREGATION =================
+
+const summarizeEggProduction = async (start, end) => {
+  const result = await Production.aggregate([
+    {
+      $match: {
+        date: {
+          $gte: start,
+          $lt: end,
+        },
+
+        // Include records with isDeleted false or missing.
+        // Exclude explicitly soft-deleted records.
+        isDeleted: { $ne: true },
+      },
+    },
+
+    {
+      $group: {
+        _id: null,
+
+        cratesProduced: {
+          $sum: {
+            $ifNull: ["$cratesProduced", 0],
+          },
+        },
+
+        extraEggPieces: {
+          $sum: {
+            $ifNull: ["$extraEggPieces", 0],
+          },
+        },
+      },
+    },
+
+    {
+      $project: {
+        _id: 0,
+        cratesProduced: 1,
+        extraEggPieces: 1,
+      },
+    },
+  ]);
+
+  return (
+    result[0] || {
+      cratesProduced: 0,
+      extraEggPieces: 0,
+    }
+  );
+};
+
+// ================= SUPERADMIN EGG SUMMARY =================
 
 const getEggProductionSummary = async () => {
   const periods = getEggProductionPeriods();
 
-  const summarizePeriod = async ({ start, end }) => {
-    const result = await Production.aggregate([
-      {
-        $match: {
-          date: {
-            $gte: start,
-            $lt: end,
-          },
-
-          // Include records where isDeleted is false or absent.
-          // Exclude records explicitly soft-deleted.
-          isDeleted: { $ne: true },
-        },
-      },
-
-      {
-        $group: {
-          _id: null,
-
-          cratesProduced: {
-            $sum: {
-              $ifNull: ["$cratesProduced", 0],
-            },
-          },
-
-          extraEggPieces: {
-            $sum: {
-              $ifNull: ["$extraEggPieces", 0],
-            },
-          },
-        },
-      },
-
-      {
-        $project: {
-          _id: 0,
-          cratesProduced: 1,
-          extraEggPieces: 1,
-        },
-      },
-    ]);
-
-    return (
-      result[0] || {
-        cratesProduced: 0,
-        extraEggPieces: 0,
-      }
-    );
-  };
-
   const [daily, weekly, monthly, yearly] = await Promise.all([
-    summarizePeriod(periods.daily),
-    summarizePeriod(periods.weekly),
-    summarizePeriod(periods.monthly),
-    summarizePeriod(periods.yearly),
+    summarizeEggProduction(periods.daily.start, periods.daily.end),
+
+    summarizeEggProduction(periods.weekly.start, periods.weekly.end),
+
+    summarizeEggProduction(periods.monthly.start, periods.monthly.end),
+
+    summarizeEggProduction(periods.yearly.start, periods.yearly.end),
   ]);
 
   return {
@@ -202,17 +207,30 @@ const getEggProductionSummary = async () => {
   };
 };
 
+// ================= MANAGER: LAST ROLLING 24 HOURS =================
+
+const getLast24HoursEggProduction = async () => {
+  const now = new Date();
+
+  const twentyFourHoursAgo = new Date(now.getTime() - 24 * 60 * 60 * 1000);
+
+  return summarizeEggProduction(
+    twentyFourHoursAgo,
+    new Date(now.getTime() + 1),
+  );
+};
+
 // ================= DASHBOARD =================
 
 router.get("/", auth, async (req, res) => {
   try {
-    // Support either account property used by the authentication middleware.
+    // Support the account property exposed by the auth middleware.
     const account = req.admin || req.user;
     const role = account?.role || "staff";
 
     const perms = ROLE_PERMISSIONS[role] || ROLE_PERMISSIONS.staff;
 
-    // ================= MAIN DATA =================
+    // ================= MAIN DASHBOARD DATA =================
 
     const [
       orders,
@@ -252,7 +270,7 @@ router.get("/", auth, async (req, res) => {
       perms.vaccinations ? Vaccination.find() : Promise.resolve([]),
     ]);
 
-    // ================= ROOM SUMMARY =================
+    // ================= ROOM INVENTORY SUMMARY =================
 
     let roomInventorySummary = [];
 
@@ -336,7 +354,7 @@ router.get("/", auth, async (req, res) => {
       ]);
     }
 
-    // ================= RESPONSE =================
+    // ================= RESPONSE PAYLOAD =================
 
     const payload = {
       orders: perms.orders ? orders : [],
@@ -369,12 +387,20 @@ router.get("/", auth, async (req, res) => {
       payload.estimatedRevenue = totalEggs * REVENUE_PER_EGG;
     }
 
-    // ================= SUPERADMIN-ONLY EGG SUMMARY =================
+    // ================= ROLE-BASED EGG PRODUCTION =================
 
-    // Managers and staff do not receive this property at all.
     if (role === "superadmin") {
+      // Superadmin gets daily, weekly, monthly and yearly totals.
       payload.eggProductionSummary = await getEggProductionSummary();
+    } else if (role === "manager") {
+      // Manager gets only the last 24 hours.
+      // No weekly, monthly or yearly figures are sent.
+      payload.eggProductionSummary = {
+        daily: await getLast24HoursEggProduction(),
+      };
     }
+
+    // Staff do not receive eggProductionSummary.
 
     return res.json(payload);
   } catch (err) {
