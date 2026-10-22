@@ -5,7 +5,8 @@ const TERMII_BASE_URL = (
 function isTermiiConfigured() {
   return Boolean(
     process.env.TERMII_API_KEY?.trim() &&
-      process.env.TERMII_SENDER_ID?.trim(),
+    process.env.TERMII_SENDER_ID?.trim() &&
+    process.env.TERMII_SENDER_ID_APPROVED === "true",
   );
 }
 

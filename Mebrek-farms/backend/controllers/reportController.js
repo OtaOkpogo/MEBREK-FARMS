@@ -132,6 +132,10 @@ exports.getReport = async (req, res) => {
           Mortality: item.mortality,
           FeedConsumed: item.feedBagsConsumed,
           CratesProduced: item.cratesProduced,
+
+          // Include extra egg pieces for Battery Cage Combined reports.
+          ExtraEggPieces: item.extraEggPieces ?? item.looseEggs ?? 0,
+
           TotalEggs: item.totalEggs,
           ProductionPercentage: item.productionPercentage,
         }));

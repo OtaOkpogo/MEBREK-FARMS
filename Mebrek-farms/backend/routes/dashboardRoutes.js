@@ -56,10 +56,160 @@ const ROLE_PERMISSIONS = {
 };
 
 const REVENUE_PER_EGG = 5000;
+const FARM_TIME_ZONE = "Africa/Lagos";
+
+// ================= DATE HELPERS =================
+
+// Get the farm's calendar date, independent of the server timezone.
+const getFarmDateParts = (date = new Date()) => {
+  const parts = new Intl.DateTimeFormat("en-CA", {
+    timeZone: FARM_TIME_ZONE,
+    year: "numeric",
+    month: "2-digit",
+    day: "2-digit",
+  }).formatToParts(date);
+
+  const values = {};
+
+  for (const part of parts) {
+    if (part.type !== "literal") {
+      values[part.type] = part.value;
+    }
+  }
+
+  return {
+    year: Number(values.year),
+    month: Number(values.month),
+    day: Number(values.day),
+  };
+};
+
+// Use UTC midnight as a consistent database boundary for calendar dates.
+const calendarDateToUTC = (year, month, day) =>
+  new Date(Date.UTC(year, month - 1, day));
+
+const getEggProductionPeriods = () => {
+  const { year, month, day } = getFarmDateParts();
+
+  const todayStart = calendarDateToUTC(year, month, day);
+  const tomorrowStart = calendarDateToUTC(year, month, day + 1);
+
+  // Sunday is day 0.
+  // Sunday 00:00 through Saturday 00:00 means Sunday-Friday
+  // are included and Saturday is excluded.
+  const dayOfWeek = todayStart.getUTCDay();
+
+  const weekStart = calendarDateToUTC(year, month, day - dayOfWeek);
+
+  const weekEnd = calendarDateToUTC(year, month, day - dayOfWeek + 6);
+
+  const monthStart = calendarDateToUTC(year, month, 1);
+  const nextMonthStart = calendarDateToUTC(year, month + 1, 1);
+
+  const yearStart = calendarDateToUTC(year, 1, 1);
+  const nextYearStart = calendarDateToUTC(year + 1, 1, 1);
+
+  return {
+    daily: {
+      start: todayStart,
+      end: tomorrowStart,
+    },
+
+    weekly: {
+      start: weekStart,
+      end: weekEnd,
+    },
+
+    monthly: {
+      start: monthStart,
+      end: nextMonthStart,
+    },
+
+    yearly: {
+      start: yearStart,
+      end: nextYearStart,
+    },
+  };
+};
+
+// ================= EGG PRODUCTION SUMMARY =================
+
+const getEggProductionSummary = async () => {
+  const periods = getEggProductionPeriods();
+
+  const summarizePeriod = async ({ start, end }) => {
+    const result = await Production.aggregate([
+      {
+        $match: {
+          date: {
+            $gte: start,
+            $lt: end,
+          },
+
+          // Include records where isDeleted is false or absent.
+          // Exclude records explicitly soft-deleted.
+          isDeleted: { $ne: true },
+        },
+      },
+
+      {
+        $group: {
+          _id: null,
+
+          cratesProduced: {
+            $sum: {
+              $ifNull: ["$cratesProduced", 0],
+            },
+          },
+
+          extraEggPieces: {
+            $sum: {
+              $ifNull: ["$extraEggPieces", 0],
+            },
+          },
+        },
+      },
+
+      {
+        $project: {
+          _id: 0,
+          cratesProduced: 1,
+          extraEggPieces: 1,
+        },
+      },
+    ]);
+
+    return (
+      result[0] || {
+        cratesProduced: 0,
+        extraEggPieces: 0,
+      }
+    );
+  };
+
+  const [daily, weekly, monthly, yearly] = await Promise.all([
+    summarizePeriod(periods.daily),
+    summarizePeriod(periods.weekly),
+    summarizePeriod(periods.monthly),
+    summarizePeriod(periods.yearly),
+  ]);
+
+  return {
+    daily,
+    weekly,
+    monthly,
+    yearly,
+  };
+};
+
+// ================= DASHBOARD =================
 
 router.get("/", auth, async (req, res) => {
   try {
-    const role = req.user?.role || "staff";
+    // Support either account property used by the authentication middleware.
+    const account = req.admin || req.user;
+    const role = account?.role || "staff";
+
     const perms = ROLE_PERMISSIONS[role] || ROLE_PERMISSIONS.staff;
 
     // ================= MAIN DATA =================
@@ -93,22 +243,16 @@ router.get("/", auth, async (req, res) => {
       perms.roomInventory
         ? RoomInventory.find({
             status: { $ne: "Removed" },
-          }).sort({ roomName: 1, itemName: 1 })
+          }).sort({
+            roomName: 1,
+            itemName: 1,
+          })
         : Promise.resolve([]),
 
       perms.vaccinations ? Vaccination.find() : Promise.resolve([]),
     ]);
 
     // ================= ROOM SUMMARY =================
-    //
-    // IMPORTANT:
-    // totalItems = number of inventory records
-    // totalQuantity = actual number of physical items
-    //
-    // Example:
-    // One record with quantity: 10
-    // totalItems = 1
-    // totalQuantity = 10
 
     let roomInventorySummary = [];
 
@@ -214,9 +358,9 @@ router.get("/", auth, async (req, res) => {
       vaccinations: perms.vaccinations ? vaccinations : [],
     };
 
-    // ================= REVENUE =================
+    // ================= SUPERADMIN-ONLY REVENUE =================
 
-    if (perms.revenue) {
+    if (role === "superadmin" && perms.revenue) {
       const totalEggs = production.reduce(
         (sum, item) => sum + Number(item.totalEggs || 0),
         0,
@@ -225,12 +369,19 @@ router.get("/", auth, async (req, res) => {
       payload.estimatedRevenue = totalEggs * REVENUE_PER_EGG;
     }
 
-    res.json(payload);
+    // ================= SUPERADMIN-ONLY EGG SUMMARY =================
+
+    // Managers and staff do not receive this property at all.
+    if (role === "superadmin") {
+      payload.eggProductionSummary = await getEggProductionSummary();
+    }
+
+    return res.json(payload);
   } catch (err) {
     console.error("Dashboard Error:", err);
 
-    res.status(500).json({
-      message: err.message,
+    return res.status(500).json({
+      message: err.message || "Failed to load dashboard",
     });
   }
 });

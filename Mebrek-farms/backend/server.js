@@ -41,6 +41,7 @@ const roomInventoryRoutes = require("./routes/roomInventoryRoutes");
 const searchRoutes = require("./routes/search");
 const reportRoutes = require("./routes/reportRoutes");
 const customerRoutes = require("./routes/customerRoutes");
+const smsRoutes = require("./routes/smsRoutes");
 const saleAccessRequestRoutes = require("./routes/saleAccessRequestRoutes");
 const faceAttendanceRoutes = require("./routes/faceAttendanceRoutes");
 
@@ -254,6 +255,7 @@ app.use("/api/notifications", notificationRoutes);
 app.use("/api/room-inventory", roomInventoryRoutes);
 app.use("/api/search", searchRoutes);
 app.use("/api/customers", customerRoutes);
+app.use("/api/sms", smsRoutes);
 app.use("/api/reports", require("./routes/reportRoutes"));
 app.use("/api/backup", require("./routes/backup"));
 app.use("/api/face-attendance", faceAttendanceRoutes);

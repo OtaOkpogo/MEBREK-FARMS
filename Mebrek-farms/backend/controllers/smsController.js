@@ -7,7 +7,9 @@ const {
 } = require("../services/termiiService");
 
 function normalizePhone(value) {
-  let phone = String(value || "").trim().replace(/[^\d+]/g, "");
+  let phone = String(value || "")
+    .trim()
+    .replace(/[^\d+]/g, "");
 
   if (phone.startsWith("+")) phone = phone.slice(1);
 
@@ -38,19 +40,40 @@ function getActor(req) {
 
 exports.getSMSStatus = async (req, res) => {
   try {
+    const apiKeyConfigured = Boolean(process.env.TERMII_API_KEY?.trim());
+
+    const senderIdConfigured = Boolean(process.env.TERMII_SENDER_ID?.trim());
+
+    const senderIdApproved = process.env.TERMII_SENDER_ID_APPROVED === "true";
+
+    const configured =
+      apiKeyConfigured && senderIdConfigured && senderIdApproved;
+
+    let message = "Termii is not ready to send messages.";
+
+    if (!apiKeyConfigured) {
+      message = "Add your Termii API key to backend/.env.";
+    } else if (!senderIdConfigured) {
+      message = "Add your Termii sender ID to backend/.env.";
+    } else if (!senderIdApproved) {
+      message =
+        "Your sender ID is not marked as approved. SMS delivery remains disabled.";
+    } else {
+      message =
+        "Termii credentials and sender approval are configured. Actual delivery still depends on your account and provider response.";
+    }
+
     return res.json({
-      configured: isTermiiConfigured(),
-      senderIdConfigured: Boolean(process.env.TERMII_SENDER_ID?.trim()),
-      apiKeyConfigured: Boolean(process.env.TERMII_API_KEY?.trim()),
-      message: isTermiiConfigured()
-        ? "Termii credentials are configured. Actual delivery still depends on account and sender approval."
-        : "Termii credentials have not been configured.",
+      configured,
+      apiKeyConfigured,
+      senderIdConfigured,
+      senderIdApproved,
+      message,
     });
   } catch (error) {
     return res.status(500).json({ message: error.message });
   }
 };
-
 exports.getSMSCustomers = async (req, res) => {
   try {
     const customers = await Customer.find({
@@ -74,8 +97,7 @@ exports.getSMSCustomers = async (req, res) => {
       customers: results,
       total: results.length,
       eligible: results.filter(
-        (customer) =>
-          customer.smsMarketingConsent && customer.normalizedPhone,
+        (customer) => customer.smsMarketingConsent && customer.normalizedPhone,
       ).length,
     });
   } catch (error) {
@@ -140,7 +162,8 @@ exports.sendCampaign = async (req, res) => {
 
     if (!title || title.length > 120) {
       return res.status(400).json({
-        message: "Campaign title is required and must not exceed 120 characters.",
+        message:
+          "Campaign title is required and must not exceed 120 characters.",
       });
     }
 
@@ -159,7 +182,8 @@ exports.sendCampaign = async (req, res) => {
     // Bound the work done by one HTTP request.
     if (customerIds.length > 100) {
       return res.status(400).json({
-        message: "A campaign is limited to 100 customers. Split the audience into smaller campaigns.",
+        message:
+          "A campaign is limited to 100 customers. Split the audience into smaller campaigns.",
       });
     }
 
@@ -262,11 +286,7 @@ exports.sendCampaign = async (req, res) => {
     }
 
     campaign.status =
-      sentCount === 0
-        ? "failed"
-        : failedCount > 0
-          ? "partial"
-          : "completed";
+      sentCount === 0 ? "failed" : failedCount > 0 ? "partial" : "completed";
 
     campaign.completedAt = new Date();
     await campaign.save();

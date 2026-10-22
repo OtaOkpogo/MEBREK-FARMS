@@ -53,6 +53,11 @@ const customerSchema = new mongoose.Schema(
       default: true,
     },
 
+    smsMarketingConsent: {
+      type: Boolean,
+      default: false,
+    },
+
     isDeleted: {
       type: Boolean,
       default: false,
