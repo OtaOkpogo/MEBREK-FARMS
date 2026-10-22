@@ -25,15 +25,7 @@ import {
 import { fetchDashboardData } from "../services/dashboardService";
 
 // ================= ROLE PERMISSIONS =================
-// UI-layer mirror of the backend's ROLE_PERMISSIONS in routes/dashboard.js.
-// The backend is the actual enforcement point — fields a role can't see
-// are never sent in the response at all. This map only controls which
-// cards/charts render, and should stay in sync with the backend copy.
-//
-// staff.feedStock / staff.roomInventory set to false to match the
-// backend fix — those modules are superadmin+manager only everywhere
-// else in the app, so staff shouldn't see even an empty/zeroed-out
-// card or chart for them here.
+
 const ROLE_PERMISSIONS = {
   superadmin: {
     revenue: true,
@@ -47,7 +39,7 @@ const ROLE_PERMISSIONS = {
     workerPerformance: true,
   },
   manager: {
-    revenue: false, // revenue is superadmin-only per spec
+    revenue: false,
     orders: true,
     workers: true,
     production: true,
@@ -70,7 +62,6 @@ const ROLE_PERMISSIONS = {
   },
 };
 
-// Maps a count of visible cards to a balanced Tailwind grid-cols class
 const GRID_COLS_MAP = {
   0: "",
   1: "md:grid-cols-1",
@@ -83,6 +74,50 @@ const GRID_COLS_MAP = {
 
 const gridColsClass = (count) => GRID_COLS_MAP[count] || "md:grid-cols-6";
 
+const EMPTY_EGG_SUMMARY = {
+  daily: { cratesProduced: 0, extraEggPieces: 0 },
+  weekly: { cratesProduced: 0, extraEggPieces: 0 },
+  monthly: { cratesProduced: 0, extraEggPieces: 0 },
+  yearly: { cratesProduced: 0, extraEggPieces: 0 },
+};
+
+const formatNumber = (value) => Number(value || 0).toLocaleString("en-NG");
+
+const EGG_PERIODS = [
+  {
+    key: "daily",
+    title: "Daily Production",
+    subtitle: "Today",
+    accent: "border-l-green-600",
+    crateColor: "text-green-700",
+    eggColor: "text-amber-600",
+  },
+  {
+    key: "weekly",
+    title: "Weekly Production",
+    subtitle: "Sunday–Friday, excluding Saturday",
+    accent: "border-l-blue-600",
+    crateColor: "text-blue-700",
+    eggColor: "text-amber-600",
+  },
+  {
+    key: "monthly",
+    title: "Monthly Production",
+    subtitle: "Current calendar month",
+    accent: "border-l-purple-600",
+    crateColor: "text-purple-700",
+    eggColor: "text-amber-600",
+  },
+  {
+    key: "yearly",
+    title: "Yearly Production",
+    subtitle: "Current calendar year",
+    accent: "border-l-orange-500",
+    crateColor: "text-orange-700",
+    eggColor: "text-amber-600",
+  },
+];
+
 export default function Dashboard() {
   const [data, setData] = useState({
     orders: [],
@@ -94,27 +129,25 @@ export default function Dashboard() {
     roomInventory: [],
     roomInventorySummary: [],
     estimatedRevenue: 0,
+    eggProductionSummary: EMPTY_EGG_SUMMARY,
   });
 
   const [loading, setLoading] = useState(true);
-
   const [error, setError] = useState("");
   const [user, setUser] = useState(null);
-  const [notificationShown, setNotificationShown] = useState(false);
   const [popupVisible, setPopupVisible] = useState(false);
-
   const [unreadNotifications, setUnreadNotifications] = useState([]);
 
   useEffect(() => {
     loadDashboard();
     loadUser();
-
     checkNotifications();
   }, []);
 
   const loadDashboard = async () => {
     try {
       setLoading(true);
+      setError("");
 
       const res = await fetchDashboardData();
 
@@ -127,13 +160,13 @@ export default function Dashboard() {
         mortality: res?.mortality || [],
         roomInventory: res?.roomInventory || [],
         roomInventorySummary: res?.roomInventorySummary || [],
-        // Backend only includes this field for roles permitted to see it.
-        // Non-superadmins will get undefined here, hence the fallback.
         estimatedRevenue: res?.estimatedRevenue ?? 0,
+        // The backend only sends this property to superadmin.
+        eggProductionSummary: res?.eggProductionSummary || EMPTY_EGG_SUMMARY,
       });
     } catch (err) {
-      console.error(err);
-      setError("Failed to load dashboard");
+      console.error("LOAD DASHBOARD ERROR:", err);
+      setError(err?.response?.data?.message || "Failed to load dashboard");
     } finally {
       setLoading(false);
     }
@@ -141,10 +174,21 @@ export default function Dashboard() {
 
   const loadUser = async () => {
     try {
-      const data = await getCurrentUser();
-      setUser(data);
+      const response = await getCurrentUser();
+      const currentUser =
+        response?.admin || response?.user || response?.data || response;
+
+      setUser(currentUser);
     } catch (err) {
-      console.error(err);
+      console.error("LOAD USER ERROR:", err);
+
+      // Fallback to the existing stored user if the profile request fails.
+      try {
+        const storedUser = JSON.parse(localStorage.getItem("user") || "{}");
+        setUser(storedUser);
+      } catch {
+        setUser(null);
+      }
     }
   };
 
@@ -152,7 +196,6 @@ export default function Dashboard() {
     try {
       const storedUser = JSON.parse(localStorage.getItem("user") || "{}");
 
-      // Dashboard popup is only for superadmin
       if (storedUser.role !== "superadmin") {
         return;
       }
@@ -171,13 +214,8 @@ export default function Dashboard() {
         (notification) => !notification.isRead,
       );
 
-      if (unread.length > 0) {
-        setUnreadNotifications(unread);
-        setPopupVisible(true);
-      } else {
-        setUnreadNotifications([]);
-        setPopupVisible(false);
-      }
+      setUnreadNotifications(unread);
+      setPopupVisible(unread.length > 0);
     } catch (err) {
       console.error("CHECK NOTIFICATIONS ERROR:", err);
     }
@@ -186,11 +224,9 @@ export default function Dashboard() {
   const handleReply = async (id, message) => {
     try {
       await replyNotification(id, { message });
-
       await checkNotifications();
     } catch (err) {
       console.error("REPLY NOTIFICATION ERROR:", err);
-
       throw err;
     }
   };
@@ -209,8 +245,20 @@ export default function Dashboard() {
 
   // ================= PERMISSIONS =================
 
-  const role = user?.role || "staff";
+  const role = String(
+    user?.role ||
+      (() => {
+        try {
+          return JSON.parse(localStorage.getItem("user") || "{}").role;
+        } catch {
+          return "staff";
+        }
+      })() ||
+      "staff",
+  ).toLowerCase();
+
   const perms = ROLE_PERMISSIONS[role] || ROLE_PERMISSIONS.staff;
+  const isSuperAdmin = role === "superadmin";
 
   // ================= DATA =================
 
@@ -222,11 +270,11 @@ export default function Dashboard() {
   const mortality = data.mortality;
   const roomInventory = data.roomInventory || [];
   const roomInventorySummary = data.roomInventorySummary || [];
+  const eggProductionSummary = data.eggProductionSummary || EMPTY_EGG_SUMMARY;
 
   // ================= KPI =================
 
   const totalOrders = orders.length;
-
   const totalWorkers = workers.length;
 
   const totalEggs = production.reduce(
@@ -270,16 +318,20 @@ export default function Dashboard() {
 
   // ================= ATTENDANCE =================
 
-  const presentCount = attendance.filter((a) => a.status === "Present").length;
+  const presentCount = attendance.filter(
+    (item) => item.status === "Present",
+  ).length;
 
-  const absentCount = attendance.filter((a) => a.status === "Absent").length;
+  const absentCount = attendance.filter(
+    (item) => item.status === "Absent",
+  ).length;
 
-  const lateCount = attendance.filter((a) => a.status === "Late").length;
+  const lateCount = attendance.filter((item) => item.status === "Late").length;
 
   // ================= CHART DATA =================
 
   const productionChart = production.map((item) => ({
-    date: new Date(item.date).toLocaleDateString(),
+    date: item.date ? new Date(item.date).toLocaleDateString() : "Unknown",
     eggs: Number(item.totalEggs || 0),
   }));
 
@@ -289,7 +341,10 @@ export default function Dashboard() {
   }));
 
   const workerPerformance = workers.map((worker) => ({
-    name: worker.name,
+    name:
+      worker.name ||
+      `${worker.firstName || ""} ${worker.lastName || ""}`.trim() ||
+      "Worker",
     performance: worker.performance || 0,
   }));
 
@@ -314,7 +369,7 @@ export default function Dashboard() {
 
   const COLORS = ["#16a34a", "#2563eb", "#f59e0b", "#dc2626"];
 
-  // ================= PERMISSION-DRIVEN KPI CARDS =================
+  // ================= KPI CARDS =================
 
   const kpiCards = [
     perms.orders && {
@@ -332,25 +387,25 @@ export default function Dashboard() {
     perms.production && {
       key: "production",
       label: "Egg Production",
-      value: totalEggs,
-      color: "text-yellow-500",
+      value: formatNumber(totalEggs),
+      color: "text-yellow-600",
     },
     perms.revenue && {
       key: "revenue",
       label: "Revenue",
-      value: `₦${estimatedRevenue.toLocaleString()}`,
+      value: `₦${formatNumber(estimatedRevenue)}`,
       color: "text-purple-600",
     },
     perms.feedStock && {
       key: "feedStock",
       label: "Feed Stock",
-      value: totalFeedStock,
+      value: formatNumber(totalFeedStock),
       color: "text-green-700",
     },
     perms.mortality && {
       key: "mortality",
       label: "Mortality",
-      value: totalMortality,
+      value: formatNumber(totalMortality),
       color: "text-red-600",
     },
   ].filter(Boolean);
@@ -363,18 +418,16 @@ export default function Dashboard() {
   const showWorkerPerf = perms.workerPerformance;
   const row2Count = [showAttendance, showWorkerPerf].filter(Boolean).length;
 
-  // ================= STATES =================
+  // ================= LOADING STATE =================
 
   if (loading) {
     return (
       <div className="flex items-center justify-center min-h-[70vh]">
         <div className="text-center">
-          <div className="w-16 h-16 border-4 border-green-600 border-t-transparent rounded-full animate-spin mx-auto"></div>
-
+          <div className="w-16 h-16 border-4 border-green-600 border-t-transparent rounded-full animate-spin mx-auto" />
           <p className="mt-6 text-lg font-semibold text-gray-700">
             Loading Dashboard...
           </p>
-
           <p className="text-gray-500">
             Please wait while we fetch your farm data.
           </p>
@@ -383,18 +436,17 @@ export default function Dashboard() {
     );
   }
 
+  // ================= ERROR STATE =================
+
   if (error) {
     return (
       <div className="flex items-center justify-center min-h-[70vh]">
         <div className="bg-white shadow-lg rounded-2xl p-10 text-center max-w-md">
           <div className="text-6xl mb-4">⚠️</div>
-
           <h2 className="text-2xl font-bold text-red-600">
             Something went wrong
           </h2>
-
           <p className="text-gray-600 mt-3">{error}</p>
-
           <button
             onClick={loadDashboard}
             className="mt-6 bg-green-600 hover:bg-green-700 text-white px-6 py-3 rounded-lg"
@@ -405,35 +457,33 @@ export default function Dashboard() {
       </div>
     );
   }
+
+  // ================= DASHBOARD =================
+
   return (
     <div className="p-6 bg-gray-100 min-h-screen">
       <div className="mb-8">
         <h1 className="text-4xl font-bold text-green-700">
           Mebrek Farms Dashboard 🚜
         </h1>
-
         <p className="text-gray-600 mt-2">Farm Operations Monitoring Center</p>
       </div>
 
+      {/* Welcome panel */}
       <div className="bg-white rounded-2xl shadow-lg p-6 mb-8">
         <h2 className="text-3xl font-bold text-green-700">
-          Welcome back {user?.name || "User"} 👋
+          Welcome back {user?.name || user?.adminName || "User"} 👋
         </h2>
-
         <p className="text-gray-500 mt-2">Farm Management Dashboard</p>
 
         <div className="grid md:grid-cols-3 gap-4 mt-6">
           <div className="bg-gray-50 p-4 rounded-xl">
             <p className="text-gray-500 text-sm">Role</p>
-
-            <p className="font-bold text-lg uppercase">
-              {user?.role || "staff"}
-            </p>
+            <p className="font-bold text-lg uppercase">{role}</p>
           </div>
 
           <div className="bg-gray-50 p-4 rounded-xl">
             <p className="text-gray-500 text-sm">Status</p>
-
             <p
               className={`font-bold text-lg ${
                 String(user?.status ?? "active").toLowerCase() === "active"
@@ -447,7 +497,6 @@ export default function Dashboard() {
 
           <div className="bg-gray-50 p-4 rounded-xl">
             <p className="text-gray-500 text-sm">Last Login</p>
-
             <p className="font-bold text-lg">
               {user?.lastLogin
                 ? new Date(user.lastLogin).toLocaleString()
@@ -457,6 +506,7 @@ export default function Dashboard() {
         </div>
       </div>
 
+      {/* Existing KPI cards */}
       {kpiCards.length > 0 && (
         <div className={`grid ${gridColsClass(kpiCards.length)} gap-6 mb-8`}>
           {kpiCards.map((card) => (
@@ -468,42 +518,103 @@ export default function Dashboard() {
         </div>
       )}
 
+      {/* SUPERADMIN-ONLY EGG PRODUCTION SUMMARY */}
+      {isSuperAdmin && (
+        <section className="mb-8">
+          <div className="flex flex-col sm:flex-row sm:items-end sm:justify-between gap-2 mb-5">
+            <div>
+              <h2 className="text-2xl font-bold text-gray-800">
+                Egg Production Summary 🥚
+              </h2>
+              <p className="text-sm text-gray-500 mt-1">
+                Crates and extra egg pieces recorded across all pens.
+              </p>
+            </div>
+            <span className="text-xs font-semibold text-green-800 bg-green-100 rounded-full px-3 py-1 w-fit">
+              Superadmin view
+            </span>
+          </div>
+
+          <div className="grid sm:grid-cols-2 xl:grid-cols-4 gap-5">
+            {EGG_PERIODS.map((period) => {
+              const summary = eggProductionSummary[period.key] || {
+                cratesProduced: 0,
+                extraEggPieces: 0,
+              };
+
+              return (
+                <article
+                  key={period.key}
+                  className={`bg-white rounded-xl shadow-sm border border-gray-200 border-l-4 ${period.accent} p-5`}
+                >
+                  <h3 className="text-lg font-bold text-gray-800">
+                    {period.title}
+                  </h3>
+                  <p className="text-xs text-gray-500 mt-1 mb-5">
+                    {period.subtitle}
+                  </p>
+
+                  <div className="bg-gray-50 rounded-lg p-4 mb-3">
+                    <p className="text-sm text-gray-500">Crates produced</p>
+                    <p className={`text-3xl font-bold ${period.crateColor}`}>
+                      {formatNumber(summary.cratesProduced)}
+                    </p>
+                  </div>
+
+                  <div className="bg-amber-50 rounded-lg p-4">
+                    <p className="text-sm text-gray-600">Extra egg pieces</p>
+                    <p className={`text-2xl font-bold ${period.eggColor}`}>
+                      {formatNumber(summary.extraEggPieces)}
+                    </p>
+                  </div>
+                </article>
+              );
+            })}
+          </div>
+        </section>
+      )}
+
+      {/* Room inventory KPIs */}
       {perms.roomInventory && (
         <div className="grid md:grid-cols-5 gap-6 mb-8">
           <div className="bg-white p-5 rounded-2xl shadow">
             <h3 className="text-gray-500">Rooms</h3>
-
-            <p className="text-3xl font-bold text-indigo-600">{totalRooms}</p>
+            <p className="text-3xl font-bold text-indigo-600">
+              {formatNumber(totalRooms)}
+            </p>
           </div>
 
           <div className="bg-white p-5 rounded-2xl shadow">
             <h3 className="text-gray-500">Inventory Items</h3>
-
             <p className="text-3xl font-bold text-green-700">
-              {totalRoomItems}
+              {formatNumber(totalRoomItems)}
             </p>
           </div>
 
           <div className="bg-white p-5 rounded-2xl shadow">
             <h3 className="text-gray-500">Good Items</h3>
-
-            <p className="text-3xl font-bold text-green-500">{goodItems}</p>
+            <p className="text-3xl font-bold text-green-500">
+              {formatNumber(goodItems)}
+            </p>
           </div>
 
           <div className="bg-white p-5 rounded-2xl shadow">
             <h3 className="text-gray-500">Damaged</h3>
-
-            <p className="text-3xl font-bold text-yellow-500">{damagedItems}</p>
+            <p className="text-3xl font-bold text-yellow-500">
+              {formatNumber(damagedItems)}
+            </p>
           </div>
 
           <div className="bg-white p-5 rounded-2xl shadow">
             <h3 className="text-gray-500">Missing</h3>
-
-            <p className="text-3xl font-bold text-red-600">{missingItems}</p>
+            <p className="text-3xl font-bold text-red-600">
+              {formatNumber(missingItems)}
+            </p>
           </div>
         </div>
       )}
 
+      {/* Production trend and farm overview */}
       {row1Count > 0 && (
         <div className={`grid ${gridColsClass(row1Count)} gap-6 mb-8`}>
           {showEggTrend && (
@@ -528,6 +639,7 @@ export default function Dashboard() {
                   <Line
                     type="monotone"
                     dataKey="eggs"
+                    name="Total eggs"
                     stroke="#16a34a"
                     strokeWidth={3}
                   />
@@ -558,7 +670,6 @@ export default function Dashboard() {
                       <Cell key={index} fill={COLORS[index % COLORS.length]} />
                     ))}
                   </Pie>
-
                   <Tooltip />
                   <Legend />
                 </PieChart>
@@ -568,6 +679,7 @@ export default function Dashboard() {
         </div>
       )}
 
+      {/* Feed inventory */}
       {perms.feedStock && (
         <div className="bg-white p-6 rounded-2xl shadow mb-8">
           <h2 className="text-xl font-bold mb-4">Feed Inventory 🌽</h2>
@@ -585,12 +697,13 @@ export default function Dashboard() {
               <YAxis />
               <Tooltip />
               <Legend />
-              <Bar dataKey="stock" fill="#16a34a" />
+              <Bar dataKey="stock" name="Stock" fill="#16a34a" />
             </BarChart>
           </ResponsiveContainer>
         </div>
       )}
 
+      {/* Attendance and worker performance */}
       {row2Count > 0 && (
         <div className={`grid ${gridColsClass(row2Count)} gap-6`}>
           {showAttendance && (
@@ -617,7 +730,6 @@ export default function Dashboard() {
                     <Cell fill="#dc2626" />
                     <Cell fill="#f59e0b" />
                   </Pie>
-
                   <Tooltip />
                   <Legend />
                 </PieChart>
@@ -642,7 +754,11 @@ export default function Dashboard() {
                   <YAxis />
                   <Tooltip />
                   <Legend />
-                  <Bar dataKey="performance" fill="#2563eb" />
+                  <Bar
+                    dataKey="performance"
+                    name="Performance"
+                    fill="#2563eb"
+                  />
                 </BarChart>
               </ResponsiveContainer>
             </div>
@@ -650,6 +766,7 @@ export default function Dashboard() {
         </div>
       )}
 
+      {/* Room inventory charts and recent records */}
       {perms.roomInventory && (
         <div className="grid md:grid-cols-2 gap-6 mt-8">
           <div className="bg-white rounded-2xl shadow p-6">
@@ -668,7 +785,6 @@ export default function Dashboard() {
                   <Cell fill="#f59e0b" />
                   <Cell fill="#ef4444" />
                 </Pie>
-
                 <Tooltip />
                 <Legend />
               </PieChart>
@@ -683,9 +799,7 @@ export default function Dashboard() {
                 <thead>
                   <tr className="border-b">
                     <th className="text-left py-2">Room</th>
-
                     <th className="text-left py-2">Item</th>
-
                     <th className="text-left py-2">Condition</th>
                   </tr>
                 </thead>
@@ -694,14 +808,13 @@ export default function Dashboard() {
                   {roomInventory.slice(0, 10).map((item) => (
                     <tr key={item._id} className="border-b">
                       <td className="py-2">{item.roomName}</td>
-
                       <td className="py-2">{item.itemName}</td>
-
                       <td
                         className={`py-2 font-semibold ${
                           item.condition === "Good"
                             ? "text-green-600"
-                            : item.condition === "Damaged"
+                            : item.condition === "Damaged" ||
+                                item.condition === "Needs Repair"
                               ? "text-yellow-600"
                               : "text-red-600"
                         }`}
@@ -717,6 +830,7 @@ export default function Dashboard() {
         </div>
       )}
 
+      {/* Notifications */}
       {popupVisible && (
         <NotificationPopup
           notifications={unreadNotifications}

@@ -37,6 +37,7 @@ import Backup from "./admin/Backup";
 import Expenses from "./pages/Expenses";
 import Flocks from "./pages/Flocks";
 import Customers from "./pages/Customers";
+import BulkSMS from "./admin/BulkSMS";
 
 /* =========================================================
    PUBLIC WEBSITE LAYOUT
@@ -185,6 +186,15 @@ function App() {
             element={
               <ProtectedRoute allowedRoles={["superadmin", "manager"]}>
                 <EggSales />
+              </ProtectedRoute>
+            }
+          />
+
+          <Route
+            path="bulk-sms"
+            element={
+              <ProtectedRoute allowedRoles={["superadmin", "manager"]}>
+                <BulkSMS />
               </ProtectedRoute>
             }
           />

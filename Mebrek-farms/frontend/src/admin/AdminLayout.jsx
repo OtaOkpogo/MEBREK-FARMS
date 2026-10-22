@@ -60,6 +60,7 @@ const getActiveSection = (pathname) => {
     "/admin/workers",
     "/admin/egg-sales",
     "/admin/customers",
+    "/admin/bulk-sms",
     "/admin/manure-sales",
     "/admin/feeds",
     "/admin/feed-invoices",
@@ -877,6 +878,10 @@ export default function AdminLayout() {
 
                 <NavLink to="/admin/customers" className={navLinkClass}>
                   Customers 👥
+                </NavLink>
+
+                <NavLink to="/admin/bulk-sms" className={navLinkClass}>
+                  SMS Management 📱
                 </NavLink>
 
                 <NavLink to="/admin/manure-sales" className={navLinkClass}>
