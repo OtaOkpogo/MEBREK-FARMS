@@ -1,6 +1,39 @@
 import { useCallback, useEffect, useRef, useState } from "react";
 import { Outlet, NavLink, useNavigate, useLocation } from "react-router-dom";
 
+import {
+  LayoutDashboard,
+  ShoppingBag,
+  Bird,
+  Egg,
+  CalendarDays,
+  Bell,
+  Syringe,
+  HeartPulse,
+  Pill,
+  Activity,
+  BarChart3,
+  Wallet,
+  Users,
+  MessageSquare,
+  Wheat,
+  FileText,
+  Warehouse,
+  BedDouble,
+  UserCog,
+  Database,
+  Globe,
+  LogOut,
+  User,
+  ChevronDown,
+  Menu,
+  X,
+  Calendar,
+  Settings,
+  CheckCheck,
+  ArrowRight,
+} from "lucide-react";
+
 import { ToastContainer, toast } from "react-toastify";
 import "react-toastify/dist/ReactToastify.css";
 
@@ -28,6 +61,10 @@ import {
   markSaleAccessRequestViewed as markManureRequestViewed,
 } from "../services/manureSalesService";
 
+// ============================================================
+// HELPERS
+// ============================================================
+
 const getId = (value) => {
   if (!value) return null;
 
@@ -49,8 +86,16 @@ const isOwnSender = (senderId, userId) => {
 const normalizeRequests = (response) => {
   if (Array.isArray(response)) return response;
   if (Array.isArray(response?.requests)) return response.requests;
-
   return [];
+};
+
+const getStoredUser = () => {
+  try {
+    return JSON.parse(localStorage.getItem("user") || "{}");
+  } catch (error) {
+    console.error("Unable to read saved user information:", error);
+    return {};
+  }
 };
 
 const getActiveSection = (pathname) => {
@@ -89,14 +134,296 @@ const getActiveSection = (pathname) => {
   return "general";
 };
 
+const getPageTitle = (pathname) => {
+  const pages = [
+    ["/admin", "Dashboard"],
+    ["/admin/orders", "Orders"],
+    ["/admin/flocks", "Flock Management"],
+    ["/admin/production", "Poultry Production"],
+    ["/admin/attendance", "Attendance"],
+    ["/admin/notifications", "Notifications"],
+    ["/admin/vaccinations", "Vaccinations"],
+    ["/admin/bird-health", "Bird Health"],
+    ["/admin/medications", "Medications"],
+    ["/admin/mortality", "Mortality Tracking"],
+    ["/admin/reports", "Farm Reports"],
+    ["/admin/expenses", "Expenses"],
+    ["/admin/workers", "Workers"],
+    ["/admin/egg-sales", "Egg Sales"],
+    ["/admin/customers", "Customers"],
+    ["/admin/bulk-sms", "SMS Management"],
+    ["/admin/manure-sales", "Manure Sales"],
+    ["/admin/feeds", "Feed Inventory"],
+    ["/admin/feed-invoices", "Feed Invoices"],
+    ["/admin/warehouse", "Warehouse"],
+    ["/admin/room-inventory", "Room Inventory"],
+    ["/admin/staff", "Staff Accounts"],
+    ["/admin/backup", "System Backup"],
+    ["/admin/profile", "My Profile"],
+  ];
+
+  const matched = pages.find(([path]) => {
+    if (path === "/admin") return pathname === path;
+
+    return pathname === path || pathname.startsWith(`${path}/`);
+  });
+
+  return matched?.[1] || "Farm Management";
+};
+
+// ============================================================
+// SMALL COMPONENTS
+// ============================================================
+
+function RedDot({ label }) {
+  return (
+    <span
+      role="status"
+      aria-label={label}
+      title={label}
+      className="h-2.5 w-2.5 shrink-0 animate-pulse rounded-full bg-red-400 ring-2 ring-red-200"
+    />
+  );
+}
+
+function MenuSectionHeader({ id, children, expanded, onToggle }) {
+  return (
+    <button
+      type="button"
+      onClick={onToggle}
+      aria-expanded={expanded}
+      aria-controls={`admin-nav-${id}`}
+      className="flex min-h-12 w-full items-center justify-between gap-3 rounded-xl border border-green-700/60 bg-green-800 px-4 py-3 text-left text-xs font-bold uppercase tracking-wider text-green-50 transition hover:bg-green-700 focus:outline-none focus-visible:ring-2 focus-visible:ring-yellow-300"
+    >
+      <span>{children}</span>
+
+      <ChevronDown
+        size={17}
+        className={`transition-transform duration-200 ${
+          expanded ? "rotate-180" : ""
+        }`}
+      />
+    </button>
+  );
+}
+
+function NavigationLink({
+  to,
+  icon: Icon,
+  children,
+  badge,
+  onClick,
+  end = false,
+}) {
+  return (
+    <NavLink
+      to={to}
+      end={end}
+      onClick={onClick}
+      className={({ isActive }) =>
+        `group flex min-h-11 w-full items-center justify-between gap-3 rounded-xl border px-3 py-2.5 text-sm transition-all duration-200 ${
+          isActive
+            ? "border-green-400/40 bg-green-600 font-semibold text-white shadow-sm"
+            : "border-transparent text-green-100 hover:border-green-600/50 hover:bg-green-700/70 hover:text-white"
+        }`
+      }
+    >
+      {({ isActive }) => (
+        <>
+          <span className="flex min-w-0 items-center gap-3">
+            <Icon
+              size={18}
+              strokeWidth={isActive ? 2.5 : 1.8}
+              className="shrink-0"
+            />
+            <span className="truncate">{children}</span>
+          </span>
+
+          {badge}
+        </>
+      )}
+    </NavLink>
+  );
+}
+
+// ============================================================
+// NOTIFICATION CENTRE
+// ============================================================
+
+function NotificationCentre({
+  notificationTotal,
+  unreadOrders,
+  unreadMessages,
+  saleAccessBadges,
+  role,
+  onNavigate,
+}) {
+  return (
+    <div
+      role="dialog"
+      aria-label="Notification centre"
+      className="fixed right-4 top-16 z-[9999] w-[min(92vw,22rem)] overflow-hidden rounded-2xl border border-[#E1E9DE] bg-white text-left shadow-2xl sm:right-6"
+    >
+      <div className="flex items-center justify-between border-b border-[#E8EEE5] bg-[#F4F8F2] px-4 py-4">
+        <div>
+          <h2 className="font-bold text-[#294B36]">Notification Centre</h2>
+          <p className="mt-0.5 text-xs text-gray-500">
+            Your farm management updates
+          </p>
+        </div>
+
+        <span className="rounded-full bg-[#DCEBDD] px-2.5 py-1 text-xs font-bold text-[#24583D]">
+          {notificationTotal} new
+        </span>
+      </div>
+
+      <div className="max-h-[65vh] overflow-y-auto p-2">
+        {unreadOrders > 0 && (
+          <button
+            type="button"
+            onClick={() => onNavigate("/admin/orders", "orders")}
+            className="flex w-full items-center gap-3 rounded-xl p-3 text-left transition hover:bg-[#F2F7F0]"
+          >
+            <span className="flex h-10 w-10 shrink-0 items-center justify-center rounded-xl bg-orange-100 text-orange-700">
+              <ShoppingBag size={19} />
+            </span>
+
+            <span className="min-w-0 flex-1">
+              <span className="block text-sm font-semibold text-gray-800">
+                New Orders
+              </span>
+              <span className="mt-0.5 block text-xs text-gray-500">
+                {unreadOrders} new order
+                {unreadOrders === 1 ? "" : "s"} received
+              </span>
+            </span>
+
+            <ArrowRight size={17} className="shrink-0 text-gray-400" />
+          </button>
+        )}
+
+        {unreadMessages > 0 && (
+          <button
+            type="button"
+            onClick={() => onNavigate("/admin/notifications", "messages")}
+            className="flex w-full items-center gap-3 rounded-xl p-3 text-left transition hover:bg-[#F2F7F0]"
+          >
+            <span className="flex h-10 w-10 shrink-0 items-center justify-center rounded-xl bg-blue-100 text-blue-700">
+              <MessageSquare size={19} />
+            </span>
+
+            <span className="min-w-0 flex-1">
+              <span className="block text-sm font-semibold text-gray-800">
+                Messages
+              </span>
+              <span className="mt-0.5 block text-xs text-gray-500">
+                {unreadMessages} unread message
+                {unreadMessages === 1 ? "" : "s"}
+              </span>
+            </span>
+
+            <ArrowRight size={17} className="shrink-0 text-gray-400" />
+          </button>
+        )}
+
+        {saleAccessBadges.egg && (
+          <button
+            type="button"
+            onClick={() => onNavigate("/admin/egg-sales", "egg")}
+            className="flex w-full items-center gap-3 rounded-xl p-3 text-left transition hover:bg-[#F2F7F0]"
+          >
+            <span className="flex h-10 w-10 shrink-0 items-center justify-center rounded-xl bg-yellow-100 text-yellow-700">
+              <Egg size={19} />
+            </span>
+
+            <span className="min-w-0 flex-1">
+              <span className="block text-sm font-semibold text-gray-800">
+                Egg Sales Access
+              </span>
+              <span className="mt-0.5 block text-xs text-gray-500">
+                {role === "superadmin"
+                  ? "A pending access request needs review"
+                  : "Your access request has been reviewed"}
+              </span>
+            </span>
+
+            <ArrowRight size={17} className="shrink-0 text-gray-400" />
+          </button>
+        )}
+
+        {saleAccessBadges.manure && (
+          <button
+            type="button"
+            onClick={() => onNavigate("/admin/manure-sales", "manure")}
+            className="flex w-full items-center gap-3 rounded-xl p-3 text-left transition hover:bg-[#F2F7F0]"
+          >
+            <span className="flex h-10 w-10 shrink-0 items-center justify-center rounded-xl bg-green-100 text-green-700">
+              <Wheat size={19} />
+            </span>
+
+            <span className="min-w-0 flex-1">
+              <span className="block text-sm font-semibold text-gray-800">
+                Manure Sales Access
+              </span>
+              <span className="mt-0.5 block text-xs text-gray-500">
+                {role === "superadmin"
+                  ? "A pending access request needs review"
+                  : "Your access request has been reviewed"}
+              </span>
+            </span>
+
+            <ArrowRight size={17} className="shrink-0 text-gray-400" />
+          </button>
+        )}
+
+        {notificationTotal === 0 && (
+          <div className="px-4 py-9 text-center">
+            <span className="mx-auto flex h-14 w-14 items-center justify-center rounded-full bg-[#EDF4EA] text-[#47734E]">
+              <CheckCheck size={27} />
+            </span>
+
+            <h3 className="mt-3 text-sm font-bold text-gray-800">
+              You're all caught up!
+            </h3>
+
+            <p className="mt-1 text-xs text-gray-500">
+              There are no new updates to show.
+            </p>
+          </div>
+        )}
+      </div>
+
+      <div className="border-t border-[#E8EEE5] bg-[#FAFCF9] px-4 py-3">
+        <p className="text-center text-[11px] text-gray-500">
+          Select an update to open its management page.
+        </p>
+      </div>
+    </div>
+  );
+}
+
+// ============================================================
+// ADMIN LAYOUT
+// ============================================================
+
 export default function AdminLayout() {
   const navigate = useNavigate();
   const location = useLocation();
 
-  const user = JSON.parse(localStorage.getItem("user") || "{}");
-  const role = user?.role || localStorage.getItem("role");
+  const user = getStoredUser();
+
+  const rawRole = user?.role || localStorage.getItem("role") || "staff";
+  const role = String(rawRole)
+    .trim()
+    .toLowerCase()
+    .replace(/[\s_-]+/g, "");
+
   const name = user?.name || localStorage.getItem("adminName");
   const currentUserId = getId(user?._id || user?.id);
+
+  const [mobileMenuOpen, setMobileMenuOpen] = useState(false);
+  const [profileMenuOpen, setProfileMenuOpen] = useState(false);
+  const [notificationMenuOpen, setNotificationMenuOpen] = useState(false);
 
   const [unreadOrders, setUnreadOrders] = useState(0);
   const [unreadMessages, setUnreadMessages] = useState(0);
@@ -107,15 +434,74 @@ export default function AdminLayout() {
     manure: false,
   });
 
-  // ==========================================================
-  // COLLAPSIBLE NAVIGATION
-  // ==========================================================
-
   const [expandedSections, setExpandedSections] = useState({
     general: true,
     management: false,
     system: false,
   });
+
+  const orderAudioRef = useRef(null);
+  const notificationAudioRef = useRef(null);
+  const notificationMenuRef = useRef(null);
+
+  const roleRef = useRef(role);
+  const userIdRef = useRef(currentUserId);
+
+  const pageTitle = getPageTitle(location.pathname);
+
+  const today = new Date().toLocaleDateString("en-NG", {
+    weekday: "long",
+    day: "numeric",
+    month: "long",
+    year: "numeric",
+  });
+
+  // ==========================================================
+  // NOTIFICATION COUNTS AND ACTIONS
+  // ==========================================================
+
+  const canSeeNotifications = ["superadmin", "manager"].includes(role);
+
+  const notificationTotal =
+    unreadOrders +
+    (canSeeNotifications ? unreadMessages : 0) +
+    (canSeeNotifications && saleAccessBadges.egg ? 1 : 0) +
+    (canSeeNotifications && saleAccessBadges.manure ? 1 : 0);
+
+  const closeNotificationMenu = () => {
+    setNotificationMenuOpen(false);
+  };
+
+  const openNotificationDestination = (path, type) => {
+    if (type === "orders") {
+      setUnreadOrders(0);
+    }
+
+    closeNotificationMenu();
+    navigate(path);
+  };
+
+  // Close notification dropdown when clicking outside it.
+  useEffect(() => {
+    const handleOutsideClick = (event) => {
+      if (
+        notificationMenuRef.current &&
+        !notificationMenuRef.current.contains(event.target)
+      ) {
+        setNotificationMenuOpen(false);
+      }
+    };
+
+    document.addEventListener("pointerdown", handleOutsideClick);
+
+    return () => {
+      document.removeEventListener("pointerdown", handleOutsideClick);
+    };
+  }, []);
+
+  // ==========================================================
+  // NAVIGATION STATE
+  // ==========================================================
 
   useEffect(() => {
     const activeSection = getActiveSection(location.pathname);
@@ -124,7 +510,25 @@ export default function AdminLayout() {
       ...previous,
       [activeSection]: true,
     }));
+
+    setMobileMenuOpen(false);
+    setProfileMenuOpen(false);
+    setNotificationMenuOpen(false);
   }, [location.pathname]);
+
+  useEffect(() => {
+    const handleEscape = (event) => {
+      if (event.key === "Escape") {
+        setMobileMenuOpen(false);
+        setProfileMenuOpen(false);
+        setNotificationMenuOpen(false);
+      }
+    };
+
+    window.addEventListener("keydown", handleEscape);
+
+    return () => window.removeEventListener("keydown", handleEscape);
+  }, []);
 
   const toggleSection = (section) => {
     setExpandedSections((previous) => ({
@@ -133,10 +537,16 @@ export default function AdminLayout() {
     }));
   };
 
-  const orderAudioRef = useRef(null);
-  const notificationAudioRef = useRef(null);
-  const roleRef = useRef(role);
-  const userIdRef = useRef(currentUserId);
+  const handleNavClick = (event) => {
+    if (event.target.closest("a")) {
+      setMobileMenuOpen(false);
+    }
+  };
+
+  const sectionContentClass = (section) =>
+    expandedSections[section]
+      ? "flex flex-col gap-1.5 overflow-hidden pl-2 pt-1"
+      : "hidden";
 
   useEffect(() => {
     roleRef.current = role;
@@ -437,9 +847,7 @@ export default function AdminLayout() {
       }
 
       window.dispatchEvent(
-        new CustomEvent("saleAccessRequestCreated", {
-          detail: request,
-        }),
+        new CustomEvent("saleAccessRequestCreated", { detail: request }),
       );
 
       window.dispatchEvent(
@@ -497,9 +905,7 @@ export default function AdminLayout() {
       }
 
       window.dispatchEvent(
-        new CustomEvent("saleAccessRequestReviewed", {
-          detail: request,
-        }),
+        new CustomEvent("saleAccessRequestReviewed", { detail: request }),
       );
 
       window.dispatchEvent(
@@ -656,312 +1062,502 @@ export default function AdminLayout() {
     navigate("/login");
   };
 
-  const RedDot = ({ label }) => (
-    <span
-      role="status"
-      aria-label={label}
-      title={label}
-      className="h-3 w-3 shrink-0 animate-pulse rounded-full bg-red-500 ring-2 ring-red-300"
-    />
-  );
-
   // ==========================================================
-  // SECTION HEADER
+  // SIDEBAR BADGES
   // ==========================================================
 
-  const SectionHeader = ({ id, children }) => {
-    const isExpanded = Boolean(expandedSections[id]);
+  const orderBadge =
+    unreadOrders > 0 ? (
+      <span className="flex h-6 min-w-6 items-center justify-center rounded-full bg-red-500 px-2 text-xs font-bold text-white">
+        {unreadOrders > 99 ? "99+" : unreadOrders}
+      </span>
+    ) : null;
 
-    return (
-      <button
-        type="button"
-        onClick={() => toggleSection(id)}
-        aria-expanded={isExpanded}
-        aria-controls={`admin-nav-${id}`}
-        className="flex min-h-12 w-full items-center justify-between gap-3 rounded-lg border border-green-600 bg-green-700 px-4 py-3 text-left text-sm font-bold uppercase tracking-wide text-white transition hover:bg-green-600 focus:outline-none focus-visible:ring-2 focus-visible:ring-white"
-      >
-        <span>{children}</span>
-
-        <span
-          className={`flex h-6 w-6 shrink-0 items-center justify-center rounded-md bg-green-800 text-sm transition-transform duration-200 ${
-            isExpanded ? "rotate-180" : ""
-          }`}
-          aria-hidden="true"
-        >
-          ▾
-        </span>
-      </button>
-    );
-  };
-
-  // Use conditional display classes rather than the HTML hidden attribute.
-  const sectionContentClass = (section) =>
-    expandedSections[section]
-      ? "flex flex-col gap-2 overflow-hidden pl-2"
-      : "hidden";
-
-  // NavLink supplies isActive, so this function returns a CSS string.
-  const navLinkClass = ({ isActive }) =>
-    `flex min-h-11 w-full items-center justify-between gap-3 rounded-lg border px-3 py-3 text-left transition ${
-      isActive
-        ? "border-green-400 bg-green-600 font-semibold text-white shadow-sm"
-        : "border-transparent text-green-50 hover:border-green-600 hover:bg-green-700"
-    }`;
+  const messageBadge =
+    unreadMessages > 0 ? (
+      <span className="flex h-6 min-w-6 items-center justify-center rounded-full bg-red-500 px-2 text-xs font-bold text-white">
+        {unreadMessages > 99 ? "99+" : unreadMessages}
+      </span>
+    ) : null;
 
   // ==========================================================
-  // UI
+  // SIDEBAR CONTENT
   // ==========================================================
 
-  return (
-    <div className="min-h-screen bg-gray-100 md:flex">
-      <aside className="flex w-full shrink-0 flex-col self-start bg-green-800 p-5 text-white shadow-lg md:min-h-screen md:w-72">
-        {/* BRAND */}
-        <div className="mb-6">
-          <div className="flex items-center gap-3">
-            <img
-              src={logo}
-              alt="Mebrek Farms logo"
-              className="h-14 w-14 shrink-0 rounded-full bg-white object-contain p-1"
-            />
+  const SidebarContent = (
+    <>
+      <div className="mb-7 flex items-center justify-between gap-3">
+        <div className="flex min-w-0 items-center gap-3">
+          <img
+            src={logo}
+            alt="Mebrek Farms logo"
+            className="h-14 w-14 shrink-0 rounded-2xl bg-white object-contain p-1.5 shadow-sm"
+          />
 
-            <div className="min-w-0">
-              <h2 className="text-2xl font-bold">Mebrek Farms</h2>
-              <p className="text-sm text-green-200">Farm Management System</p>
-
-              <div
-                className={`mt-3 inline-block rounded-full px-3 py-1 text-sm font-semibold ${
-                  role === "superadmin"
-                    ? "bg-red-500"
-                    : role === "manager"
-                      ? "bg-blue-500"
-                      : "bg-green-500"
-                }`}
-              >
-                {role?.toUpperCase()}
-              </div>
-            </div>
+          <div className="min-w-0">
+            <h2 className="truncate text-xl font-extrabold tracking-tight text-white">
+              Mebrek Farms
+            </h2>
+            <p className="text-xs text-green-200">Farm Management System</p>
           </div>
         </div>
 
-        {/* USER DETAILS */}
-        <div className="mb-4 rounded-lg border border-green-600 bg-green-700 p-4">
-          <p className="break-words text-lg font-semibold">{name || "User"}</p>
+        <button
+          type="button"
+          onClick={() => setMobileMenuOpen(false)}
+          aria-label="Close navigation menu"
+          className="flex h-9 w-9 shrink-0 items-center justify-center rounded-lg text-green-100 transition hover:bg-green-700 md:hidden"
+        >
+          <X size={21} />
+        </button>
+      </div>
 
-          <p className="text-sm text-green-200">
-            Logged in as {role || "staff"}
+      <div className="mb-5 flex items-center justify-between rounded-xl border border-green-700 bg-green-900/40 px-4 py-3">
+        <div className="min-w-0">
+          <p className="text-xs text-green-300">Signed in as</p>
+          <p className="mt-0.5 break-words font-semibold text-white">
+            {name || "User"}
           </p>
         </div>
 
-        {/* ACTION BUTTONS */}
-        <div className="mb-6 flex flex-col gap-3">
-          <button
-            type="button"
-            onClick={() => navigate("/")}
-            className="min-h-11 w-full rounded-lg bg-white px-4 py-3 text-left font-semibold text-green-800 transition hover:bg-gray-200"
-          >
-            ← Back to Farm Website
-          </button>
+        <span
+          className={`rounded-full px-3 py-1 text-[10px] font-bold uppercase tracking-wide ${
+            role === "superadmin"
+              ? "bg-amber-300 text-green-950"
+              : role === "manager"
+                ? "bg-blue-200 text-blue-900"
+                : "bg-green-200 text-green-900"
+          }`}
+        >
+          {role || "staff"}
+        </span>
+      </div>
 
-          <button
-            type="button"
-            onClick={handleLogout}
-            className="min-h-11 w-full rounded-lg bg-red-500 px-4 py-3 text-left font-semibold text-white transition hover:bg-red-600"
-          >
-            Logout
-          </button>
-        </div>
+      <div className="mb-6 grid grid-cols-2 gap-2">
+        <button
+          type="button"
+          onClick={() => {
+            setMobileMenuOpen(false);
+            navigate("/");
+          }}
+          className="flex min-h-11 items-center justify-center gap-2 rounded-xl border border-green-600 bg-green-700 px-3 py-2 text-xs font-semibold text-white transition hover:bg-green-600"
+        >
+          <Globe size={15} />
+          Farm Website
+        </button>
 
-        {/* VERTICAL NAVIGATION */}
-        <nav className="flex flex-col gap-4">
-          {/* GENERAL */}
+        <button
+          type="button"
+          onClick={handleLogout}
+          className="flex min-h-11 items-center justify-center gap-2 rounded-xl bg-red-500/90 px-3 py-2 text-xs font-semibold text-white transition hover:bg-red-500"
+        >
+          <LogOut size={15} />
+          Logout
+        </button>
+      </div>
+
+      <nav onClick={handleNavClick} className="flex flex-col gap-4">
+        <section className="flex min-w-0 flex-col gap-2">
+          <MenuSectionHeader
+            id="general"
+            expanded={expandedSections.general}
+            onToggle={() => toggleSection("general")}
+          >
+            General
+          </MenuSectionHeader>
+
+          <div
+            id="admin-nav-general"
+            className={sectionContentClass("general")}
+          >
+            <NavigationLink to="/admin" end icon={LayoutDashboard}>
+              Dashboard
+            </NavigationLink>
+
+            <NavigationLink
+              to="/admin/orders"
+              icon={ShoppingBag}
+              onClick={() => setUnreadOrders(0)}
+              badge={orderBadge}
+            >
+              Orders
+            </NavigationLink>
+
+            <NavigationLink to="/admin/flocks" icon={Bird}>
+              Flocks
+            </NavigationLink>
+
+            <NavigationLink to="/admin/production" icon={Egg}>
+              Production
+            </NavigationLink>
+
+            <NavigationLink to="/admin/attendance" icon={CalendarDays}>
+              Attendance
+            </NavigationLink>
+
+            {canSeeNotifications && (
+              <NavigationLink
+                to="/admin/notifications"
+                icon={Bell}
+                badge={messageBadge}
+              >
+                Notifications
+              </NavigationLink>
+            )}
+
+            <NavigationLink to="/admin/vaccinations" icon={Syringe}>
+              Vaccinations
+            </NavigationLink>
+
+            <NavigationLink to="/admin/bird-health" icon={HeartPulse}>
+              Bird Health
+            </NavigationLink>
+
+            <NavigationLink to="/admin/medications" icon={Pill}>
+              Medications
+            </NavigationLink>
+
+            <NavigationLink to="/admin/mortality" icon={Activity}>
+              Mortality Tracking
+            </NavigationLink>
+          </div>
+        </section>
+
+        {canSeeNotifications && (
           <section className="flex min-w-0 flex-col gap-2">
-            <SectionHeader id="general">General</SectionHeader>
+            <MenuSectionHeader
+              id="management"
+              expanded={expandedSections.management}
+              onToggle={() => toggleSection("management")}
+            >
+              Management
+            </MenuSectionHeader>
 
             <div
-              id="admin-nav-general"
-              className={sectionContentClass("general")}
+              id="admin-nav-management"
+              className={sectionContentClass("management")}
             >
-              <NavLink to="/admin" className={navLinkClass}>
-                Dashboard 📊
-              </NavLink>
+              <NavigationLink to="/admin/reports" icon={BarChart3}>
+                Reports
+              </NavigationLink>
 
-              <NavLink
-                to="/admin/orders"
-                onClick={() => setUnreadOrders(0)}
-                className={navLinkClass}
+              {role === "superadmin" && (
+                <>
+                  <NavigationLink to="/admin/expenses" icon={Wallet}>
+                    Expenses
+                  </NavigationLink>
+
+                  <NavigationLink to="/admin/workers" icon={Users}>
+                    Workers
+                  </NavigationLink>
+                </>
+              )}
+
+              <NavigationLink
+                to="/admin/egg-sales"
+                icon={Egg}
+                badge={
+                  saleAccessBadges.egg ? (
+                    <RedDot label="Unread Egg Sales access notification" />
+                  ) : null
+                }
               >
-                <span>Orders 📦</span>
+                Egg Sales
+              </NavigationLink>
 
-                {unreadOrders > 0 && (
-                  <span className="flex h-6 min-w-6 shrink-0 animate-pulse items-center justify-center rounded-full bg-red-500 px-2 text-xs font-bold text-white">
-                    {unreadOrders > 99 ? "99+" : unreadOrders}
-                  </span>
-                )}
-              </NavLink>
+              <NavigationLink to="/admin/customers" icon={Users}>
+                Customers
+              </NavigationLink>
 
-              <NavLink to="/admin/flocks" className={navLinkClass}>
-                Flocks 🐔
-              </NavLink>
+              <NavigationLink to="/admin/bulk-sms" icon={MessageSquare}>
+                SMS Management
+              </NavigationLink>
 
-              {["superadmin", "manager", "staff"].includes(role) && (
-                <NavLink to="/admin/production" className={navLinkClass}>
-                  Production 🥚
-                </NavLink>
-              )}
+              <NavigationLink
+                to="/admin/manure-sales"
+                icon={Wheat}
+                badge={
+                  saleAccessBadges.manure ? (
+                    <RedDot label="Unread Manure Sales access notification" />
+                  ) : null
+                }
+              >
+                Manure Sales
+              </NavigationLink>
 
-              <NavLink to="/admin/attendance" className={navLinkClass}>
-                Attendance 📅
-              </NavLink>
+              <NavigationLink to="/admin/feeds" icon={Wheat}>
+                Feed Inventory
+              </NavigationLink>
 
-              {["superadmin", "manager"].includes(role) && (
-                <NavLink to="/admin/notifications" className={navLinkClass}>
-                  <span>Notifications 🔔</span>
+              <NavigationLink to="/admin/feed-invoices" icon={FileText}>
+                Feed Invoices
+              </NavigationLink>
 
-                  {unreadMessages > 0 && (
-                    <span className="flex h-6 min-w-6 shrink-0 animate-pulse items-center justify-center rounded-full bg-red-500 px-2 text-xs font-bold text-white">
-                      {unreadMessages > 99 ? "99+" : unreadMessages}
-                    </span>
-                  )}
-                </NavLink>
-              )}
+              <NavigationLink to="/admin/warehouse" icon={Warehouse}>
+                Warehouse
+              </NavigationLink>
 
-              <NavLink to="/admin/vaccinations" className={navLinkClass}>
-                Vaccinations 💉
-              </NavLink>
-
-              <NavLink to="/admin/bird-health" className={navLinkClass}>
-                Bird Health 🐔
-              </NavLink>
-
-              <NavLink to="/admin/medications" className={navLinkClass}>
-                Medications 💊
-              </NavLink>
-
-              <NavLink to="/admin/mortality" className={navLinkClass}>
-                Mortality Tracking ☠️
-              </NavLink>
+              <NavigationLink to="/admin/room-inventory" icon={BedDouble}>
+                Room Inventory
+              </NavigationLink>
             </div>
           </section>
+        )}
 
-          {/* MANAGEMENT */}
-          {["superadmin", "manager"].includes(role) && (
-            <section className="flex min-w-0 flex-col gap-2">
-              <SectionHeader id="management">Management</SectionHeader>
+        {role === "superadmin" && (
+          <section className="flex min-w-0 flex-col gap-2">
+            <MenuSectionHeader
+              id="system"
+              expanded={expandedSections.system}
+              onToggle={() => toggleSection("system")}
+            >
+              System Administration
+            </MenuSectionHeader>
 
-              <div
-                id="admin-nav-management"
-                className={sectionContentClass("management")}
-              >
-                <NavLink to="/admin/reports" className={navLinkClass}>
-                  Reports 📊
-                </NavLink>
+            <div
+              id="admin-nav-system"
+              className={sectionContentClass("system")}
+            >
+              <NavigationLink to="/admin/staff" icon={UserCog}>
+                Staff Accounts
+              </NavigationLink>
 
-                {role === "superadmin" && (
-                  <>
-                    <NavLink to="/admin/expenses" className={navLinkClass}>
-                      Expenses 💰
-                    </NavLink>
+              <NavigationLink to="/admin/backup" icon={Database}>
+                Backup
+              </NavigationLink>
+            </div>
+          </section>
+        )}
+      </nav>
 
-                    <NavLink to="/admin/workers" className={navLinkClass}>
-                      Workers 👨‍🌾
-                    </NavLink>
-                  </>
-                )}
+      <div className="mt-8 border-t border-green-700/70 pt-4 text-center">
+        <p className="text-[11px] text-green-300">
+          Mebrek Farms Management System
+        </p>
+        <p className="mt-1 text-[10px] text-green-400">
+          Farm operations made easier
+        </p>
+      </div>
+    </>
+  );
 
-                <NavLink to="/admin/egg-sales" className={navLinkClass}>
-                  <span>Egg Sales 🥚</span>
+  // ==========================================================
+  // MAIN UI
+  // ==========================================================
 
-                  {saleAccessBadges.egg && (
-                    <RedDot label="Unread Egg Sales access notification" />
-                  )}
-                </NavLink>
+  return (
+    <div className="min-h-screen bg-[#F4F6F1] md:flex">
+      {mobileMenuOpen && (
+        <button
+          type="button"
+          aria-label="Close navigation menu"
+          onClick={() => setMobileMenuOpen(false)}
+          className="fixed inset-0 z-40 bg-gray-950/50 backdrop-blur-[2px] md:hidden"
+        />
+      )}
 
-                <NavLink to="/admin/customers" className={navLinkClass}>
-                  Customers 👥
-                </NavLink>
-
-                <NavLink to="/admin/bulk-sms" className={navLinkClass}>
-                  SMS Management 📱
-                </NavLink>
-
-                <NavLink to="/admin/manure-sales" className={navLinkClass}>
-                  <span>Manure Sales 🌾</span>
-
-                  {saleAccessBadges.manure && (
-                    <RedDot label="Unread Manure Sales access notification" />
-                  )}
-                </NavLink>
-
-                <NavLink to="/admin/feeds" className={navLinkClass}>
-                  Feed Inventory 🌽
-                </NavLink>
-
-                <NavLink to="/admin/feed-invoices" className={navLinkClass}>
-                  Feed Invoices 🧾
-                </NavLink>
-
-                <NavLink to="/admin/warehouse" className={navLinkClass}>
-                  Warehouse 🏬
-                </NavLink>
-
-                <NavLink to="/admin/room-inventory" className={navLinkClass}>
-                  Room Inventory 🛏️
-                </NavLink>
-              </div>
-            </section>
-          )}
-
-          {/* SYSTEM ADMINISTRATION */}
-          {role === "superadmin" && (
-            <section className="flex min-w-0 flex-col gap-2">
-              <SectionHeader id="system">System Administration</SectionHeader>
-
-              <div
-                id="admin-nav-system"
-                className={sectionContentClass("system")}
-              >
-                <NavLink to="/admin/staff" className={navLinkClass}>
-                  Staff Accounts 👥
-                </NavLink>
-
-                <NavLink to="/admin/backup" className={navLinkClass}>
-                  Backup 🗄️
-                </NavLink>
-              </div>
-            </section>
-          )}
-        </nav>
+      <aside
+        className={`fixed inset-y-0 left-0 z-50 flex h-screen w-[min(88vw,20rem)] shrink-0 flex-col overflow-y-auto bg-[#24583D] p-5 text-white shadow-2xl transition-transform duration-300 ease-in-out md:sticky md:top-0 md:z-20 md:h-screen md:w-72 md:translate-x-0 md:shadow-none ${
+          mobileMenuOpen ? "translate-x-0" : "-translate-x-full"
+        }`}
+        aria-label="Admin navigation"
+      >
+        {SidebarContent}
       </aside>
 
-      {/* MAIN CONTENT */}
-      <main className="min-w-0 flex-1 overflow-y-auto bg-gray-100">
-        <header className="flex flex-col gap-4 bg-white px-4 py-4 shadow-sm sm:flex-row sm:items-center sm:justify-between sm:px-8">
-          <div className="w-full min-w-0 max-w-xl">
-            <GlobalSearch />
-          </div>
+      <main className="min-h-screen min-w-0 flex-1 bg-[#F4F6F1]">
+        <header className="sticky top-0 z-30 border-b border-[#E3E9E0] bg-white/95 px-4 py-3 shadow-sm backdrop-blur-md sm:px-6 lg:px-8">
+          <div className="flex flex-col gap-3">
+            <div className="flex items-center justify-between gap-3">
+              <div className="flex min-w-0 flex-1 items-center gap-3">
+                <button
+                  type="button"
+                  onClick={() => setMobileMenuOpen(true)}
+                  aria-label="Open navigation menu"
+                  aria-expanded={mobileMenuOpen}
+                  className="flex h-10 w-10 shrink-0 items-center justify-center rounded-xl border border-[#DCE6DA] bg-[#EDF3EB] text-[#24583D] transition hover:bg-[#DDEADB] md:hidden"
+                >
+                  <Menu size={21} />
+                </button>
 
-          <div className="flex items-center justify-between gap-3 sm:justify-end">
-            <div className="min-w-0 text-right">
-              <p className="break-words font-semibold">{name || "User"}</p>
-              <p className="text-sm text-gray-500">{role || "staff"}</p>
+                <div className="min-w-0">
+                  <p className="text-[11px] font-semibold uppercase tracking-wider text-[#78917D]">
+                    Mebrek Farms / Administration
+                  </p>
+
+                  <h1 className="truncate text-lg font-extrabold text-[#294B36] sm:text-xl">
+                    {pageTitle}
+                  </h1>
+                </div>
+              </div>
+
+              <div className="hidden items-center gap-2 text-right sm:flex">
+                <Calendar size={17} className="text-[#78917D]" />
+                <span className="text-xs font-medium text-gray-500">
+                  {today}
+                </span>
+              </div>
+
+              {/* NOTIFICATION BELL AND DROPDOWN */}
+              {canSeeNotifications && (
+                <div
+                  className="relative z-[100] shrink-0"
+                  ref={notificationMenuRef}
+                >
+                  <button
+                    type="button"
+                    onClick={() => {
+                      setNotificationMenuOpen((previous) => !previous);
+                    }}
+                    aria-label="Open notifications"
+                    aria-expanded={notificationMenuOpen}
+                    aria-haspopup="dialog"
+                    className={`relative flex h-10 w-10 items-center justify-center rounded-xl border transition ${
+                      notificationMenuOpen
+                        ? "border-[#B7D0B5] bg-[#E8F0E6] text-[#24583D]"
+                        : "border-[#DCE6DA] bg-white text-[#45634B] hover:bg-[#F1F6EF]"
+                    }`}
+                  >
+                    <Bell size={20} />
+
+                    {notificationTotal > 0 && (
+                      <span className="absolute -right-1.5 -top-1.5 flex h-5 min-w-5 items-center justify-center rounded-full border-2 border-white bg-red-500 px-1 text-[10px] font-bold text-white">
+                        {notificationTotal > 99 ? "99+" : notificationTotal}
+                      </span>
+                    )}
+                  </button>
+
+                  {notificationMenuOpen && (
+                    <NotificationCentre
+                      notificationTotal={notificationTotal}
+                      unreadOrders={unreadOrders}
+                      unreadMessages={unreadMessages}
+                      saleAccessBadges={saleAccessBadges}
+                      role={role}
+                      onNavigate={openNotificationDestination}
+                    />
+                  )}
+                </div>
+              )}
+
+              {/* PROFILE DROPDOWN */}
+              <div className="relative z-[90] shrink-0">
+                <button
+                  type="button"
+                  onClick={() => setProfileMenuOpen((previous) => !previous)}
+                  aria-expanded={profileMenuOpen}
+                  aria-haspopup="menu"
+                  aria-label="Open profile menu"
+                  className="flex h-10 items-center gap-2 rounded-xl border border-[#DCE6DA] bg-[#F4F8F2] px-2.5 text-[#24583D] transition hover:bg-[#E8F0E6]"
+                >
+                  <span className="flex h-8 w-8 items-center justify-center rounded-full bg-[#DCEBDD]">
+                    <User size={18} />
+                  </span>
+
+                  <span className="hidden max-w-28 truncate text-sm font-semibold sm:block">
+                    {name || "User"}
+                  </span>
+
+                  <ChevronDown
+                    size={15}
+                    className={`transition-transform ${
+                      profileMenuOpen ? "rotate-180" : ""
+                    }`}
+                  />
+                </button>
+
+                {profileMenuOpen && (
+                  <>
+                    <button
+                      type="button"
+                      aria-label="Close profile menu"
+                      onClick={() => setProfileMenuOpen(false)}
+                      className="fixed inset-0 z-40 cursor-default"
+                    />
+
+                    <div
+                      role="menu"
+                      className="absolute right-0 top-full z-50 mt-2 w-64 overflow-hidden rounded-2xl border border-[#E1E9DE] bg-white shadow-xl"
+                    >
+                      <div className="border-b border-[#E9EEE6] bg-[#F4F8F2] px-4 py-4">
+                        <p className="truncate font-bold text-[#294B36]">
+                          {name || "User"}
+                        </p>
+                        <p className="mt-1 text-xs capitalize text-gray-500">
+                          {role || "staff"}
+                        </p>
+                      </div>
+
+                      <div className="p-2">
+                        <button
+                          type="button"
+                          role="menuitem"
+                          onClick={() => {
+                            setProfileMenuOpen(false);
+                            navigate("/admin/profile");
+                          }}
+                          className="flex w-full items-center gap-3 rounded-xl px-3 py-3 text-left text-sm font-medium text-gray-700 transition hover:bg-[#EDF4EA] hover:text-[#24583D]"
+                        >
+                          <User size={17} />
+                          My Profile
+                        </button>
+
+                        <button
+                          type="button"
+                          role="menuitem"
+                          onClick={() => {
+                            setProfileMenuOpen(false);
+                            navigate("/admin/profile");
+                          }}
+                          className="flex w-full items-center gap-3 rounded-xl px-3 py-3 text-left text-sm font-medium text-gray-700 transition hover:bg-[#EDF4EA] hover:text-[#24583D]"
+                        >
+                          <Settings size={17} />
+                          Account Settings
+                        </button>
+
+                        <div className="my-2 border-t border-gray-100" />
+
+                        <button
+                          type="button"
+                          role="menuitem"
+                          onClick={handleLogout}
+                          className="flex w-full items-center gap-3 rounded-xl px-3 py-3 text-left text-sm font-semibold text-red-600 transition hover:bg-red-50"
+                        >
+                          <LogOut size={17} />
+                          Logout
+                        </button>
+                      </div>
+                    </div>
+                  </>
+                )}
+              </div>
             </div>
 
-            <button
-              type="button"
-              onClick={() => navigate("/admin/profile")}
-              aria-label="Open profile"
-              className="flex h-10 w-10 shrink-0 items-center justify-center rounded-full bg-green-700 text-white transition hover:bg-green-800"
-            >
-              👤
-            </button>
+            {/* SEARCH AND WELCOME */}
+            <div className="flex flex-col gap-2 sm:flex-row sm:items-center sm:justify-between">
+              <div className="w-full min-w-0 sm:max-w-xl">
+                <GlobalSearch />
+              </div>
+
+              <div className="flex items-center gap-2 text-xs text-[#78917D] sm:hidden">
+                <Calendar size={15} />
+                <span>{today}</span>
+              </div>
+
+              <p className="hidden text-xs font-medium text-[#78917D] lg:block">
+                Welcome back, {name || "User"}. Here's your farm workspace.
+              </p>
+            </div>
           </div>
         </header>
 
+        {/* PAGE CONTENT */}
         <div className="w-full min-w-0 p-4 sm:p-6 lg:p-8">
           <Outlet />
         </div>
       </main>
 
+      {/* EXISTING MESSAGE POPUP */}
       <NotificationPopup
         notifications={messageNotifications}
         onClose={handlePopupClose}
