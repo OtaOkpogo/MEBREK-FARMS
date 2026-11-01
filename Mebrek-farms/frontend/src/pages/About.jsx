@@ -1,15 +1,21 @@
 import { Link as RouterLink } from "react-router-dom";
 
+// =========================================================
+// ABOUT PAGE
+// Animations are handled centrally by PageMotion.jsx
+// =========================================================
+
 export default function About() {
   return (
     <main className="min-h-screen bg-stone-50 text-gray-800">
       {/* =====================================================
           BACK TO HOME
       ===================================================== */}
+
       <div className="site-container pt-6">
         <RouterLink
           to="/"
-          className="inline-flex items-center gap-2 rounded-xl border border-stone-200 bg-white px-4 py-2.5 text-sm font-semibold text-stone-700 shadow-sm transition hover:border-green-700 hover:bg-green-50 hover:text-green-800"
+          className="inline-flex items-center gap-2 rounded-xl border border-stone-200 bg-white px-4 py-2.5 text-sm font-semibold text-stone-700 shadow-sm transition duration-300 hover:-translate-y-0.5 hover:border-green-700 hover:bg-green-50 hover:text-green-800"
         >
           <span aria-hidden="true">←</span>
           Back to Home
@@ -19,36 +25,56 @@ export default function About() {
       {/* =====================================================
           HERO
       ===================================================== */}
-      <section className="relative overflow-hidden bg-green-950">
-        <div className="absolute inset-0 bg-gradient-to-br from-green-950 via-green-900 to-green-800" />
+
+      <section className="relative isolate overflow-hidden bg-green-950">
+        <div className="absolute inset-0 -z-10 bg-gradient-to-br from-green-950 via-green-900 to-green-800" />
+
+        <div className="absolute -right-24 -top-24 -z-10 h-80 w-80 rounded-full bg-green-700/20 blur-3xl" />
+
+        <div className="absolute -bottom-32 -left-20 -z-10 h-96 w-96 rounded-full bg-yellow-400/10 blur-3xl" />
 
         <div className="relative site-container py-20 sm:py-24 lg:py-32">
           <div className="max-w-3xl">
-            <span className="eyebrow bg-green-800 text-green-100">
+            <span
+              data-hero-badge
+              className="eyebrow bg-green-800 text-green-100"
+            >
               About MEBREK FARMS
             </span>
 
-            <h1 className="mt-6 text-4xl font-extrabold leading-tight text-white sm:text-5xl lg:text-6xl">
+            <h1
+              data-hero-title
+              className="mt-6 text-4xl font-extrabold leading-tight text-white sm:text-5xl lg:text-6xl"
+            >
               Farming with care.
               <span className="block text-yellow-300">
                 Producing with purpose.
               </span>
             </h1>
 
-            <p className="mt-6 max-w-2xl text-base leading-8 text-green-100 sm:text-lg">
+            <p
+              data-hero-description
+              className="mt-6 max-w-2xl text-base leading-8 text-green-100 sm:text-lg"
+            >
               MEBREK FARMS provides high-quality poultry products through
               modern, hygienic farming practices tailored to the needs of
               Nigerian agriculture.
             </p>
 
-            <div className="mt-8 flex flex-col gap-3 sm:flex-row">
-              <RouterLink to="/products" className="btn btn-secondary">
+            <div
+              data-hero-buttons
+              className="mt-8 flex flex-col gap-3 sm:flex-row"
+            >
+              <RouterLink
+                to="/products"
+                className="btn btn-secondary transition-all duration-300 hover:-translate-y-1"
+              >
                 Explore Our Products
               </RouterLink>
 
               <RouterLink
                 to="/contact"
-                className="btn border-2 border-white/30 bg-white/10 text-white backdrop-blur hover:bg-white hover:text-green-900"
+                className="btn border-2 border-white/30 bg-white/10 text-white backdrop-blur transition-all duration-300 hover:-translate-y-1 hover:bg-white hover:text-green-900"
               >
                 Talk to Us
               </RouterLink>
@@ -60,10 +86,11 @@ export default function About() {
       {/* =====================================================
           INTRODUCTION
       ===================================================== */}
+
       <section className="section bg-white">
         <div className="site-container">
           <div className="grid items-center gap-12 lg:grid-cols-2 lg:gap-20">
-            <div>
+            <div data-reveal>
               <span className="eyebrow">Who We Are</span>
 
               <h2 className="section-title mt-5">
@@ -90,13 +117,16 @@ export default function About() {
               </p>
             </div>
 
-            <div className="relative">
-              <div className="overflow-hidden rounded-3xl bg-green-900 p-8 shadow-2xl sm:p-10">
+            <div data-reveal className="relative">
+              <div className="relative overflow-hidden rounded-3xl bg-green-900 p-8 shadow-2xl transition-transform duration-500 hover:-translate-y-1 sm:p-10">
                 <div className="absolute -right-10 -top-10 h-32 w-32 rounded-full bg-yellow-300/20" />
+
                 <div className="absolute -bottom-12 -left-10 h-40 w-40 rounded-full bg-white/5" />
 
                 <div className="relative">
-                  <div className="text-6xl">🐔</div>
+                  <div className="text-6xl transition-transform duration-500 hover:scale-110">
+                    🐔
+                  </div>
 
                   <h3 className="mt-6 text-2xl font-bold text-white sm:text-3xl">
                     Modern Poultry Farming
@@ -108,15 +138,17 @@ export default function About() {
                   </p>
 
                   <div className="mt-8 grid grid-cols-2 gap-4">
-                    <div className="rounded-2xl bg-white/10 p-4 backdrop-blur">
+                    <div className="rounded-2xl bg-white/10 p-4 backdrop-blur transition-all duration-300 hover:-translate-y-1 hover:bg-white/15">
                       <div className="text-2xl">🥚</div>
+
                       <p className="mt-2 font-semibold text-white">
                         Egg Production
                       </p>
                     </div>
 
-                    <div className="rounded-2xl bg-white/10 p-4 backdrop-blur">
+                    <div className="rounded-2xl bg-white/10 p-4 backdrop-blur transition-all duration-300 hover:-translate-y-1 hover:bg-white/15">
                       <div className="text-2xl">🌱</div>
+
                       <p className="mt-2 font-semibold text-white">
                         Agricultural Services
                       </p>
@@ -132,9 +164,10 @@ export default function About() {
       {/* =====================================================
           OUR FOCUS
       ===================================================== */}
+
       <section className="section bg-stone-50">
         <div className="site-container">
-          <div className="mx-auto max-w-3xl text-center">
+          <div data-reveal className="mx-auto max-w-3xl text-center">
             <span className="eyebrow">Our Focus</span>
 
             <h2 className="section-title mt-5">
@@ -147,9 +180,15 @@ export default function About() {
             </p>
           </div>
 
-          <div className="mt-14 grid gap-6 md:grid-cols-2 lg:grid-cols-4">
-            <div className="card">
-              <div className="flex h-14 w-14 items-center justify-center rounded-2xl bg-green-100 text-3xl">
+          <div
+            data-stagger-group
+            className="mt-14 grid gap-6 md:grid-cols-2 lg:grid-cols-4"
+          >
+            <div
+              data-stagger-card
+              className="card transition-all duration-300 hover:-translate-y-2 hover:shadow-xl"
+            >
+              <div className="flex h-14 w-14 items-center justify-center rounded-2xl bg-green-100 text-3xl transition-transform duration-300 hover:scale-110">
                 🐔
               </div>
 
@@ -163,8 +202,11 @@ export default function About() {
               </p>
             </div>
 
-            <div className="card">
-              <div className="flex h-14 w-14 items-center justify-center rounded-2xl bg-yellow-100 text-3xl">
+            <div
+              data-stagger-card
+              className="card transition-all duration-300 hover:-translate-y-2 hover:shadow-xl"
+            >
+              <div className="flex h-14 w-14 items-center justify-center rounded-2xl bg-yellow-100 text-3xl transition-transform duration-300 hover:scale-110">
                 🥚
               </div>
 
@@ -178,8 +220,11 @@ export default function About() {
               </p>
             </div>
 
-            <div className="card">
-              <div className="flex h-14 w-14 items-center justify-center rounded-2xl bg-green-100 text-3xl">
+            <div
+              data-stagger-card
+              className="card transition-all duration-300 hover:-translate-y-2 hover:shadow-xl"
+            >
+              <div className="flex h-14 w-14 items-center justify-center rounded-2xl bg-green-100 text-3xl transition-transform duration-300 hover:scale-110">
                 ❤️
               </div>
 
@@ -193,8 +238,11 @@ export default function About() {
               </p>
             </div>
 
-            <div className="card">
-              <div className="flex h-14 w-14 items-center justify-center rounded-2xl bg-yellow-100 text-3xl">
+            <div
+              data-stagger-card
+              className="card transition-all duration-300 hover:-translate-y-2 hover:shadow-xl"
+            >
+              <div className="flex h-14 w-14 items-center justify-center rounded-2xl bg-yellow-100 text-3xl transition-transform duration-300 hover:scale-110">
                 🌱
               </div>
 
@@ -214,10 +262,11 @@ export default function About() {
       {/* =====================================================
           OUR APPROACH
       ===================================================== */}
+
       <section className="section bg-white">
         <div className="site-container">
           <div className="grid gap-12 lg:grid-cols-2 lg:items-center lg:gap-20">
-            <div className="order-2 lg:order-1">
+            <div data-reveal className="order-2 lg:order-1">
               <div className="rounded-3xl bg-green-950 p-8 shadow-xl sm:p-10">
                 <span className="text-sm font-bold uppercase tracking-[0.2em] text-yellow-300">
                   Our Approach
@@ -233,8 +282,8 @@ export default function About() {
                   production cycle.
                 </p>
 
-                <div className="mt-8 space-y-5">
-                  <div className="flex gap-4">
+                <div data-approach-steps className="mt-8 space-y-5">
+                  <div data-approach-step className="flex gap-4">
                     <div className="flex h-9 w-9 shrink-0 items-center justify-center rounded-full bg-yellow-300 font-bold text-green-950">
                       1
                     </div>
@@ -251,7 +300,7 @@ export default function About() {
                     </div>
                   </div>
 
-                  <div className="flex gap-4">
+                  <div data-approach-step className="flex gap-4">
                     <div className="flex h-9 w-9 shrink-0 items-center justify-center rounded-full bg-yellow-300 font-bold text-green-950">
                       2
                     </div>
@@ -266,7 +315,7 @@ export default function About() {
                     </div>
                   </div>
 
-                  <div className="flex gap-4">
+                  <div data-approach-step className="flex gap-4">
                     <div className="flex h-9 w-9 shrink-0 items-center justify-center rounded-full bg-yellow-300 font-bold text-green-950">
                       3
                     </div>
@@ -284,7 +333,7 @@ export default function About() {
               </div>
             </div>
 
-            <div className="order-1 lg:order-2">
+            <div data-reveal className="order-1 lg:order-2">
               <span className="eyebrow">Responsible Farming</span>
 
               <h2 className="section-title mt-5">
@@ -304,7 +353,7 @@ export default function About() {
               </p>
 
               <div className="mt-8 grid grid-cols-2 gap-4">
-                <div className="rounded-2xl border border-green-100 bg-green-50 p-5">
+                <div className="rounded-2xl border border-green-100 bg-green-50 p-5 transition-all duration-300 hover:-translate-y-1 hover:shadow-md">
                   <p className="text-2xl font-extrabold text-green-800">
                     Quality
                   </p>
@@ -314,7 +363,7 @@ export default function About() {
                   </p>
                 </div>
 
-                <div className="rounded-2xl border border-yellow-100 bg-yellow-50 p-5">
+                <div className="rounded-2xl border border-yellow-100 bg-yellow-50 p-5 transition-all duration-300 hover:-translate-y-1 hover:shadow-md">
                   <p className="text-2xl font-extrabold text-green-800">Care</p>
 
                   <p className="mt-1 text-sm text-gray-600">
@@ -330,9 +379,10 @@ export default function About() {
       {/* =====================================================
           WHY CHOOSE US
       ===================================================== */}
+
       <section className="section bg-stone-50">
         <div className="site-container">
-          <div className="mx-auto max-w-3xl text-center">
+          <div data-reveal className="mx-auto max-w-3xl text-center">
             <span className="eyebrow">Why MEBREK FARMS</span>
 
             <h2 className="section-title mt-5">
@@ -346,8 +396,11 @@ export default function About() {
             </p>
           </div>
 
-          <div className="mt-14 grid gap-6 md:grid-cols-3">
-            <div className="rounded-3xl bg-white p-7 shadow-sm ring-1 ring-black/5">
+          <div data-stagger-group className="mt-14 grid gap-6 md:grid-cols-3">
+            <div
+              data-stagger-card
+              className="rounded-3xl bg-white p-7 shadow-sm ring-1 ring-black/5 transition-all duration-300 hover:-translate-y-2 hover:shadow-xl"
+            >
               <div className="text-4xl">🌾</div>
 
               <h3 className="mt-5 text-xl font-bold text-gray-900">
@@ -360,7 +413,10 @@ export default function About() {
               </p>
             </div>
 
-            <div className="rounded-3xl bg-white p-7 shadow-sm ring-1 ring-black/5">
+            <div
+              data-stagger-card
+              className="rounded-3xl bg-white p-7 shadow-sm ring-1 ring-black/5 transition-all duration-300 hover:-translate-y-2 hover:shadow-xl"
+            >
               <div className="text-4xl">🤝</div>
 
               <h3 className="mt-5 text-xl font-bold text-gray-900">
@@ -373,7 +429,10 @@ export default function About() {
               </p>
             </div>
 
-            <div className="rounded-3xl bg-white p-7 shadow-sm ring-1 ring-black/5">
+            <div
+              data-stagger-card
+              className="rounded-3xl bg-white p-7 shadow-sm ring-1 ring-black/5 transition-all duration-300 hover:-translate-y-2 hover:shadow-xl"
+            >
               <div className="text-4xl">📋</div>
 
               <h3 className="mt-5 text-xl font-bold text-gray-900">
@@ -392,9 +451,17 @@ export default function About() {
       {/* =====================================================
           CTA
       ===================================================== */}
-      <section className="bg-yellow-300">
-        <div className="site-container py-14 sm:py-16">
-          <div className="flex flex-col items-start justify-between gap-8 lg:flex-row lg:items-center">
+
+      <section className="relative overflow-hidden bg-yellow-300">
+        <div className="absolute -right-20 -top-20 h-64 w-64 rounded-full bg-yellow-200/50" />
+
+        <div className="absolute -bottom-32 -left-20 h-72 w-72 rounded-full bg-yellow-400/40" />
+
+        <div className="site-container relative py-14 sm:py-16">
+          <div
+            data-reveal
+            className="flex flex-col items-start justify-between gap-8 lg:flex-row lg:items-center"
+          >
             <div className="max-w-2xl">
               <p className="text-sm font-bold uppercase tracking-[0.2em] text-green-900">
                 Ready to do business with us?
@@ -413,14 +480,14 @@ export default function About() {
             <div className="flex w-full flex-col gap-3 sm:w-auto sm:flex-row">
               <RouterLink
                 to="/products"
-                className="btn bg-green-900 text-white hover:bg-green-800"
+                className="btn bg-green-900 text-white transition-all duration-300 hover:-translate-y-1 hover:bg-green-800"
               >
                 View Products
               </RouterLink>
 
               <RouterLink
                 to="/contact"
-                className="btn border-2 border-green-900 bg-transparent text-green-950 hover:bg-green-900 hover:text-white"
+                className="btn border-2 border-green-900 bg-transparent text-green-950 transition-all duration-300 hover:-translate-y-1 hover:bg-green-900 hover:text-white"
               >
                 Contact Us
               </RouterLink>

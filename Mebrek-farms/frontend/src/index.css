@@ -6,24 +6,50 @@
    MEBREK FARMS — GLOBAL FOUNDATION
 ========================================================= */
 
+:root {
+  color-scheme: light;
+
+  --farm-green: #166534;
+  --farm-green-dark: #14532d;
+  --farm-green-deep: #052e16;
+  --farm-yellow: #fde047;
+
+  --farm-background: #fafaf9;
+  --farm-text: #292524;
+  --farm-muted: #57534e;
+
+  --farm-transition: 250ms ease;
+}
+
 html {
   scroll-behavior: smooth;
+  scroll-padding-top: 90px;
 }
 
 body {
   @apply bg-stone-50 text-gray-800 font-sans;
+
   margin: 0;
   padding: 0;
   min-width: 320px;
-}
+  min-height: 100vh;
 
-/* Better text rendering */
-* {
+  overflow-x: hidden;
+
   -webkit-font-smoothing: antialiased;
   -moz-osx-font-smoothing: grayscale;
 }
 
+/* Better box sizing */
+
+*,
+*::before,
+*::after {
+  box-sizing: border-box;
+}
+
 /* Prevent accidental horizontal scrolling */
+
 html,
 body {
   width: 100%;
@@ -31,12 +57,14 @@ body {
 }
 
 /* Images */
+
 img {
   max-width: 100%;
   display: block;
 }
 
 /* Form controls */
+
 button,
 input,
 textarea,
@@ -44,16 +72,32 @@ select {
   font: inherit;
 }
 
+button {
+  cursor: pointer;
+}
+
+button:disabled {
+  cursor: not-allowed;
+}
+
 /* Keyboard accessibility */
+
 :focus-visible {
-  outline: 3px solid rgba(34, 197, 94, 0.45);
+  outline: 3px solid rgba(34, 197, 94, 0.55);
   outline-offset: 3px;
 }
 
 /* Text selection */
+
 ::selection {
   background: #166534;
   color: #ffffff;
+}
+
+/* Smooth anchor navigation */
+
+a {
+  -webkit-tap-highlight-color: transparent;
 }
 
 /* =========================================================
@@ -131,7 +175,27 @@ select {
 }
 
 /* =========================================================
-   ANIMATIONS
+   GENERAL INTERACTION EFFECTS
+========================================================= */
+
+a,
+button {
+  transition-property:
+    color, background-color, border-color, box-shadow, transform;
+
+  transition-duration: 250ms;
+  transition-timing-function: ease;
+}
+
+/* Image hover behaviour */
+
+img {
+  height: auto;
+}
+
+/* =========================================================
+   CSS ANIMATIONS
+   Retained for existing components using these classes.
 ========================================================= */
 
 @keyframes fadeIn {
@@ -221,14 +285,16 @@ select {
 ========================================================= */
 
 @media (prefers-reduced-motion: reduce) {
-  html {
-    scroll-behavior: auto;
+  html,
+  body {
+    scroll-behavior: auto !important;
   }
 
   *,
   *::before,
   *::after {
     animation-duration: 0.01ms !important;
+    animation-delay: 0ms !important;
     animation-iteration-count: 1 !important;
     transition-duration: 0.01ms !important;
     scroll-behavior: auto !important;

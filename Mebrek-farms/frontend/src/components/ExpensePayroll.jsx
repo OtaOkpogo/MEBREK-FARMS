@@ -1,8 +1,8 @@
-
 import { useCallback, useEffect, useMemo, useState } from "react";
 import { toast } from "react-toastify";
 import {
   fetchPayrollWorkers,
+  setPayrollSalary,
   createSalaryPayment,
   createBulkSalaryPayments,
 } from "../services/expenseService";
@@ -11,10 +11,11 @@ const PAYMENT_METHODS = ["Cash", "Transfer", "POS"];
 
 const today = () => {
   const date = new Date();
-  const year = date.getFullYear();
-  const month = String(date.getMonth() + 1).padStart(2, "0");
-  const day = String(date.getDate()).padStart(2, "0");
-  return `${year}-${month}-${day}`;
+  return [
+    date.getFullYear(),
+    String(date.getMonth() + 1).padStart(2, "0"),
+    String(date.getDate()).padStart(2, "0"),
+  ].join("-");
 };
 
 const currentPeriod = () => today().slice(0, 7);
@@ -34,28 +35,15 @@ const workerName = (worker) =>
   "Unnamed worker";
 
 const amountValue = (worker) =>
-  Number(
-    worker?.salaryAmount ??
-      worker?.salary ??
-      worker?.monthlySalary ??
-      worker?.monthlyPay ??
-      0,
-  );
+  Number(worker?.agreedSalary ?? worker?.salaryAmount ?? 0);
 
 const paidValue = (worker) =>
-  Number(
-    worker?.paidAmount ??
-      worker?.totalPaid ??
-      worker?.paid ??
-      worker?.amountPaid ??
-      0,
-  );
+  Number(worker?.paidToDate ?? worker?.paidAmount ?? worker?.totalPaid ?? 0);
 
 const outstandingValue = (worker) =>
   Number(
-    worker?.outstandingBalance ??
+    worker?.outstanding ??
       worker?.balance ??
-      worker?.outstanding ??
       Math.max(0, amountValue(worker) - paidValue(worker)),
   );
 
@@ -67,11 +55,12 @@ export default function ExpensePayroll({ onPayrollSaved }) {
 
   const [workers, setWorkers] = useState([]);
   const [selectedWorkers, setSelectedWorkers] = useState({});
+  const [salaryAmounts, setSalaryAmounts] = useState({});
   const [paymentAmounts, setPaymentAmounts] = useState({});
   const [individualAmounts, setIndividualAmounts] = useState({});
-  const [individualWorkerId, setIndividualWorkerId] = useState("");
 
   const [loading, setLoading] = useState(false);
+  const [savingSalaryWorkerId, setSavingSalaryWorkerId] = useState("");
   const [savingWorkerId, setSavingWorkerId] = useState("");
   const [bulkSaving, setBulkSaving] = useState(false);
 
@@ -84,12 +73,37 @@ export default function ExpensePayroll({ onPayrollSaved }) {
 
       setWorkers(rows);
 
+      setSalaryAmounts((previous) => {
+        const next = {};
+
+        rows.forEach((worker) => {
+          const id = workerId(worker);
+          if (!id) return;
+
+          // Always reflect the saved salary returned by the server.
+          // For a worker without a saved salary, retain unsaved typing.
+          next[id] = worker.salarySet
+            ? String(amountValue(worker))
+            : (previous[id] ?? "");
+        });
+
+        return next;
+      });
+
       setSelectedWorkers((previous) => {
         const next = {};
 
         rows.forEach((worker) => {
           const id = workerId(worker);
-          if (id && previous[id]) next[id] = true;
+
+          if (
+            id &&
+            previous[id] &&
+            worker.salarySet &&
+            outstandingValue(worker) > 0
+          ) {
+            next[id] = true;
+          }
         });
 
         return next;
@@ -108,7 +122,9 @@ export default function ExpensePayroll({ onPayrollSaved }) {
           next[id] =
             oldAmount > 0 && oldAmount <= balance
               ? String(oldAmount)
-              : String(balance);
+              : balance > 0
+                ? String(balance)
+                : "";
         });
 
         return next;
@@ -127,7 +143,9 @@ export default function ExpensePayroll({ onPayrollSaved }) {
           next[id] =
             oldAmount > 0 && oldAmount <= balance
               ? String(oldAmount)
-              : String(balance);
+              : balance > 0
+                ? String(balance)
+                : "";
         });
 
         return next;
@@ -147,23 +165,31 @@ export default function ExpensePayroll({ onPayrollSaved }) {
     loadPayroll();
   }, [loadPayroll]);
 
-  const totals = useMemo(() => {
-    return workers.reduce(
-      (result, worker) => {
-        result.salary += amountValue(worker);
-        result.paid += paidValue(worker);
-        result.outstanding += outstandingValue(worker);
-        return result;
-      },
-      { salary: 0, paid: 0, outstanding: 0 },
-    );
-  }, [workers]);
+  const totals = useMemo(
+    () =>
+      workers.reduce(
+        (result, worker) => {
+          result.salary += amountValue(worker);
+          result.paid += paidValue(worker);
+          result.outstanding += outstandingValue(worker);
+          return result;
+        },
+        { salary: 0, paid: 0, outstanding: 0 },
+      ),
+    [workers],
+  );
 
   const selectedList = useMemo(
     () =>
       workers.filter((worker) => {
         const id = workerId(worker);
-        return id && selectedWorkers[id];
+
+        return (
+          id &&
+          selectedWorkers[id] &&
+          worker.salarySet &&
+          outstandingValue(worker) > 0
+        );
       }),
     [workers, selectedWorkers],
   );
@@ -177,7 +203,23 @@ export default function ExpensePayroll({ onPayrollSaved }) {
     [selectedList, paymentAmounts],
   );
 
+  const updateSalaryAmount = (id, value) => {
+    setSalaryAmounts((previous) => ({ ...previous, [id]: value }));
+  };
+
+  const updateBulkAmount = (id, value) => {
+    setPaymentAmounts((previous) => ({ ...previous, [id]: value }));
+  };
+
+  const updateIndividualAmount = (id, value) => {
+    setIndividualAmounts((previous) => ({ ...previous, [id]: value }));
+  };
+
   const toggleWorker = (id) => {
+    const worker = workers.find((item) => workerId(item) === id);
+
+    if (!worker?.salarySet || outstandingValue(worker) <= 0) return;
+
     setSelectedWorkers((previous) => ({
       ...previous,
       [id]: !previous[id],
@@ -190,28 +232,74 @@ export default function ExpensePayroll({ onPayrollSaved }) {
     if (checked) {
       workers.forEach((worker) => {
         const id = workerId(worker);
-        if (id && outstandingValue(worker) > 0) next[id] = true;
+
+        if (id && worker.salarySet && outstandingValue(worker) > 0) {
+          next[id] = true;
+        }
       });
     }
 
     setSelectedWorkers(next);
   };
 
-  const updateBulkAmount = (id, value) => {
-    setPaymentAmounts((previous) => ({
-      ...previous,
-      [id]: value,
-    }));
-  };
+  const handleSaveSalary = async (worker) => {
+    const id = workerId(worker);
+    const salaryAmount = Number(salaryAmounts[id]);
 
-  const updateIndividualAmount = (id, value) => {
-    setIndividualAmounts((previous) => ({
-      ...previous,
-      [id]: value,
-    }));
+    if (!id) {
+      toast.error("Unable to identify this worker.");
+      return;
+    }
+
+    if (!Number.isFinite(salaryAmount) || salaryAmount <= 0) {
+      toast.error("Enter an agreed monthly salary greater than zero.");
+      return;
+    }
+
+    if (salaryAmount < paidValue(worker)) {
+      toast.error(
+        `Salary cannot be lower than the ${money(paidValue(worker))} already paid.`,
+      );
+      return;
+    }
+
+    try {
+      setSavingSalaryWorkerId(id);
+
+      await setPayrollSalary({
+        workerId: id,
+        salaryPeriod,
+        salaryAmount,
+      });
+
+      toast.success(
+        `Monthly salary saved for ${workerName(worker)} (${salaryPeriod}).`,
+      );
+
+      await loadPayroll();
+
+      if (onPayrollSaved) {
+        await onPayrollSaved();
+      }
+    } catch (error) {
+      console.error("SAVE MONTHLY SALARY ERROR:", error);
+
+      toast.error(
+        error?.response?.data?.message ||
+          error?.message ||
+          "Failed to save the agreed monthly salary.",
+      );
+    } finally {
+      setSavingSalaryWorkerId("");
+    }
   };
 
   const validateAmount = (worker, rawAmount) => {
+    if (!worker.salarySet) {
+      toast.error(`Save the agreed salary for ${workerName(worker)} first.`);
+      return null;
+    }
+
     const amount = Number(rawAmount);
     const balance = outstandingValue(worker);
 
@@ -246,7 +334,6 @@ export default function ExpensePayroll({ onPayrollSaved }) {
     }
 
     const amount = validateAmount(worker, individualAmounts[id]);
-
     if (amount === null) return;
 
     const confirmed = window.confirm(
@@ -273,11 +360,13 @@ export default function ExpensePayroll({ onPayrollSaved }) {
       await refreshAfterPayment();
     } catch (error) {
       console.error("INDIVIDUAL SALARY PAYMENT ERROR:", error);
+
       toast.error(
         error?.response?.data?.message ||
           error?.message ||
           "Failed to record salary payment.",
       );
+
       await loadPayroll();
     } finally {
       setSavingWorkerId("");
@@ -286,7 +375,9 @@ export default function ExpensePayroll({ onPayrollSaved }) {
 
   const handleBulkPayment = async () => {
     if (selectedList.length === 0) {
-      toast.error("Select at least one worker.");
+      toast.error(
+        "Select workers with saved salaries and outstanding balances.",
+      );
       return;
     }
 
@@ -298,16 +389,15 @@ export default function ExpensePayroll({ onPayrollSaved }) {
 
       if (amount === null) return;
 
-      selectedPayments.push({
-        workerId: id,
-        amount,
-      });
+      selectedPayments.push({ workerId: id, amount });
     }
 
+    const total = selectedPayments.reduce((sum, item) => sum + item.amount, 0);
+
     const confirmed = window.confirm(
-      `Record salary payments for ${selectedPayments.length} selected worker(s), totalling ${money(
-        selectedPaymentTotal,
-      )}, for ${salaryPeriod}?\n\nOnly the selected workers will be processed.`,
+      `Record salary payments for ${selectedPayments.length} worker(s), totalling ${money(
+        total,
+      )}, for ${salaryPeriod}?\n\nOnly selected workers will be processed.`,
     );
 
     if (!confirmed) return;
@@ -317,38 +407,22 @@ export default function ExpensePayroll({ onPayrollSaved }) {
 
       const response = await createBulkSalaryPayments({
         salaryPeriod,
-        workers: selectedPayments,
+        payments: selectedPayments,
         paymentMethod,
         date: paymentDate,
         remarks: remarks.trim(),
       });
 
-      const successes =
-        response?.successes ??
-        response?.successful ??
-        response?.results?.filter((item) => item.success) ??
-        [];
+      const successes = response?.count ?? response?.payments?.length ?? 0;
+      const failures = response?.errors ?? [];
 
-      const failures =
-        response?.failures ??
-        response?.failed ??
-        response?.results?.filter((item) => !item.success) ??
-        [];
-
-      if (Array.isArray(failures) && failures.length > 0) {
+      if (failures.length > 0) {
         toast.warning(
-          `Payroll completed with ${failures.length} unsuccessful payment(s). Review the results and outstanding balances.`,
+          `${successes} payment(s) recorded. ${failures.length} payment(s) failed. Check the outstanding balances.`,
         );
+        console.warn("Bulk payroll errors:", failures);
       } else {
-        toast.success(
-          Array.isArray(successes) && successes.length > 0
-            ? `${successes.length} salary payment(s) recorded successfully.`
-            : "Bulk payroll request processed.",
-        );
-      }
-
-      if (Array.isArray(failures) && failures.length > 0) {
-        console.warn("Bulk payroll payment failures:", failures);
+        toast.success(`${successes} salary payment(s) recorded successfully.`);
       }
 
       setSelectedWorkers({});
@@ -356,20 +430,21 @@ export default function ExpensePayroll({ onPayrollSaved }) {
     } catch (error) {
       console.error("BULK SALARY PAYMENT ERROR:", error);
 
-      const responseData = error?.response?.data;
-      const message =
-        responseData?.message ||
-        error?.message ||
-        "Failed to process bulk payroll.";
+      toast.error(
+        error?.response?.data?.message ||
+          error?.message ||
+          "Failed to process bulk payroll.",
+      );
 
-      toast.error(message);
-
-      // A partial bulk request may have recorded some payments.
       await refreshAfterPayment();
     } finally {
       setBulkSaving(false);
     }
   };
+
+  const eligibleWorkers = workers.filter(
+    (worker) => worker.salarySet && outstandingValue(worker) > 0,
+  );
 
   return (
     <div className="space-y-6">
@@ -380,8 +455,8 @@ export default function ExpensePayroll({ onPayrollSaved }) {
               Monthly Salary Payroll
             </h2>
             <p className="text-sm text-gray-500 mt-1">
-              Select workers manually, record individual or bulk payments, and
-              track outstanding monthly salaries.
+              Set each worker's agreed salary for the selected month, then
+              record full or partial payments.
             </p>
           </div>
 
@@ -460,17 +535,17 @@ export default function ExpensePayroll({ onPayrollSaved }) {
       <div className="grid grid-cols-1 sm:grid-cols-2 xl:grid-cols-4 gap-4">
         {[
           {
-            label: "Workers Listed",
+            label: "Active Workers",
             value: workers.length.toLocaleString("en-NG"),
             color: "text-gray-900",
           },
           {
-            label: "Monthly Salary Total",
+            label: "Agreed Salaries",
             value: money(totals.salary),
             color: "text-gray-900",
           },
           {
-            label: "Paid This Month",
+            label: "Total Paid",
             value: money(totals.paid),
             color: "text-green-700",
           },
@@ -500,17 +575,15 @@ export default function ExpensePayroll({ onPayrollSaved }) {
                 Workers and Salary Balances
               </h3>
               <p className="text-sm text-gray-500 mt-1">
-                Select workers for bulk payment or record a payment for one
-                worker at a time. Amounts default to the remaining balance.
+                Enter the salary in the Monthly Salary column and click Save
+                Salary. You must save it before recording a payment.
               </p>
             </div>
 
             <button
               type="button"
               onClick={handleBulkPayment}
-              disabled={
-                bulkSaving || loading || selectedList.length === 0
-              }
+              disabled={bulkSaving || loading || selectedList.length === 0}
               className="px-4 py-2 rounded-lg bg-green-600 text-white font-medium hover:bg-green-700 disabled:opacity-50"
             >
               {bulkSaving
@@ -534,11 +607,11 @@ export default function ExpensePayroll({ onPayrollSaved }) {
         ) : workers.length === 0 ? (
           <div className="py-16 px-5 text-center">
             <p className="font-medium text-gray-700">
-              No monthly-paid active workers found.
+              No active workers found.
             </p>
             <p className="text-sm text-gray-500 mt-2">
-              Check that workers exist in the Worker database, have Active
-              status, and use Monthly payment frequency.
+              Check that your workers exist in the Worker database and have
+              Active status.
             </p>
           </div>
         ) : (
@@ -551,14 +624,10 @@ export default function ExpensePayroll({ onPayrollSaved }) {
                       type="checkbox"
                       aria-label="Select workers with outstanding salaries"
                       checked={
-                        workers.filter(
-                          (worker) => outstandingValue(worker) > 0,
-                        ).length > 0 &&
-                        workers
-                          .filter(
-                            (worker) => outstandingValue(worker) > 0,
-                          )
-                          .every((worker) => selectedWorkers[workerId(worker)])
+                        eligibleWorkers.length > 0 &&
+                        eligibleWorkers.every(
+                          (worker) => selectedWorkers[workerId(worker)],
+                        )
                       }
                       onChange={(event) =>
                         toggleAllWorkers(event.target.checked)
@@ -567,7 +636,7 @@ export default function ExpensePayroll({ onPayrollSaved }) {
                   </th>
                   <th className="px-3 py-3 text-left">Worker</th>
                   <th className="px-3 py-3 text-left">Employee ID</th>
-                  <th className="px-3 py-3 text-right">Monthly Salary</th>
+                  <th className="px-3 py-3 text-left">Monthly Salary</th>
                   <th className="px-3 py-3 text-right">Paid</th>
                   <th className="px-3 py-3 text-right">Outstanding</th>
                   <th className="px-3 py-3 text-right">Bulk Amount</th>
@@ -583,7 +652,8 @@ export default function ExpensePayroll({ onPayrollSaved }) {
                   const paid = paidValue(worker);
                   const balance = outstandingValue(worker);
                   const selected = Boolean(selectedWorkers[id]);
-                  const busy = savingWorkerId === id;
+                  const salaryBusy = savingSalaryWorkerId === id;
+                  const paymentBusy = savingWorkerId === id;
 
                   return (
                     <tr
@@ -595,7 +665,12 @@ export default function ExpensePayroll({ onPayrollSaved }) {
                           type="checkbox"
                           aria-label={`Select ${workerName(worker)}`}
                           checked={selected}
-                          disabled={!id || balance <= 0 || bulkSaving}
+                          disabled={
+                            !id ||
+                            !worker.salarySet ||
+                            balance <= 0 ||
+                            bulkSaving
+                          }
                           onChange={() => toggleWorker(id)}
                         />
                       </td>
@@ -605,16 +680,55 @@ export default function ExpensePayroll({ onPayrollSaved }) {
                           {workerName(worker)}
                         </p>
                         <p className="text-xs text-gray-500">
-                          {worker?.department || worker?.role || "—"}
+                          {worker.department || worker.role || "—"}
                         </p>
                       </td>
 
                       <td className="px-3 py-3 whitespace-nowrap">
-                        {worker?.employeeId || worker?.staffId || "—"}
+                        {worker.employeeId || worker.staffId || "—"}
                       </td>
 
-                      <td className="px-3 py-3 text-right whitespace-nowrap">
-                        {money(salary)}
+                      <td className="px-3 py-3 min-w-[230px]">
+                        <div className="flex flex-col gap-2">
+                          <input
+                            type="number"
+                            min="0.01"
+                            step="0.01"
+                            value={salaryAmounts[id] ?? ""}
+                            onChange={(event) =>
+                              updateSalaryAmount(id, event.target.value)
+                            }
+                            disabled={salaryBusy || bulkSaving}
+                            placeholder="Enter agreed salary"
+                            aria-label={`Agreed monthly salary for ${workerName(worker)}`}
+                            className="w-48 rounded-lg border border-gray-300 bg-white px-3 py-2 text-right focus:outline-none focus:ring-2 focus:ring-green-500 disabled:bg-gray-100"
+                          />
+
+                          <button
+                            type="button"
+                            onClick={() => handleSaveSalary(worker)}
+                            disabled={salaryBusy || bulkSaving}
+                            className="w-fit px-3 py-2 rounded-lg bg-green-600 text-white text-xs font-semibold hover:bg-green-700 disabled:opacity-50"
+                          >
+                            {salaryBusy
+                              ? "Saving..."
+                              : worker.salarySet
+                                ? "Update Salary"
+                                : "Save Salary"}
+                          </button>
+
+                          <span
+                            className={`text-xs ${
+                              worker.salarySet
+                                ? "text-green-700"
+                                : "text-orange-700"
+                            }`}
+                          >
+                            {worker.salarySet
+                              ? `Saved for ${salaryPeriod}`
+                              : "Salary not set for this month"}
+                          </span>
+                        </div>
                       </td>
 
                       <td className="px-3 py-3 text-right text-green-700 whitespace-nowrap">
@@ -638,7 +752,9 @@ export default function ExpensePayroll({ onPayrollSaved }) {
                           max={balance}
                           step="0.01"
                           value={paymentAmounts[id] ?? ""}
-                          disabled={balance <= 0 || bulkSaving}
+                          disabled={
+                            !worker.salarySet || balance <= 0 || bulkSaving
+                          }
                           onChange={(event) =>
                             updateBulkAmount(id, event.target.value)
                           }
@@ -654,7 +770,9 @@ export default function ExpensePayroll({ onPayrollSaved }) {
                           max={balance}
                           step="0.01"
                           value={individualAmounts[id] ?? ""}
-                          disabled={balance <= 0 || busy}
+                          disabled={
+                            !worker.salarySet || balance <= 0 || paymentBusy
+                          }
                           onChange={(event) =>
                             updateIndividualAmount(id, event.target.value)
                           }
@@ -667,10 +785,15 @@ export default function ExpensePayroll({ onPayrollSaved }) {
                         <button
                           type="button"
                           onClick={() => handleIndividualPayment(worker)}
-                          disabled={balance <= 0 || busy || bulkSaving}
+                          disabled={
+                            !worker.salarySet ||
+                            balance <= 0 ||
+                            paymentBusy ||
+                            bulkSaving
+                          }
                           className="px-3 py-2 rounded-lg bg-blue-600 text-white hover:bg-blue-700 disabled:opacity-50"
                         >
-                          {busy ? "Saving..." : "Pay"}
+                          {paymentBusy ? "Saving..." : "Pay"}
                         </button>
                       </td>
                     </tr>
@@ -682,12 +805,11 @@ export default function ExpensePayroll({ onPayrollSaved }) {
         )}
 
         <div className="p-4 border-t border-gray-200 text-xs text-gray-500">
-          Salary records are created through the dedicated payroll API. Only
-          successful payments should increase the paid total. Always review
-          the outstanding balance after recording a payment.
+          Agreed salary is saved separately for each worker and month. Only
+          actual payments count as expenses. Deleted payments are excluded from
+          paid totals.
         </div>
       </div>
     </div>
   );
 }
-

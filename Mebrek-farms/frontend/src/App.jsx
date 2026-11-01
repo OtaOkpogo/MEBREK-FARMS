@@ -1,51 +1,87 @@
+import { lazy, Suspense } from "react";
 import { BrowserRouter, Routes, Route } from "react-router-dom";
 
 import Navbar from "./components/Navbar";
 import Footer from "./components/Footer";
+import PageMotion from "./components/PageMotion";
+import SEO from "./components/SEO";
 
-import Login from "./pages/Login";
-import Home from "./pages/Home";
-import About from "./pages/About";
-import Products from "./pages/Products";
-import Contact from "./pages/Contact";
-import Unauthorized from "./pages/Unauthorized";
-
-import Notifications from "./admin/Notifications";
 import ProtectedRoute from "./routes/ProtectedRoute";
-import EggSales from "./pages/EggSales";
-import ManureSales from "./pages/ManureSales";
-import Reports from "./admin/Reports";
 
-import AdminLayout from "./admin/AdminLayout";
-import Dashboard from "./admin/Dashboard";
-import Orders from "./admin/Orders";
-import Workers from "./admin/Workers";
-import Production from "./admin/Production";
-import FeedInventory from "./admin/FeedInventory";
-import FeedInvoices from "./admin/FeedInvoices";
-import Warehouse from "./admin/Warehouse";
-import RoomInventory from "./admin/RoomInventory";
-import Vaccinations from "./admin/Vaccinations";
-import Mortality from "./admin/Mortality";
-import BirdHealth from "./admin/BirdHealth";
-import Medications from "./admin/Medications";
-import Attendance from "./admin/Attendance";
-import StaffAccounts from "./admin/StaffAccounts";
-import Profile from "./admin/Profile";
-import Backup from "./admin/Backup";
+// ============================================================
+// LAZY-LOADED PUBLIC PAGES
+// ============================================================
 
-import Expenses from "./pages/Expenses";
-import Flocks from "./pages/Flocks";
-import Customers from "./pages/Customers";
-import BulkSMS from "./admin/BulkSMS";
+const Login = lazy(() => import("./pages/Login"));
+const Home = lazy(() => import("./pages/Home"));
+const About = lazy(() => import("./pages/About"));
+const Products = lazy(() => import("./pages/Products"));
+const Contact = lazy(() => import("./pages/Contact"));
+const Unauthorized = lazy(() => import("./pages/Unauthorized"));
 
-/* =========================================================
-   PUBLIC WEBSITE LAYOUT
-   ========================================================= */
+// ============================================================
+// LAZY-LOADED ADMIN PAGES
+// ============================================================
+
+const Notifications = lazy(() => import("./admin/Notifications"));
+const Reports = lazy(() => import("./admin/Reports"));
+const AdminLayout = lazy(() => import("./admin/AdminLayout"));
+const Dashboard = lazy(() => import("./admin/Dashboard"));
+const Orders = lazy(() => import("./admin/Orders"));
+const Workers = lazy(() => import("./admin/Workers"));
+const Production = lazy(() => import("./admin/Production"));
+const FeedInventory = lazy(() => import("./admin/FeedInventory"));
+const FeedInvoices = lazy(() => import("./admin/FeedInvoices"));
+const Warehouse = lazy(() => import("./admin/Warehouse"));
+const RoomInventory = lazy(() => import("./admin/RoomInventory"));
+const Vaccinations = lazy(() => import("./admin/Vaccinations"));
+const Mortality = lazy(() => import("./admin/Mortality"));
+const BirdHealth = lazy(() => import("./admin/BirdHealth"));
+const Medications = lazy(() => import("./admin/Medications"));
+const Attendance = lazy(() => import("./admin/Attendance"));
+const StaffAccounts = lazy(() => import("./admin/StaffAccounts"));
+const Profile = lazy(() => import("./admin/Profile"));
+const Backup = lazy(() => import("./admin/Backup"));
+const BulkSMS = lazy(() => import("./admin/BulkSMS"));
+
+// ============================================================
+// LAZY-LOADED SALES AND MANAGEMENT PAGES
+// ============================================================
+
+const EggSales = lazy(() => import("./pages/EggSales"));
+const ManureSales = lazy(() => import("./pages/ManureSales"));
+const Expenses = lazy(() => import("./pages/Expenses"));
+const Flocks = lazy(() => import("./pages/Flocks"));
+const Customers = lazy(() => import("./pages/Customers"));
+
+// ============================================================
+// LOADING SCREEN
+// ============================================================
+
+function PageLoader() {
+  return (
+    <div className="flex min-h-[60vh] items-center justify-center bg-stone-50">
+      <div className="text-center">
+        <div className="mx-auto h-12 w-12 animate-spin rounded-full border-4 border-green-100 border-t-green-800" />
+
+        <p className="mt-4 text-sm font-medium text-stone-600">
+          Loading Mebrek Farms...
+        </p>
+      </div>
+    </div>
+  );
+}
+
+// ============================================================
+// PUBLIC WEBSITE LAYOUT
+// ============================================================
 
 function PublicLayout({ children }) {
   return (
-    <div className="flex min-h-screen flex-col bg-white">
+    <div className="flex min-h-screen flex-col bg-white" data-farm-motion-root>
+      <SEO />
+      <PageMotion />
+
       <Navbar />
 
       <main className="flex-1">{children}</main>
@@ -55,259 +91,261 @@ function PublicLayout({ children }) {
   );
 }
 
-/* =========================================================
-   APP
-   ========================================================= */
+// ============================================================
+// ADMIN ROUTE ACCESS
+// ============================================================
+
+function AdminPage({ children, allowedRoles }) {
+  return (
+    <ProtectedRoute allowedRoles={allowedRoles}>{children}</ProtectedRoute>
+  );
+}
+
+// ============================================================
+// APPLICATION
+// ============================================================
 
 function App() {
   return (
     <BrowserRouter>
-      <Routes>
-        {/* =====================================================
-            PUBLIC WEBSITE
-            ===================================================== */}
-
-        <Route
-          path="/"
-          element={
-            <PublicLayout>
-              <Home />
-            </PublicLayout>
-          }
-        />
-
-        <Route
-          path="/about"
-          element={
-            <PublicLayout>
-              <About />
-            </PublicLayout>
-          }
-        />
-
-        <Route
-          path="/products"
-          element={
-            <PublicLayout>
-              <Products />
-            </PublicLayout>
-          }
-        />
-
-        <Route
-          path="/contact"
-          element={
-            <PublicLayout>
-              <Contact />
-            </PublicLayout>
-          }
-        />
-
-        {/* Login stays separate from public website navigation */}
-        <Route path="/login" element={<Login />} />
-
-        <Route path="/unauthorized" element={<Unauthorized />} />
-
-        {/* =====================================================
-            ADMIN PANEL
-            ===================================================== */}
-
-        <Route
-          path="/admin"
-          element={
-            <ProtectedRoute>
-              <AdminLayout />
-            </ProtectedRoute>
-          }
-        >
-          {/* ===================================================
-              ALL ROLES
-              =================================================== */}
-
-          <Route index element={<Dashboard />} />
-
-          {/* Notifications: Superadmin and Manager only */}
-          <Route
-            path="notifications"
-            element={
-              <ProtectedRoute allowedRoles={["superadmin", "manager"]}>
-                <Notifications />
-              </ProtectedRoute>
-            }
-          />
-
-          <Route path="orders" element={<Orders />} />
-
-          <Route path="production" element={<Production />} />
-
-          <Route path="attendance" element={<Attendance />} />
-
-          <Route path="vaccinations" element={<Vaccinations />} />
-
-          <Route path="bird-health" element={<BirdHealth />} />
-
-          <Route path="medications" element={<Medications />} />
-
-          <Route path="mortality" element={<Mortality />} />
-
-          <Route path="profile" element={<Profile />} />
-
-          {/* Customers: /admin/customers */}
-          <Route path="customers" element={<Customers />} />
-
-          {/* ===================================================
-              SUPERADMIN ONLY
-              =================================================== */}
+      <Suspense fallback={<PageLoader />}>
+        <Routes>
+          {/* ==================================================
+              PUBLIC WEBSITE
+              ================================================== */}
 
           <Route
-            path="workers"
+            path="/"
             element={
-              <ProtectedRoute allowedRoles={["superadmin"]}>
-                <Workers />
-              </ProtectedRoute>
+              <PublicLayout>
+                <Home />
+              </PublicLayout>
             }
           />
 
           <Route
-            path="expenses"
+            path="/about"
             element={
-              <ProtectedRoute allowedRoles={["superadmin"]}>
-                <Expenses />
-              </ProtectedRoute>
-            }
-          />
-
-          {/* ===================================================
-              MANAGER + SUPERADMIN
-              =================================================== */}
-
-          <Route
-            path="egg-sales"
-            element={
-              <ProtectedRoute allowedRoles={["superadmin", "manager"]}>
-                <EggSales />
-              </ProtectedRoute>
+              <PublicLayout>
+                <About />
+              </PublicLayout>
             }
           />
 
           <Route
-            path="bulk-sms"
+            path="/products"
             element={
-              <ProtectedRoute allowedRoles={["superadmin", "manager"]}>
-                <BulkSMS />
-              </ProtectedRoute>
+              <PublicLayout>
+                <Products />
+              </PublicLayout>
             }
           />
 
           <Route
-            path="flocks"
+            path="/contact"
             element={
-              <ProtectedRoute allowedRoles={["superadmin", "manager"]}>
-                <Flocks />
-              </ProtectedRoute>
+              <PublicLayout>
+                <Contact />
+              </PublicLayout>
             }
           />
+
+          {/* Login and unauthorized pages */}
+          <Route path="/login" element={<Login />} />
+
+          <Route path="/unauthorized" element={<Unauthorized />} />
+
+          {/* ==================================================
+              ADMIN PANEL
+              ================================================== */}
 
           <Route
-            path="manure-sales"
+            path="/admin"
             element={
-              <ProtectedRoute allowedRoles={["superadmin", "manager"]}>
-                <ManureSales />
+              <ProtectedRoute>
+                <AdminLayout />
               </ProtectedRoute>
             }
-          />
+          >
+            {/* ALL ROLES */}
+
+            <Route index element={<Dashboard />} />
+
+            <Route
+              path="notifications"
+              element={
+                <AdminPage allowedRoles={["superadmin", "manager"]}>
+                  <Notifications />
+                </AdminPage>
+              }
+            />
+
+            <Route path="orders" element={<Orders />} />
+
+            <Route path="production" element={<Production />} />
+
+            <Route path="attendance" element={<Attendance />} />
+
+            <Route path="vaccinations" element={<Vaccinations />} />
+
+            <Route path="bird-health" element={<BirdHealth />} />
+
+            <Route path="medications" element={<Medications />} />
+
+            <Route path="mortality" element={<Mortality />} />
+
+            <Route path="profile" element={<Profile />} />
+
+            <Route path="customers" element={<Customers />} />
+
+            {/* SUPERADMIN ONLY */}
+
+            <Route
+              path="workers"
+              element={
+                <AdminPage allowedRoles={["superadmin"]}>
+                  <Workers />
+                </AdminPage>
+              }
+            />
+
+            <Route
+              path="expenses"
+              element={
+                <AdminPage allowedRoles={["superadmin"]}>
+                  <Expenses />
+                </AdminPage>
+              }
+            />
+
+            {/* MANAGER AND SUPERADMIN */}
+
+            <Route
+              path="egg-sales"
+              element={
+                <AdminPage allowedRoles={["superadmin", "manager"]}>
+                  <EggSales />
+                </AdminPage>
+              }
+            />
+
+            <Route
+              path="bulk-sms"
+              element={
+                <AdminPage allowedRoles={["superadmin", "manager"]}>
+                  <BulkSMS />
+                </AdminPage>
+              }
+            />
+
+            <Route
+              path="flocks"
+              element={
+                <AdminPage allowedRoles={["superadmin", "manager"]}>
+                  <Flocks />
+                </AdminPage>
+              }
+            />
+
+            <Route
+              path="manure-sales"
+              element={
+                <AdminPage allowedRoles={["superadmin", "manager"]}>
+                  <ManureSales />
+                </AdminPage>
+              }
+            />
+
+            <Route
+              path="reports"
+              element={
+                <AdminPage allowedRoles={["superadmin", "manager"]}>
+                  <Reports />
+                </AdminPage>
+              }
+            />
+
+            <Route
+              path="feeds"
+              element={
+                <AdminPage allowedRoles={["superadmin", "manager"]}>
+                  <FeedInventory />
+                </AdminPage>
+              }
+            />
+
+            <Route
+              path="feed-invoices"
+              element={
+                <AdminPage allowedRoles={["superadmin", "manager"]}>
+                  <FeedInvoices />
+                </AdminPage>
+              }
+            />
+
+            <Route
+              path="warehouse"
+              element={
+                <AdminPage allowedRoles={["superadmin", "manager"]}>
+                  <Warehouse />
+                </AdminPage>
+              }
+            />
+
+            <Route
+              path="room-inventory"
+              element={
+                <AdminPage allowedRoles={["superadmin", "manager"]}>
+                  <RoomInventory />
+                </AdminPage>
+              }
+            />
+
+            {/* SUPERADMIN ONLY */}
+
+            <Route
+              path="staff"
+              element={
+                <AdminPage allowedRoles={["superadmin"]}>
+                  <StaffAccounts />
+                </AdminPage>
+              }
+            />
+
+            <Route
+              path="backup"
+              element={
+                <AdminPage allowedRoles={["superadmin"]}>
+                  <Backup />
+                </AdminPage>
+              }
+            />
+          </Route>
+
+          {/* ==================================================
+              404 PAGE
+              ================================================== */}
 
           <Route
-            path="reports"
+            path="*"
             element={
-              <ProtectedRoute allowedRoles={["superadmin", "manager"]}>
-                <Reports />
-              </ProtectedRoute>
-            }
-          />
+              <div className="flex min-h-screen items-center justify-center bg-stone-50 px-6 text-center">
+                <div>
+                  <p className="text-7xl font-black text-green-900">404</p>
 
-          <Route
-            path="feeds"
-            element={
-              <ProtectedRoute allowedRoles={["superadmin", "manager"]}>
-                <FeedInventory />
-              </ProtectedRoute>
-            }
-          />
+                  <h1 className="mt-4 text-3xl font-extrabold text-stone-900">
+                    Page Not Found
+                  </h1>
 
-          <Route
-            path="feed-invoices"
-            element={
-              <ProtectedRoute allowedRoles={["superadmin", "manager"]}>
-                <FeedInvoices />
-              </ProtectedRoute>
-            }
-          />
-
-          <Route
-            path="warehouse"
-            element={
-              <ProtectedRoute allowedRoles={["superadmin", "manager"]}>
-                <Warehouse />
-              </ProtectedRoute>
-            }
-          />
-
-          <Route
-            path="room-inventory"
-            element={
-              <ProtectedRoute allowedRoles={["superadmin", "manager"]}>
-                <RoomInventory />
-              </ProtectedRoute>
-            }
-          />
-
-          {/* ===================================================
-              SUPERADMIN ONLY
-              =================================================== */}
-
-          <Route
-            path="staff"
-            element={
-              <ProtectedRoute allowedRoles={["superadmin"]}>
-                <StaffAccounts />
-              </ProtectedRoute>
-            }
-          />
-
-          <Route
-            path="backup"
-            element={
-              <ProtectedRoute allowedRoles={["superadmin"]}>
-                <Backup />
-              </ProtectedRoute>
-            }
-          />
-        </Route>
-
-        {/* =====================================================
-            404
-            ===================================================== */}
-
-        <Route
-          path="*"
-          element={
-            <div className="flex min-h-screen items-center justify-center bg-stone-50 px-6 text-center">
-              <div>
-                <p className="text-7xl font-black text-green-900">404</p>
-
-                <h1 className="mt-4 text-3xl font-extrabold text-stone-900">
-                  Page Not Found
-                </h1>
-
-                <p className="mt-3 text-stone-600">
-                  The page you are looking for does not exist.
-                </p>
+                  <p className="mt-3 text-stone-600">
+                    The page you are looking for does not exist.
+                  </p>
+                </div>
               </div>
-            </div>
-          }
-        />
-      </Routes>
+            }
+          />
+        </Routes>
+      </Suspense>
     </BrowserRouter>
   );
 }

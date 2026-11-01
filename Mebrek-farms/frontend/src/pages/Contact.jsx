@@ -13,6 +13,10 @@ export default function Contact() {
   const [success, setSuccess] = useState("");
   const [loading, setLoading] = useState(false);
 
+  // ============================================================
+  // FORM HANDLING
+  // ============================================================
+
   const handleChange = (event) => {
     const { name, value } = event.target;
 
@@ -28,6 +32,8 @@ export default function Contact() {
 
   const handleSubmit = async (event) => {
     event.preventDefault();
+
+    if (loading) return;
 
     setLoading(true);
     setSuccess("");
@@ -48,9 +54,7 @@ export default function Contact() {
 
   return (
     <main className="min-h-screen bg-stone-50 text-gray-800">
-      {/* =====================================================
-          BACK TO HOME
-      ===================================================== */}
+      {/* BACK TO HOME */}
       <div className="site-container pt-6">
         <RouterLink
           to="/"
@@ -61,9 +65,7 @@ export default function Contact() {
         </RouterLink>
       </div>
 
-      {/* =====================================================
-          HERO
-      ===================================================== */}
+      {/* HERO */}
       <section className="relative overflow-hidden bg-green-950">
         <div className="absolute inset-0 bg-gradient-to-br from-green-950 via-green-900 to-green-800" />
 
@@ -72,24 +74,24 @@ export default function Contact() {
 
         <div className="relative site-container py-20 sm:py-24 lg:py-28">
           <div className="max-w-3xl">
-            <span className="eyebrow bg-green-800 text-green-100">
+            <span className="contact-hero-item eyebrow bg-green-800 text-green-100">
               CONTACT MEBREK FARMS
             </span>
 
-            <h1 className="mt-6 text-4xl font-extrabold leading-tight text-white sm:text-5xl lg:text-6xl">
+            <h1 className="contact-hero-item mt-6 text-4xl font-extrabold leading-tight text-white sm:text-5xl lg:text-6xl">
               Let&apos;s talk about
               <span className="block text-yellow-300">
                 your farm product needs.
               </span>
             </h1>
 
-            <p className="mt-6 max-w-2xl text-base leading-8 text-green-100 sm:text-lg">
+            <p className="contact-hero-item mt-6 max-w-2xl text-base leading-8 text-green-100 sm:text-lg">
               Looking for eggs, poultry products or agricultural products? Send
               us an enquiry and our team can help you with availability,
               quantities and current pricing.
             </p>
 
-            <div className="mt-8 flex flex-col gap-3 sm:flex-row">
+            <div className="contact-hero-item mt-8 flex flex-col gap-3 sm:flex-row">
               <a href="#enquiry" className="btn btn-secondary">
                 Send an Enquiry
               </a>
@@ -107,33 +109,31 @@ export default function Contact() {
         </div>
       </section>
 
-      {/* =====================================================
-          CONTACT DETAILS + FORM
-      ===================================================== */}
+      {/* CONTACT DETAILS + FORM */}
       <section id="enquiry" className="section bg-white">
         <div className="site-container">
           <div className="grid gap-12 lg:grid-cols-5 lg:gap-16">
-            {/* =================================================
-                CONTACT INFORMATION
-            ================================================= */}
+            {/* CONTACT INFORMATION */}
             <div className="lg:col-span-2">
-              <span className="eyebrow">Get In Touch</span>
+              <div className="contact-section-heading">
+                <span className="eyebrow">Get In Touch</span>
 
-              <h2 className="section-title mt-5">
-                We&apos;d love to hear from you
-              </h2>
+                <h2 className="section-title mt-5">
+                  We&apos;d love to hear from you
+                </h2>
 
-              <p className="mt-6 leading-8 text-gray-600">
-                Whether you want to order eggs, enquire about poultry products,
-                ask about manure or discuss another farm requirement, you can
-                contact MEBREK FARMS directly.
-              </p>
+                <p className="mt-6 leading-8 text-gray-600">
+                  Whether you want to order eggs, enquire about poultry
+                  products, ask about manure or discuss another farm
+                  requirement, you can contact MEBREK FARMS directly.
+                </p>
+              </div>
 
               <div className="mt-8 space-y-4">
-                {/* Phone */}
+                {/* PHONE */}
                 <a
                   href="tel:+2349033723103"
-                  className="group flex items-center gap-4 rounded-2xl border border-gray-100 bg-stone-50 p-5 transition hover:-translate-y-1 hover:border-green-200 hover:bg-green-50 hover:shadow-md"
+                  className="contact-info-card group flex items-center gap-4 rounded-2xl border border-gray-100 bg-stone-50 p-5 transition hover:-translate-y-1 hover:border-green-200 hover:bg-green-50 hover:shadow-md"
                 >
                   <div className="flex h-12 w-12 shrink-0 items-center justify-center rounded-xl bg-green-100 text-2xl">
                     📞
@@ -148,10 +148,10 @@ export default function Contact() {
                   </div>
                 </a>
 
-                {/* Email */}
+                {/* EMAIL */}
                 <a
                   href="mailto:info@mebrekfarms.com"
-                  className="group flex items-center gap-4 rounded-2xl border border-gray-100 bg-stone-50 p-5 transition hover:-translate-y-1 hover:border-green-200 hover:bg-green-50 hover:shadow-md"
+                  className="contact-info-card group flex items-center gap-4 rounded-2xl border border-gray-100 bg-stone-50 p-5 transition hover:-translate-y-1 hover:border-green-200 hover:bg-green-50 hover:shadow-md"
                 >
                   <div className="flex h-12 w-12 shrink-0 items-center justify-center rounded-xl bg-yellow-100 text-2xl">
                     ✉️
@@ -166,12 +166,12 @@ export default function Contact() {
                   </div>
                 </a>
 
-                {/* WhatsApp */}
+                {/* WHATSAPP */}
                 <a
                   href="https://wa.me/2349033723103?text=Hello%20MEBREK%20FARMS,%20I%20want%20to%20make%20an%20enquiry"
                   target="_blank"
                   rel="noopener noreferrer"
-                  className="group flex items-center gap-4 rounded-2xl border border-gray-100 bg-stone-50 p-5 transition hover:-translate-y-1 hover:border-green-200 hover:bg-green-50 hover:shadow-md"
+                  className="contact-info-card group flex items-center gap-4 rounded-2xl border border-gray-100 bg-stone-50 p-5 transition hover:-translate-y-1 hover:border-green-200 hover:bg-green-50 hover:shadow-md"
                 >
                   <div className="flex h-12 w-12 shrink-0 items-center justify-center rounded-xl bg-green-100 text-2xl">
                     💬
@@ -189,8 +189,8 @@ export default function Contact() {
                 </a>
               </div>
 
-              {/* Product links */}
-              <div className="mt-8 rounded-3xl bg-green-950 p-7 text-white shadow-xl">
+              {/* PRODUCT LINKS */}
+              <div className="contact-product-panel mt-8 rounded-3xl bg-green-950 p-7 text-white shadow-xl">
                 <p className="text-sm font-bold uppercase tracking-[0.2em] text-yellow-300">
                   Looking for a product?
                 </p>
@@ -214,10 +214,8 @@ export default function Contact() {
               </div>
             </div>
 
-            {/* =================================================
-                ENQUIRY FORM
-            ================================================= */}
-            <div className="lg:col-span-3">
+            {/* ENQUIRY FORM */}
+            <div className="contact-form-panel lg:col-span-3">
               <div className="rounded-3xl bg-stone-50 p-6 shadow-sm ring-1 ring-black/5 sm:p-8 lg:p-10">
                 <div>
                   <span className="text-sm font-bold uppercase tracking-[0.2em] text-green-800">
@@ -233,7 +231,7 @@ export default function Contact() {
                   </p>
                 </div>
 
-                {/* Success message */}
+                {/* SUCCESS MESSAGE */}
                 {success === "success" && (
                   <div
                     className="mt-6 rounded-2xl border border-green-200 bg-green-50 p-4 text-sm leading-6 text-green-800"
@@ -246,7 +244,7 @@ export default function Contact() {
                   </div>
                 )}
 
-                {/* Error message */}
+                {/* ERROR MESSAGE */}
                 {success === "error" && (
                   <div
                     className="mt-6 rounded-2xl border border-red-200 bg-red-50 p-4 text-sm leading-6 text-red-700"
@@ -260,7 +258,7 @@ export default function Contact() {
                 )}
 
                 <form onSubmit={handleSubmit} className="mt-8 space-y-5">
-                  {/* Name */}
+                  {/* NAME */}
                   <div>
                     <label
                       htmlFor="name"
@@ -276,12 +274,14 @@ export default function Contact() {
                       value={form.name}
                       onChange={handleChange}
                       placeholder="Enter your name"
+                      autoComplete="name"
                       required
+                      disabled={loading}
                       className="input"
                     />
                   </div>
 
-                  {/* Contact */}
+                  {/* CONTACT */}
                   <div>
                     <label
                       htmlFor="contact"
@@ -297,12 +297,14 @@ export default function Contact() {
                       value={form.contact}
                       onChange={handleChange}
                       placeholder="e.g. 08012345678 or your@email.com"
+                      autoComplete="email"
                       required
+                      disabled={loading}
                       className="input"
                     />
                   </div>
 
-                  {/* Message */}
+                  {/* MESSAGE */}
                   <div>
                     <label
                       htmlFor="message"
@@ -319,11 +321,12 @@ export default function Contact() {
                       placeholder="Tell us what you would like to order or enquire about..."
                       rows={6}
                       required
+                      disabled={loading}
                       className="input resize-none"
                     />
                   </div>
 
-                  {/* Submit */}
+                  {/* SUBMIT */}
                   <button
                     type="submit"
                     disabled={loading}
@@ -342,12 +345,10 @@ export default function Contact() {
         </div>
       </section>
 
-      {/* =====================================================
-          SIMPLE ORDER CTA
-      ===================================================== */}
+      {/* BOTTOM WHATSAPP CTA */}
       <section className="bg-yellow-300">
         <div className="site-container py-14 sm:py-16">
-          <div className="flex flex-col items-start justify-between gap-7 lg:flex-row lg:items-center">
+          <div className="contact-bottom-cta flex flex-col items-start justify-between gap-7 lg:flex-row lg:items-center">
             <div>
               <p className="text-sm font-bold uppercase tracking-[0.2em] text-green-900">
                 Prefer WhatsApp?

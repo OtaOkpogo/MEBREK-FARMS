@@ -22,6 +22,7 @@ import {
   restoreExpense,
   fetchExpenseReport,
 } from "../services/expenseService";
+import ExpensePayroll from "../components/ExpensePayroll";
 
 // ============================================================
 // CONSTANTS
@@ -387,6 +388,18 @@ export default function Expenses() {
   ]);
 
   // ============================================================
+  // REFRESH EXPENSES AFTER PAYROLL
+  // ============================================================
+
+  const refreshAfterPayroll = useCallback(async () => {
+    await Promise.all([loadExpenses(), loadExpenseReport()]);
+
+    if (activeTab === "deleted") {
+      await loadDeletedExpenses();
+    }
+  }, [loadExpenses, loadExpenseReport, loadDeletedExpenses, activeTab]);
+
+  // ============================================================
   // EFFECTS
   // ============================================================
 
@@ -513,6 +526,14 @@ export default function Expenses() {
   // ============================================================
 
   const handleEdit = (expense) => {
+    // Salary-payment records must be managed through Monthly Payroll.
+    if (expense?.expenseType === "Salary" || expense?.worker) {
+      toast.info(
+        "Salary payments are managed through Monthly Payroll. Delete the payment if a correction is required.",
+      );
+      return;
+    }
+
     setEditingId(getExpenseId(expense));
 
     setFormData({
@@ -902,8 +923,8 @@ export default function Expenses() {
             Expenses
           </h1>
           <p className="text-sm text-gray-500 mt-1">
-            Manage farm expenses, financial records, audit history and expense
-            reports.
+            Manage farm expenses, monthly payroll, financial records, audit
+            history and expense reports.
           </p>
         </div>
 
@@ -946,6 +967,7 @@ export default function Expenses() {
             </h2>
             <p className="text-sm text-gray-500">
               Amount is calculated automatically from quantity × unit cost.
+              Record staff salaries through the Monthly Payroll tab.
             </p>
           </div>
 
@@ -1006,7 +1028,7 @@ export default function Expenses() {
               name="description"
               value={formData.description}
               onChange={handleChange}
-              placeholder="e.g. Staff salary payment"
+              placeholder="e.g. Feed purchase or repair work"
               className="w-full rounded-lg border border-gray-300 px-3 py-2"
               required
             />
@@ -1063,7 +1085,7 @@ export default function Expenses() {
               name="supplier"
               value={formData.supplier}
               onChange={handleChange}
-              placeholder="Supplier or staff name"
+              placeholder="Supplier or recipient name"
               className="w-full rounded-lg border border-gray-300 px-3 py-2"
             />
           </div>
@@ -1125,7 +1147,8 @@ export default function Expenses() {
               Financial Summary
             </h2>
             <p className="text-sm text-gray-500">
-              Server-side totals across all matching active expenses.
+              Server-side totals across all matching active expenses, including
+              recorded salary payments.
             </p>
           </div>
           {reportLoading && (
@@ -1513,11 +1536,11 @@ export default function Expenses() {
         ))}
       </div>
 
-      {/* ACTIVE / DELETED EXPENSE TABS */}
+      {/* ACTIVE / DELETED / PAYROLL TABS */}
 
       <div className="bg-white rounded-xl shadow-sm border border-gray-200 overflow-hidden">
         <div className="border-b border-gray-200 px-5 pt-5">
-          <div className="flex gap-6">
+          <div className="flex flex-wrap gap-x-6 gap-y-2">
             <button
               type="button"
               onClick={() => setActiveTab("active")}
@@ -1529,6 +1552,7 @@ export default function Expenses() {
             >
               Active Expenses
             </button>
+
             <button
               type="button"
               onClick={() => setActiveTab("deleted")}
@@ -1539,6 +1563,18 @@ export default function Expenses() {
               }`}
             >
               Deleted Expenses
+            </button>
+
+            <button
+              type="button"
+              onClick={() => setActiveTab("payroll")}
+              className={`pb-3 border-b-2 font-medium ${
+                activeTab === "payroll"
+                  ? "border-blue-600 text-blue-700"
+                  : "border-transparent text-gray-500 hover:text-gray-700"
+              }`}
+            >
+              Monthly Payroll
             </button>
           </div>
         </div>
@@ -1607,6 +1643,9 @@ export default function Expenses() {
                     <tbody>
                       {expenses.map((expense) => {
                         const id = getExpenseId(expense);
+                        const isSalaryPayment =
+                          expense?.expenseType === "Salary" ||
+                          Boolean(expense?.worker);
 
                         return (
                           <tr
@@ -1621,11 +1660,21 @@ export default function Expenses() {
                             </td>
                             <td className="px-3 py-3">
                               {expense?.category || "—"}
+                              {isSalaryPayment && (
+                                <span className="block text-xs text-blue-700 mt-1">
+                                  Salary
+                                </span>
+                              )}
                             </td>
                             <td className="px-3 py-3 min-w-[220px]">
                               <div className="font-medium text-gray-900">
                                 {expense?.description || "—"}
                               </div>
+                              {expense?.salaryPeriod && (
+                                <div className="text-xs text-blue-700 mt-1">
+                                  Salary period: {expense.salaryPeriod}
+                                </div>
+                              )}
                               {expense?.remarks && (
                                 <div className="text-xs text-gray-500 mt-1">
                                   {expense.remarks}
@@ -1642,7 +1691,7 @@ export default function Expenses() {
                               {formatCurrency(expense?.amount)}
                             </td>
                             <td className="px-3 py-3">
-                              {expense?.supplier || "—"}
+                              {expense?.workerName || expense?.supplier || "—"}
                             </td>
                             <td className="px-3 py-3">
                               {expense?.paymentMethod || "—"}
@@ -1662,7 +1711,13 @@ export default function Expenses() {
                                 <button
                                   type="button"
                                   onClick={() => handleEdit(expense)}
-                                  className="px-2.5 py-1.5 rounded-md bg-blue-50 text-blue-700 hover:bg-blue-100"
+                                  disabled={isSalaryPayment}
+                                  title={
+                                    isSalaryPayment
+                                      ? "Manage salary payments through Monthly Payroll"
+                                      : "Edit expense"
+                                  }
+                                  className="px-2.5 py-1.5 rounded-md bg-blue-50 text-blue-700 hover:bg-blue-100 disabled:opacity-40 disabled:cursor-not-allowed"
                                 >
                                   Edit
                                 </button>
@@ -1841,6 +1896,25 @@ export default function Expenses() {
             )}
           </div>
         )}
+
+        {/* MONTHLY PAYROLL */}
+
+        {activeTab === "payroll" && (
+          <div className="p-5">
+            <div className="mb-5">
+              <h2 className="text-lg font-semibold text-gray-900">
+                Monthly Staff Payroll
+              </h2>
+              <p className="text-sm text-gray-500 mt-1">
+                Select the month, choose which workers to pay, and record
+                individual or bulk salary payments. Each payment is recorded as
+                an expense and contributes to the financial reports.
+              </p>
+            </div>
+
+            <ExpensePayroll onPayrollSaved={refreshAfterPayroll} />
+          </div>
+        )}
       </div>
 
       {/* EXPENSE DETAILS MODAL */}
@@ -1903,6 +1977,25 @@ export default function Expenses() {
                       {selectedExpense.paymentMethod || "—"}
                     </p>
                   </div>
+
+                  {selectedExpense.salaryPeriod && (
+                    <div>
+                      <p className="text-xs text-gray-500">Salary Period</p>
+                      <p className="font-medium">
+                        {selectedExpense.salaryPeriod}
+                      </p>
+                    </div>
+                  )}
+
+                  {selectedExpense.workerName && (
+                    <div>
+                      <p className="text-xs text-gray-500">Worker</p>
+                      <p className="font-medium">
+                        {selectedExpense.workerName}
+                      </p>
+                    </div>
+                  )}
+
                   <div className="sm:col-span-2">
                     <p className="text-xs text-gray-500">Description</p>
                     <p className="font-medium">
@@ -1943,7 +2036,8 @@ export default function Expenses() {
                   Supplier / Recipient
                 </h3>
                 <p className="text-gray-700">
-                  {selectedExpense.supplier ||
+                  {selectedExpense.workerName ||
+                    selectedExpense.supplier ||
                     "No supplier or recipient recorded."}
                 </p>
               </div>
@@ -2011,18 +2105,20 @@ export default function Expenses() {
                 Close
               </button>
 
-              {!selectedExpense.isDeleted && (
-                <button
-                  type="button"
-                  onClick={() => {
-                    setSelectedExpense(null);
-                    handleEdit(selectedExpense);
-                  }}
-                  className="px-4 py-2 rounded-lg bg-blue-600 text-white hover:bg-blue-700"
-                >
-                  Edit Expense
-                </button>
-              )}
+              {!selectedExpense.isDeleted &&
+                selectedExpense.expenseType !== "Salary" &&
+                !selectedExpense.worker && (
+                  <button
+                    type="button"
+                    onClick={() => {
+                      setSelectedExpense(null);
+                      handleEdit(selectedExpense);
+                    }}
+                    className="px-4 py-2 rounded-lg bg-blue-600 text-white hover:bg-blue-700"
+                  >
+                    Edit Expense
+                  </button>
+                )}
 
               {selectedExpense.isDeleted && (
                 <button

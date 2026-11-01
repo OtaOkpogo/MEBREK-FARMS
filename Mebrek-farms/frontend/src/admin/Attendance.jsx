@@ -1,8 +1,11 @@
-import { useCallback, useEffect, useMemo, useState } from "react";
-import * as XLSX from "xlsx";
-import jsPDF from "jspdf";
-import autoTable from "jspdf-autotable";
-import FaceAttendancePanel from "../components/FaceAttendancePanel";
+import {
+  useCallback,
+  useEffect,
+  useMemo,
+  useState,
+  lazy,
+  Suspense,
+} from "react";
 
 import {
   fetchAttendance,
@@ -12,6 +15,11 @@ import {
   deleteAttendance,
   restoreAttendance,
 } from "../services/attendanceService";
+
+// Load face attendance separately from the main attendance page.
+const FaceAttendancePanel = lazy(
+  () => import("../components/FaceAttendancePanel"),
+);
 
 const STATUSES = [
   "Present",
@@ -37,11 +45,13 @@ const localDate = (date = new Date()) => {
   const year = date.getFullYear();
   const month = String(date.getMonth() + 1).padStart(2, "0");
   const day = String(date.getDate()).padStart(2, "0");
+
   return `${year}-${month}-${day}`;
 };
 
 const currentTime = () => {
   const date = new Date();
+
   return `${String(date.getHours()).padStart(2, "0")}:${String(
     date.getMinutes(),
   ).padStart(2, "0")}`;
@@ -51,7 +61,9 @@ const currentMonth = () => localDate().slice(0, 7);
 
 const formatDate = (value) => {
   if (!value) return "—";
+
   const date = new Date(`${value}T00:00:00`);
+
   return Number.isNaN(date.getTime()) ? value : date.toLocaleDateString();
 };
 
@@ -72,18 +84,23 @@ const buttonClass =
 
 export default function Attendance() {
   const role = localStorage.getItem("role");
+
   const canDelete = role === "manager" || role === "superadmin";
+
   const isSuperadmin = role === "superadmin";
 
   const [attendance, setAttendance] = useState([]);
   const [workers, setWorkers] = useState([]);
+
   const [loading, setLoading] = useState(true);
   const [saving, setSaving] = useState(false);
+
   const [error, setError] = useState("");
   const [notice, setNotice] = useState("");
 
   const [dateFilter, setDateFilter] = useState(localDate());
   const [monthFilter, setMonthFilter] = useState(currentMonth());
+
   const [search, setSearch] = useState("");
   const [statusFilter, setStatusFilter] = useState("All");
   const [workerHistoryId, setWorkerHistoryId] = useState("All");
@@ -97,6 +114,10 @@ export default function Attendance() {
     remarks: "",
   });
 
+  // ============================================================
+  // LOAD ATTENDANCE AND WORKERS
+  // ============================================================
+
   const loadData = useCallback(async () => {
     setLoading(true);
     setError("");
@@ -108,9 +129,11 @@ export default function Attendance() {
       ]);
 
       setAttendance(Array.isArray(attendanceResult) ? attendanceResult : []);
+
       setWorkers(Array.isArray(workerResult) ? workerResult : []);
     } catch (err) {
       console.error("LOAD ATTENDANCE ERROR:", err);
+
       setError(
         err?.response?.data?.message ||
           err?.response?.data?.error ||
@@ -125,6 +148,10 @@ export default function Attendance() {
     loadData();
   }, [loadData]);
 
+  // ============================================================
+  // ATTENDANCE DATA
+  // ============================================================
+
   const activeAttendance = useMemo(
     () => attendance.filter((item) => !item.isDeleted),
     [attendance],
@@ -138,10 +165,14 @@ export default function Attendance() {
   const dailyStats = useMemo(
     () => ({
       total: dailyRecords.length,
+
       present: dailyRecords.filter((item) => item.status === "Present").length,
+
       late: dailyRecords.filter((item) => item.status === "Late" || item.isLate)
         .length,
+
       absent: dailyRecords.filter((item) => item.status === "Absent").length,
+
       leave: dailyRecords.filter((item) =>
         ["Leave", "Sick Leave"].includes(item.status),
       ).length,
@@ -163,10 +194,8 @@ export default function Attendance() {
     return attendance
       .filter((item) => {
         const itemDate = getRecordDate(item);
-        const matchesDate =
-          isSuperadmin && item.isDeleted
-            ? itemDate.startsWith(monthFilter)
-            : itemDate.startsWith(monthFilter);
+
+        const matchesDate = itemDate.startsWith(monthFilter);
 
         const matchesSearch =
           !term ||
@@ -188,29 +217,34 @@ export default function Attendance() {
       })
       .sort((a, b) => {
         const dateDifference = getRecordDate(b).localeCompare(getRecordDate(a));
-        if (dateDifference !== 0) return dateDifference;
+
+        if (dateDifference !== 0) {
+          return dateDifference;
+        }
+
         return String(b.createdAt || "").localeCompare(
           String(a.createdAt || ""),
         );
       });
-  }, [
-    attendance,
-    isSuperadmin,
-    monthFilter,
-    search,
-    statusFilter,
-    workerHistoryId,
-  ]);
+  }, [attendance, monthFilter, search, statusFilter, workerHistoryId]);
+
+  // ============================================================
+  // MONTHLY CALENDAR
+  // ============================================================
 
   const calendarDays = useMemo(() => {
     const [year, month] = monthFilter.split("-").map(Number);
+
     const firstDay = new Date(year, month - 1, 1).getDay();
+
     const numberOfDays = new Date(year, month, 0).getDate();
 
     const days = Array(firstDay).fill(null);
+
     for (let day = 1; day <= numberOfDays; day += 1) {
       days.push(day);
     }
+
     return days;
   }, [monthFilter]);
 
@@ -219,19 +253,28 @@ export default function Attendance() {
 
     monthlyRecords.forEach((item) => {
       const day = getRecordDate(item).slice(-2);
+
       if (!day) return;
+
       counts[Number(day)] = (counts[Number(day)] || 0) + 1;
     });
 
     return counts;
   }, [monthlyRecords]);
 
+  // ============================================================
+  // FORM HANDLING
+  // ============================================================
+
   const selectedWorker = workers.find(
     (worker) => worker._id === formData.workerId,
   );
 
   const updateForm = (field, value) => {
-    setFormData((previous) => ({ ...previous, [field]: value }));
+    setFormData((previous) => ({
+      ...previous,
+      [field]: value,
+    }));
   };
 
   const handleWorkerChange = (workerId) => {
@@ -261,6 +304,7 @@ export default function Attendance() {
 
   const handleSubmit = async (event) => {
     event.preventDefault();
+
     setError("");
     setNotice("");
 
@@ -271,6 +315,7 @@ export default function Attendance() {
 
     const duplicate = attendance.find(
       (item) =>
+        !item.isDeleted &&
         String(getWorkerId(item) || "") === String(selectedWorker._id) &&
         getRecordDate(item) === formData.attendanceDate,
     );
@@ -297,6 +342,7 @@ export default function Attendance() {
       });
 
       setNotice("Attendance saved successfully.");
+
       setFormData({
         workerId: "",
         attendanceDate: dateFilter || localDate(),
@@ -318,6 +364,10 @@ export default function Attendance() {
     }
   };
 
+  // ============================================================
+  // CHECK-IN / CHECK-OUT
+  // ============================================================
+
   const handleTimeAction = async (item, field) => {
     setError("");
     setNotice("");
@@ -332,6 +382,7 @@ export default function Attendance() {
       setNotice(
         `${field === "checkInTime" ? "Check-in" : "Check-out"} recorded for ${item.workerName}.`,
       );
+
       await loadData();
     } catch (err) {
       setError(
@@ -342,13 +393,19 @@ export default function Attendance() {
     }
   };
 
+  // ============================================================
+  // STATUS UPDATE
+  // ============================================================
+
   const handleStatusChange = async (item, status) => {
     setError("");
     setNotice("");
 
     try {
       await updateAttendance(item._id, { status });
+
       setNotice(`Status updated for ${item.workerName}.`);
+
       await loadData();
     } catch (err) {
       setError(
@@ -359,12 +416,23 @@ export default function Attendance() {
     }
   };
 
+  // ============================================================
+  // DELETE ATTENDANCE
+  // ============================================================
+
   const handleDelete = async (id) => {
-    if (!window.confirm("Soft-delete this attendance record?")) return;
+    if (!window.confirm("Soft-delete this attendance record?")) {
+      return;
+    }
+
+    setError("");
+    setNotice("");
 
     try {
       await deleteAttendance(id);
+
       setNotice("Attendance record deleted.");
+
       await loadData();
     } catch (err) {
       setError(
@@ -375,10 +443,19 @@ export default function Attendance() {
     }
   };
 
+  // ============================================================
+  // RESTORE ATTENDANCE
+  // ============================================================
+
   const handleRestore = async (id) => {
+    setError("");
+    setNotice("");
+
     try {
       await restoreAttendance(id);
+
       setNotice("Attendance record restored.");
+
       await loadData();
     } catch (err) {
       setError(
@@ -388,6 +465,10 @@ export default function Attendance() {
       );
     }
   };
+
+  // ============================================================
+  // EXPORT DATA
+  // ============================================================
 
   const exportRows = monthlyRecords.map((item) => ({
     Date: getRecordDate(item),
@@ -402,91 +483,154 @@ export default function Attendance() {
     Remarks: item.remarks || "",
   }));
 
-  const exportExcel = () => {
+  // ============================================================
+  // EXPORT EXCEL - LOAD LIBRARY ONLY WHEN CLICKED
+  // ============================================================
+
+  const exportExcel = async () => {
     if (!exportRows.length) {
       setError("There are no attendance records for the selected month.");
       return;
     }
 
-    const worksheet = XLSX.utils.json_to_sheet(exportRows);
-    worksheet["!cols"] = [
-      { wch: 13 },
-      { wch: 25 },
-      { wch: 20 },
-      { wch: 14 },
-      { wch: 12 },
-      { wch: 12 },
-      { wch: 16 },
-      { wch: 8 },
-      { wch: 16 },
-      { wch: 35 },
-    ];
+    try {
+      setError("");
 
-    const workbook = XLSX.utils.book_new();
-    XLSX.utils.book_append_sheet(workbook, worksheet, "Attendance");
-    XLSX.writeFile(workbook, `attendance-${monthFilter}.xlsx`);
+      const XLSX = await import("xlsx");
+
+      const worksheet = XLSX.utils.json_to_sheet(exportRows);
+
+      worksheet["!cols"] = [
+        { wch: 13 },
+        { wch: 25 },
+        { wch: 20 },
+        { wch: 14 },
+        { wch: 12 },
+        { wch: 12 },
+        { wch: 16 },
+        { wch: 8 },
+        { wch: 16 },
+        { wch: 35 },
+      ];
+
+      const workbook = XLSX.utils.book_new();
+
+      XLSX.utils.book_append_sheet(workbook, worksheet, "Attendance");
+
+      XLSX.writeFile(workbook, `attendance-${monthFilter}.xlsx`);
+    } catch (err) {
+      console.error("EXCEL EXPORT ERROR:", err);
+
+      setError("Unable to export attendance to Excel.");
+    }
   };
 
-  const exportPDF = () => {
+  // ============================================================
+  // EXPORT PDF - LOAD LIBRARIES ONLY WHEN CLICKED
+  // ============================================================
+
+  const exportPDF = async () => {
     if (!exportRows.length) {
       setError("There are no attendance records for the selected month.");
       return;
     }
 
-    const pdf = new jsPDF({ orientation: "landscape" });
+    try {
+      setError("");
 
-    pdf.setFontSize(16);
-    pdf.text(`Mebrek Farms Attendance Report — ${monthFilter}`, 14, 15);
+      const [{ default: jsPDF }, { default: autoTable }] = await Promise.all([
+        import("jspdf"),
+        import("jspdf-autotable"),
+      ]);
 
-    autoTable(pdf, {
-      startY: 22,
-      head: [
-        [
-          "Date",
-          "Worker",
-          "Role",
-          "Status",
-          "Check In",
-          "Check Out",
-          "Late",
-          "Hours",
-          "Remarks",
+      const pdf = new jsPDF({
+        orientation: "landscape",
+      });
+
+      pdf.setFontSize(16);
+
+      pdf.text(`Mebrek Farms Attendance Report — ${monthFilter}`, 14, 15);
+
+      autoTable(pdf, {
+        startY: 22,
+
+        head: [
+          [
+            "Date",
+            "Worker",
+            "Role",
+            "Status",
+            "Check In",
+            "Check Out",
+            "Late",
+            "Hours",
+            "Remarks",
+          ],
         ],
-      ],
-      body: exportRows.map((row) => [
-        row.Date,
-        row.Worker,
-        row.Role,
-        row.Status,
-        row["Check In"],
-        row["Check Out"],
-        row.Late,
-        row["Working Hours"],
-        row.Remarks,
-      ]),
-      styles: { fontSize: 8, cellPadding: 2 },
-      headStyles: { fillColor: [21, 128, 61] },
-    });
 
-    pdf.save(`attendance-${monthFilter}.pdf`);
+        body: exportRows.map((row) => [
+          row.Date,
+          row.Worker,
+          row.Role,
+          row.Status,
+          row["Check In"],
+          row["Check Out"],
+          row.Late,
+          row["Working Hours"],
+          row.Remarks,
+        ]),
+
+        styles: {
+          fontSize: 8,
+          cellPadding: 2,
+        },
+
+        headStyles: {
+          fillColor: [21, 128, 61],
+        },
+      });
+
+      pdf.save(`attendance-${monthFilter}.pdf`);
+    } catch (err) {
+      console.error("PDF EXPORT ERROR:", err);
+
+      setError("Unable to export attendance to PDF.");
+    }
   };
+
+  // ============================================================
+  // PAGE UI
+  // ============================================================
 
   return (
     <div className="space-y-6 p-4 md:p-6">
+      {/* PAGE HEADER */}
+
       <div className="flex flex-col justify-between gap-3 md:flex-row md:items-center">
         <div>
           <h1 className="text-2xl font-bold text-gray-900 md:text-3xl">
             Farm Attendance
           </h1>
+
           <p className="mt-1 text-sm text-gray-500">
             Record attendance, monitor working hours, and review monthly
             reports.
           </p>
         </div>
-        <FaceAttendancePanel
-          workers={workers}
-          onAttendanceRecorded={loadData}
-        />
+
+        <Suspense
+          fallback={
+            <div className="rounded-lg border border-gray-200 bg-white p-3 text-sm text-gray-500">
+              Loading face attendance...
+            </div>
+          }
+        >
+          <FaceAttendancePanel
+            workers={workers}
+            onAttendanceRecorded={loadData}
+          />
+        </Suspense>
+
         <div className="flex flex-wrap gap-2">
           <button
             type="button"
@@ -495,6 +639,7 @@ export default function Attendance() {
           >
             Export Excel
           </button>
+
           <button
             type="button"
             onClick={exportPDF}
@@ -502,6 +647,7 @@ export default function Attendance() {
           >
             Export PDF
           </button>
+
           <button
             type="button"
             onClick={loadData}
@@ -512,18 +658,24 @@ export default function Attendance() {
         </div>
       </div>
 
+      {/* ERROR MESSAGE */}
+
       {error && (
         <div className="rounded-lg border border-red-200 bg-red-50 p-3 text-sm text-red-700">
           {error}
         </div>
       )}
+
+      {/* SUCCESS MESSAGE */}
+
       {notice && (
         <div className="rounded-lg border border-green-200 bg-green-50 p-3 text-sm text-green-800">
           {notice}
         </div>
       )}
 
-      {/* Daily dashboard */}
+      {/* DAILY DASHBOARD */}
+
       <section className="grid grid-cols-2 gap-3 lg:grid-cols-5">
         {[
           ["Records", dailyStats.total, "bg-white"],
@@ -537,12 +689,14 @@ export default function Attendance() {
             className={`rounded-xl border border-gray-200 p-4 ${color}`}
           >
             <p className="text-sm text-gray-600">{label}</p>
+
             <p className="mt-2 text-2xl font-bold text-gray-900">{value}</p>
           </div>
         ))}
       </section>
 
-      {/* Manual attendance form */}
+      {/* MANUAL ATTENDANCE FORM */}
+
       <section className="rounded-xl border border-gray-200 bg-white p-4 shadow-sm md:p-5">
         <h2 className="mb-4 text-lg font-bold text-gray-900">
           Record Attendance
@@ -561,6 +715,7 @@ export default function Attendance() {
               required
             >
               <option value="">Select worker</option>
+
               {workers.map((worker) => (
                 <option key={worker._id} value={worker._id}>
                   {worker.workerName}
@@ -658,17 +813,20 @@ export default function Attendance() {
         </form>
       </section>
 
-      {/* Monthly calendar */}
+      {/* MONTHLY CALENDAR */}
+
       <section className="rounded-xl border border-gray-200 bg-white p-4 shadow-sm md:p-5">
         <div className="mb-4 flex flex-col gap-3 sm:flex-row sm:items-end sm:justify-between">
           <div>
             <h2 className="text-lg font-bold text-gray-900">
               Monthly Calendar
             </h2>
+
             <p className="text-sm text-gray-500">
               Number of attendance records recorded for each day.
             </p>
           </div>
+
           <label className="text-sm font-medium text-gray-700">
             Report Month
             <input
@@ -689,46 +847,52 @@ export default function Attendance() {
         </div>
 
         <div className="grid grid-cols-7 gap-1 sm:gap-2">
-          {calendarDays.map((day, index) => (
-            <button
-              key={`${monthFilter}-${index}`}
-              type="button"
-              disabled={!day}
-              onClick={() => {
-                const [year, month] = monthFilter.split("-");
-                const chosenDate = `${year}-${month}-${String(day).padStart(2, "0")}`;
-                setDateFilter(chosenDate);
-                setFormData((previous) => ({
-                  ...previous,
-                  attendanceDate: chosenDate,
-                }));
-              }}
-              className={`min-h-14 rounded-lg border p-1 text-sm sm:min-h-16 ${
-                !day
-                  ? "border-transparent"
-                  : dateFilter ===
-                      `${monthFilter}-${String(day).padStart(2, "0")}`
-                    ? "border-green-700 bg-green-50 font-bold text-green-800"
-                    : "border-gray-200 hover:bg-gray-50"
-              }`}
-            >
-              {day && (
-                <>
-                  <span>{day}</span>
-                  {calendarCounts[day] ? (
-                    <span className="mt-1 block text-xs text-green-700">
-                      {calendarCounts[day]} record
-                      {calendarCounts[day] === 1 ? "" : "s"}
-                    </span>
-                  ) : null}
-                </>
-              )}
-            </button>
-          ))}
+          {calendarDays.map((day, index) => {
+            const chosenDate = day
+              ? `${monthFilter}-${String(day).padStart(2, "0")}`
+              : "";
+
+            return (
+              <button
+                key={`${monthFilter}-${index}`}
+                type="button"
+                disabled={!day}
+                onClick={() => {
+                  setDateFilter(chosenDate);
+
+                  setFormData((previous) => ({
+                    ...previous,
+                    attendanceDate: chosenDate,
+                  }));
+                }}
+                className={`min-h-14 rounded-lg border p-1 text-sm sm:min-h-16 ${
+                  !day
+                    ? "border-transparent"
+                    : dateFilter === chosenDate
+                      ? "border-green-700 bg-green-50 font-bold text-green-800"
+                      : "border-gray-200 hover:bg-gray-50"
+                }`}
+              >
+                {day && (
+                  <>
+                    <span>{day}</span>
+
+                    {calendarCounts[day] ? (
+                      <span className="mt-1 block text-xs text-green-700">
+                        {calendarCounts[day]} record
+                        {calendarCounts[day] === 1 ? "" : "s"}
+                      </span>
+                    ) : null}
+                  </>
+                )}
+              </button>
+            );
+          })}
         </div>
       </section>
 
-      {/* Filters and history */}
+      {/* FILTERS AND HISTORY */}
+
       <section className="rounded-xl border border-gray-200 bg-white p-4 shadow-sm md:p-5">
         <div className="mb-4 grid gap-3 md:grid-cols-2 xl:grid-cols-4">
           <label className="text-sm font-medium text-gray-700">
@@ -760,6 +924,7 @@ export default function Attendance() {
               onChange={(event) => setStatusFilter(event.target.value)}
             >
               <option value="All">All statuses</option>
+
               {STATUSES.map((status) => (
                 <option key={status} value={status}>
                   {status}
@@ -776,6 +941,7 @@ export default function Attendance() {
               onChange={(event) => setWorkerHistoryId(event.target.value)}
             >
               <option value="All">All workers</option>
+
               {workers.map((worker) => (
                 <option key={worker._id} value={worker._id}>
                   {worker.workerName}
@@ -789,6 +955,7 @@ export default function Attendance() {
           <h2 className="text-lg font-bold text-gray-900">
             Attendance Records
           </h2>
+
           <p className="text-sm text-gray-500">
             {filteredRecords.length} record
             {filteredRecords.length === 1 ? "" : "s"}
@@ -813,7 +980,9 @@ export default function Attendance() {
                   <th className="p-3">Check Out</th>
                   <th className="p-3">Late</th>
                   <th className="p-3">Hours</th>
+
                   {isSuperadmin && <th className="p-3">Deleted By</th>}
+
                   {(canDelete || isSuperadmin) && (
                     <th className="p-3">Actions</th>
                   )}
@@ -832,11 +1001,13 @@ export default function Attendance() {
                   >
                     <td className="p-3 font-medium text-gray-900">
                       {item.workerName}
+
                       {item.isDeleted && (
                         <span className="ml-2 rounded bg-red-600 px-2 py-1 text-xs text-white">
                           Deleted
                         </span>
                       )}
+
                       {item.remarks && (
                         <p className="mt-1 max-w-48 truncate text-xs text-gray-500">
                           {item.remarks}
@@ -845,6 +1016,7 @@ export default function Attendance() {
                     </td>
 
                     <td className="p-3">{item.role}</td>
+
                     <td className="p-3">{formatDate(getRecordDate(item))}</td>
 
                     <td className="p-3">
@@ -865,6 +1037,7 @@ export default function Attendance() {
                           ))}
                         </select>
                       )}
+
                       {!item.isDeleted && (
                         <span
                           className={`mt-1 inline-block rounded-full px-2 py-1 text-xs ${
@@ -879,6 +1052,7 @@ export default function Attendance() {
 
                     <td className="p-3">
                       <div>{item.checkInTime || "—"}</div>
+
                       {!item.isDeleted && !item.checkInTime && (
                         <button
                           type="button"
@@ -892,6 +1066,7 @@ export default function Attendance() {
 
                     <td className="p-3">
                       <div>{item.checkOutTime || "—"}</div>
+
                       {!item.isDeleted &&
                         item.checkInTime &&
                         !item.checkOutTime && (
@@ -922,7 +1097,15 @@ export default function Attendance() {
                     {isSuperadmin && (
                       <td className="p-3 text-xs text-gray-600">
                         {item.isDeleted
-                          ? `${item.deletedByName || item.deletedBy?.name || "Unknown"}${item.deletedByRole ? ` (${item.deletedByRole})` : ""}`
+                          ? `${
+                              item.deletedByName ||
+                              item.deletedBy?.name ||
+                              "Unknown"
+                            }${
+                              item.deletedByRole
+                                ? ` (${item.deletedByRole})`
+                                : ""
+                            }`
                           : "—"}
                       </td>
                     )}

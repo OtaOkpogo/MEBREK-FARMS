@@ -15,12 +15,16 @@ function ProductCard({
   link = "/products",
 }) {
   return (
-    <div className="group overflow-hidden rounded-3xl bg-white shadow-sm ring-1 ring-black/5 transition-all duration-500 hover:-translate-y-2 hover:shadow-2xl">
+    <div
+      data-farm-reveal
+      className="group overflow-hidden rounded-3xl bg-white shadow-sm ring-1 ring-black/5 transition-all duration-500 hover:-translate-y-2 hover:shadow-2xl"
+    >
       <div className="relative h-56 overflow-hidden">
         <img
           src={image}
           alt={title}
-          className="h-full w-full object-cover transition duration-700 group-hover:scale-110"
+          loading="lazy"
+          className="h-full w-full object-cover transition-transform duration-700 group-hover:scale-110"
         />
 
         <div className="absolute inset-0 bg-gradient-to-t from-black/60 via-transparent to-transparent" />
@@ -42,7 +46,7 @@ function ProductCard({
 
         <RouterLink
           to={link}
-          className="inline-flex items-center gap-2 font-semibold text-farmGreen transition hover:gap-3"
+          className="inline-flex items-center gap-2 font-semibold text-farmGreen transition-all duration-300 hover:gap-3"
         >
           Learn more
           <span aria-hidden="true">→</span>
@@ -58,7 +62,7 @@ function ProductCard({
 
 function Stat({ value, label }) {
   return (
-    <div className="text-center">
+    <div data-farm-reveal className="text-center">
       <div className="text-3xl font-extrabold text-white sm:text-4xl">
         {value}
       </div>
@@ -80,16 +84,17 @@ export default function Home() {
   });
 
   const [success, setSuccess] = useState("");
+  const [isSubmitting, setIsSubmitting] = useState(false);
 
   // =======================================================
   // HANDLE INPUT CHANGE
   // =======================================================
 
   const handleChange = (e) => {
-    setForm({
-      ...form,
+    setForm((previous) => ({
+      ...previous,
       [e.target.name]: e.target.value,
-    });
+    }));
 
     setSuccess("");
   };
@@ -101,7 +106,10 @@ export default function Home() {
   const handleSubmit = async (e) => {
     e.preventDefault();
 
+    if (isSubmitting) return;
+
     setSuccess("");
+    setIsSubmitting(true);
 
     try {
       await axios.post("http://localhost:5000/api/orders", form);
@@ -119,6 +127,8 @@ export default function Home() {
       setSuccess(
         "Unable to send your order right now. Please contact us directly or order through WhatsApp.",
       );
+    } finally {
+      setIsSubmitting(false);
     }
   };
 
@@ -129,44 +139,53 @@ export default function Home() {
       ===================================================== */}
 
       <section className="relative isolate min-h-[650px] overflow-hidden sm:min-h-[720px]">
-        {/* Background */}
         <div
-          className="absolute inset-0 -z-20 scale-105 animate-zoomSlow bg-cover bg-center"
+          className="absolute inset-0 -z-20 scale-105 bg-cover bg-center"
           style={{
             backgroundImage:
               "url('https://static.vecteezy.com/system/resources/thumbnails/029/340/262/small/ai-generated-ai-generative-organic-eco-chicken-rooster-and-egg-at-countryside-farm-background-graphic-art-photo.jpg')",
           }}
         />
 
-        {/* Dark overlay */}
         <div className="absolute inset-0 -z-10 bg-gradient-to-r from-black/80 via-black/55 to-black/60" />
 
-        {/* Green tint */}
         <div className="absolute inset-0 -z-10 bg-green-950/10" />
 
         <div className="site-container flex min-h-[650px] items-center py-20 sm:min-h-[720px]">
-          <div className="max-w-3xl animate-fadeUp text-white">
-            <div className="mb-6 inline-flex items-center gap-2 rounded-full border border-white/20 bg-white/10 px-4 py-2 text-sm font-semibold backdrop-blur">
+          <div className="max-w-3xl text-white">
+            <div
+              data-farm-hero-item
+              className="mb-6 inline-flex items-center gap-2 rounded-full border border-white/20 bg-white/10 px-4 py-2 text-sm font-semibold backdrop-blur"
+            >
               <span>🌱</span>
               Modern farming in Nigeria
             </div>
 
-            <h1 className="max-w-4xl text-4xl font-extrabold leading-[1.08] tracking-tight sm:text-5xl md:text-6xl lg:text-7xl">
+            <h1
+              data-farm-hero-item
+              className="max-w-4xl text-4xl font-extrabold leading-[1.08] tracking-tight sm:text-5xl md:text-6xl lg:text-7xl"
+            >
               Fresh from our farm.
               <span className="block text-yellow-300">
                 Quality you can trust.
               </span>
             </h1>
 
-            <p className="mt-6 max-w-2xl text-base leading-8 text-gray-200 sm:text-lg md:text-xl">
+            <p
+              data-farm-hero-item
+              className="mt-6 max-w-2xl text-base leading-8 text-gray-200 sm:text-lg md:text-xl"
+            >
               Mebrek Farms produces quality poultry products using responsible,
               hygienic and professionally managed farming practices.
             </p>
 
-            <div className="mt-9 flex flex-col gap-3 sm:flex-row">
+            <div
+              data-farm-hero-item
+              className="mt-9 flex flex-col gap-3 sm:flex-row"
+            >
               <RouterLink
                 to="/products"
-                className="btn btn-secondary px-7 py-3.5"
+                className="btn btn-secondary px-7 py-3.5 transition-transform duration-300 hover:-translate-y-1"
               >
                 Explore Our Products
                 <span>→</span>
@@ -174,13 +193,16 @@ export default function Home() {
 
               <RouterLink
                 to="/contact"
-                className="btn border border-white/40 bg-white/10 px-7 py-3.5 text-white backdrop-blur hover:bg-white hover:text-gray-900"
+                className="btn border border-white/40 bg-white/10 px-7 py-3.5 text-white backdrop-blur transition-all duration-300 hover:-translate-y-1 hover:bg-white hover:text-gray-900"
               >
                 Contact Mebrek Farms
               </RouterLink>
             </div>
 
-            <div className="mt-10 flex flex-wrap gap-x-7 gap-y-3 text-sm text-gray-200">
+            <div
+              data-farm-hero-item
+              className="mt-10 flex flex-wrap gap-x-7 gap-y-3 text-sm text-gray-200"
+            >
               <span className="flex items-center gap-2">
                 <span className="text-yellow-300">✓</span>
                 Farm-direct products
@@ -207,7 +229,7 @@ export default function Home() {
       <section className="section bg-white">
         <div className="site-container">
           <div className="grid items-center gap-12 lg:grid-cols-2 lg:gap-20">
-            <div>
+            <div data-farm-reveal>
               <span className="eyebrow">About Mebrek Farms</span>
 
               <h2 className="section-title mt-5">
@@ -228,23 +250,27 @@ export default function Home() {
               </p>
 
               <div className="mt-8">
-                <RouterLink to="/about" className="btn btn-primary">
+                <RouterLink
+                  to="/about"
+                  className="btn btn-primary transition-transform duration-300 hover:-translate-y-1"
+                >
                   Discover Our Farm
                   <span>→</span>
                 </RouterLink>
               </div>
             </div>
 
-            <div className="relative">
+            <div data-farm-reveal className="relative">
               <div className="overflow-hidden rounded-3xl shadow-2xl">
                 <img
                   src="https://www.shutterstock.com/image-photo/laying-hen-farm-iron-battery-600nw-2541880001.jpg"
                   alt="Poultry farming at Mebrek Farms"
-                  className="h-[420px] w-full object-cover transition duration-700 hover:scale-105"
+                  loading="lazy"
+                  className="h-[420px] w-full object-cover transition-transform duration-700 hover:scale-105"
                 />
               </div>
 
-              <div className="absolute -bottom-6 -left-4 hidden rounded-2xl bg-farmGreen p-5 text-white shadow-xl sm:block md:-left-8">
+              <div className="absolute -bottom-6 -left-4 hidden rounded-2xl bg-farmGreen p-5 text-white shadow-xl transition-transform duration-300 hover:-translate-y-2 sm:block md:-left-8">
                 <div className="text-3xl">🐔</div>
 
                 <div className="mt-1 font-bold">Poultry Production</div>
@@ -265,7 +291,7 @@ export default function Home() {
       <section className="section bg-farmGreen text-white">
         <div className="site-container">
           <div className="grid gap-12 lg:grid-cols-[0.9fr_1.1fr] lg:items-center">
-            <div>
+            <div data-farm-reveal>
               <span className="inline-flex rounded-full bg-white/10 px-4 py-2 text-sm font-bold uppercase tracking-wider text-green-100">
                 Why Mebrek Farms
               </span>
@@ -283,14 +309,17 @@ export default function Home() {
                 agricultural products to our customers.
               </p>
 
-              <RouterLink to="/about" className="btn btn-secondary mt-8">
+              <RouterLink
+                to="/about"
+                className="btn btn-secondary mt-8 transition-transform duration-300 hover:-translate-y-1"
+              >
                 Learn About Us
                 <span>→</span>
               </RouterLink>
             </div>
 
-            <div className="grid gap-4 sm:grid-cols-2">
-              <div className="rounded-2xl bg-white/10 p-6 ring-1 ring-white/10 backdrop-blur transition hover:bg-white/15">
+            <div data-farm-stagger className="grid gap-4 sm:grid-cols-2">
+              <div className="rounded-2xl bg-white/10 p-6 ring-1 ring-white/10 backdrop-blur transition-all duration-300 hover:-translate-y-2 hover:bg-white/15">
                 <div className="text-3xl">🌿</div>
 
                 <h3 className="mt-4 text-xl font-bold">Responsible Farming</h3>
@@ -301,7 +330,7 @@ export default function Home() {
                 </p>
               </div>
 
-              <div className="rounded-2xl bg-white/10 p-6 ring-1 ring-white/10 backdrop-blur transition hover:bg-white/15">
+              <div className="rounded-2xl bg-white/10 p-6 ring-1 ring-white/10 backdrop-blur transition-all duration-300 hover:-translate-y-2 hover:bg-white/15">
                 <div className="text-3xl">🥚</div>
 
                 <h3 className="mt-4 text-xl font-bold">Quality Products</h3>
@@ -312,7 +341,7 @@ export default function Home() {
                 </p>
               </div>
 
-              <div className="rounded-2xl bg-white/10 p-6 ring-1 ring-white/10 backdrop-blur transition hover:bg-white/15">
+              <div className="rounded-2xl bg-white/10 p-6 ring-1 ring-white/10 backdrop-blur transition-all duration-300 hover:-translate-y-2 hover:bg-white/15">
                 <div className="text-3xl">🐔</div>
 
                 <h3 className="mt-4 text-xl font-bold">Healthy Poultry</h3>
@@ -323,7 +352,7 @@ export default function Home() {
                 </p>
               </div>
 
-              <div className="rounded-2xl bg-white/10 p-6 ring-1 ring-white/10 backdrop-blur transition hover:bg-white/15">
+              <div className="rounded-2xl bg-white/10 p-6 ring-1 ring-white/10 backdrop-blur transition-all duration-300 hover:-translate-y-2 hover:bg-white/15">
                 <div className="text-3xl">🤝</div>
 
                 <h3 className="mt-4 text-xl font-bold">Reliable Service</h3>
@@ -359,7 +388,10 @@ export default function Home() {
 
       <section className="section bg-white">
         <div className="site-container">
-          <div className="mb-12 flex flex-col justify-between gap-5 md:flex-row md:items-end">
+          <div
+            data-farm-reveal
+            className="mb-12 flex flex-col justify-between gap-5 md:flex-row md:items-end"
+          >
             <div>
               <span className="eyebrow">Featured Products</span>
 
@@ -375,7 +407,7 @@ export default function Home() {
 
             <RouterLink
               to="/products"
-              className="font-semibold text-farmGreen transition hover:underline"
+              className="font-semibold text-farmGreen transition-all duration-300 hover:translate-x-1 hover:underline"
             >
               Explore products →
             </RouterLink>
@@ -415,10 +447,11 @@ export default function Home() {
 
       <section className="relative overflow-hidden bg-yellow-300">
         <div className="absolute -right-20 -top-20 h-64 w-64 rounded-full bg-yellow-200/50" />
+
         <div className="absolute -bottom-32 -left-20 h-72 w-72 rounded-full bg-yellow-400/40" />
 
         <div className="site-container relative py-16 sm:py-20">
-          <div className="mx-auto max-w-4xl text-center">
+          <div data-farm-reveal className="mx-auto max-w-4xl text-center">
             <span className="text-4xl">🥚 🐔 🌱</span>
 
             <h2 className="mt-5 text-3xl font-extrabold tracking-tight text-gray-900 sm:text-4xl lg:text-5xl">
@@ -433,7 +466,7 @@ export default function Home() {
             <div className="mt-8 flex flex-col justify-center gap-3 sm:flex-row">
               <RouterLink
                 to="/contact"
-                className="btn bg-farmGreen px-7 py-3.5 text-white hover:bg-green-800"
+                className="btn bg-farmGreen px-7 py-3.5 text-white transition-all duration-300 hover:-translate-y-1 hover:bg-green-800"
               >
                 Contact Us
               </RouterLink>
@@ -442,7 +475,7 @@ export default function Home() {
                 href="https://wa.me/2349033723103?text=Hello%20MEBREK%20FARMS,%20I%20want%20to%20order%20farm%20products"
                 target="_blank"
                 rel="noopener noreferrer"
-                className="btn border-2 border-gray-900 bg-transparent px-7 py-3.5 text-gray-900 hover:bg-gray-900 hover:text-white"
+                className="btn border-2 border-gray-900 bg-transparent px-7 py-3.5 text-gray-900 transition-all duration-300 hover:-translate-y-1 hover:bg-gray-900 hover:text-white"
               >
                 Order on WhatsApp
               </a>
@@ -458,8 +491,12 @@ export default function Home() {
       <section className="section bg-stone-50">
         <div className="site-container">
           <div className="grid overflow-hidden rounded-3xl bg-white shadow-xl ring-1 ring-black/5 lg:grid-cols-[0.8fr_1.2fr]">
-            {/* LEFT */}
-            <div className="bg-farmGreen p-8 text-white sm:p-10 lg:p-12">
+            {/* LEFT INFORMATION PANEL */}
+
+            <div
+              data-farm-reveal
+              className="bg-farmGreen p-8 text-white sm:p-10 lg:p-12"
+            >
               <span className="inline-flex rounded-full bg-white/10 px-4 py-2 text-sm font-bold uppercase tracking-wider text-green-100">
                 Farm Direct
               </span>
@@ -482,7 +519,7 @@ export default function Home() {
 
                     <a
                       href="tel:+2349033723103"
-                      className="text-green-100 hover:text-white"
+                      className="text-green-100 transition hover:text-white"
                     >
                       +234 903 372 3103
                     </a>
@@ -497,7 +534,7 @@ export default function Home() {
 
                     <a
                       href="mailto:info@mebrekfarms.com"
-                      className="text-green-100 hover:text-white"
+                      className="text-green-100 transition hover:text-white"
                     >
                       info@mebrekfarms.com
                     </a>
@@ -514,7 +551,7 @@ export default function Home() {
                       href="https://wa.me/2349033723103"
                       target="_blank"
                       rel="noopener noreferrer"
-                      className="text-green-100 hover:text-white"
+                      className="text-green-100 transition hover:text-white"
                     >
                       Chat with Mebrek Farms
                     </a>
@@ -523,8 +560,9 @@ export default function Home() {
               </div>
             </div>
 
-            {/* FORM */}
-            <div className="p-8 sm:p-10 lg:p-12">
+            {/* RIGHT FORM PANEL */}
+
+            <div data-farm-reveal className="p-8 sm:p-10 lg:p-12">
               <div className="mb-7">
                 <h3 className="text-2xl font-bold text-gray-900 sm:text-3xl">
                   Send an enquiry
@@ -537,6 +575,8 @@ export default function Home() {
 
               {success && (
                 <div
+                  role="status"
+                  aria-live="polite"
                   className={`mb-6 rounded-xl p-4 text-sm font-medium ${
                     success.includes("Unable")
                       ? "bg-red-50 text-red-700"
@@ -564,6 +604,7 @@ export default function Home() {
                     value={form.name}
                     onChange={handleChange}
                     className="input"
+                    autoComplete="name"
                     required
                   />
                 </div>
@@ -584,6 +625,7 @@ export default function Home() {
                     value={form.contact}
                     onChange={handleChange}
                     className="input"
+                    autoComplete="email"
                     required
                   />
                 </div>
@@ -608,9 +650,14 @@ export default function Home() {
                   />
                 </div>
 
-                <button type="submit" className="btn btn-primary w-full py-3.5">
-                  Send Enquiry
-                  <span>→</span>
+                <button
+                  type="submit"
+                  disabled={isSubmitting}
+                  className="btn btn-primary w-full py-3.5 transition-all duration-300 hover:-translate-y-1 disabled:cursor-not-allowed disabled:opacity-60"
+                >
+                  {isSubmitting ? "Sending..." : "Send Enquiry"}
+
+                  {!isSubmitting && <span>→</span>}
                 </button>
               </form>
             </div>
@@ -627,9 +674,10 @@ export default function Home() {
         target="_blank"
         rel="noopener noreferrer"
         aria-label="Order on WhatsApp"
-        className="fixed bottom-5 right-5 z-50 flex items-center gap-2 rounded-full bg-green-600 px-4 py-3 font-semibold text-white shadow-xl transition duration-300 hover:scale-105 hover:bg-green-700"
+        className="fixed bottom-5 right-5 z-50 flex items-center gap-2 rounded-full bg-green-600 px-4 py-3 font-semibold text-white shadow-xl transition-all duration-300 hover:scale-105 hover:bg-green-700 hover:shadow-2xl"
       >
         <span className="text-xl">💬</span>
+
         <span className="hidden sm:inline">Order on WhatsApp</span>
       </a>
     </div>

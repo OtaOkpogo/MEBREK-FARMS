@@ -1,5 +1,9 @@
 import { Link as RouterLink } from "react-router-dom";
 
+// ============================================================
+// EGG PRODUCTS
+// ============================================================
+
 const eggProducts = [
   {
     name: "Small Eggs",
@@ -43,10 +47,16 @@ const eggProducts = [
   },
 ];
 
+// ============================================================
+// EGG PRODUCT CARD
+// ============================================================
+
 function EggProductCard({ product }) {
   return (
-    <article className="group relative overflow-hidden rounded-3xl bg-white shadow-sm ring-1 ring-black/5 transition-all duration-300 hover:-translate-y-2 hover:shadow-2xl">
-      {/* Product visual */}
+    <article
+      data-stagger-card
+      className="product-card group relative overflow-hidden rounded-3xl bg-white shadow-sm ring-1 ring-black/5 transition-all duration-300 hover:-translate-y-2 hover:shadow-2xl"
+    >
       <div className="relative flex h-52 items-center justify-center overflow-hidden bg-gradient-to-br from-green-50 via-yellow-50 to-white">
         <div className="absolute -right-10 -top-10 h-32 w-32 rounded-full bg-yellow-200/50 transition-transform duration-500 group-hover:scale-125" />
 
@@ -61,7 +71,6 @@ function EggProductCard({ product }) {
         </span>
       </div>
 
-      {/* Product details */}
       <div className="p-6">
         <div className="flex items-start justify-between gap-4">
           <h3 className="text-xl font-bold text-gray-900">{product.name}</h3>
@@ -89,9 +98,16 @@ function EggProductCard({ product }) {
   );
 }
 
+// ============================================================
+// OTHER FARM SERVICES
+// ============================================================
+
 function ServiceCard({ icon, title, description }) {
   return (
-    <div className="rounded-3xl bg-white p-7 shadow-sm ring-1 ring-black/5 transition-all duration-300 hover:-translate-y-1 hover:shadow-xl">
+    <div
+      data-stagger-card
+      className="service-card rounded-3xl bg-white p-7 shadow-sm ring-1 ring-black/5 transition-all duration-300 hover:-translate-y-1 hover:shadow-xl"
+    >
       <div className="flex h-14 w-14 items-center justify-center rounded-2xl bg-green-100 text-3xl">
         {icon}
       </div>
@@ -110,12 +126,18 @@ function ServiceCard({ icon, title, description }) {
   );
 }
 
+// ============================================================
+// PRODUCTS PAGE
+// All animations are handled by PageMotion.jsx
+// ============================================================
+
 export default function Products() {
   return (
     <main className="min-h-screen bg-stone-50 text-gray-800">
       {/* =====================================================
           BACK TO HOME
       ===================================================== */}
+
       <div className="site-container pt-6">
         <RouterLink
           to="/"
@@ -129,30 +151,44 @@ export default function Products() {
       {/* =====================================================
           HERO
       ===================================================== */}
+
       <section className="relative overflow-hidden bg-green-950">
         <div className="absolute inset-0 bg-gradient-to-br from-green-950 via-green-900 to-green-800" />
 
         <div className="absolute -right-24 -top-24 h-72 w-72 rounded-full bg-yellow-300/10" />
+
         <div className="absolute -bottom-32 -left-24 h-96 w-96 rounded-full bg-white/5" />
 
         <div className="relative site-container py-20 sm:py-24 lg:py-28">
           <div className="max-w-3xl">
-            <span className="eyebrow bg-green-800 text-green-100">
+            <span
+              data-hero-badge
+              className="eyebrow bg-green-800 text-green-100"
+            >
               MEBREK FARMS PRODUCTS
             </span>
 
-            <h1 className="mt-6 text-4xl font-extrabold leading-tight text-white sm:text-5xl lg:text-6xl">
+            <h1
+              data-hero-title
+              className="mt-6 text-4xl font-extrabold leading-tight text-white sm:text-5xl lg:text-6xl"
+            >
               Fresh farm products,
               <span className="block text-yellow-300">ready for you.</span>
             </h1>
 
-            <p className="mt-6 max-w-2xl text-base leading-8 text-green-100 sm:text-lg">
+            <p
+              data-hero-description
+              className="mt-6 max-w-2xl text-base leading-8 text-green-100 sm:text-lg"
+            >
               Explore our range of poultry and agricultural products. From
               everyday eggs to specialty poultry products, we make it easy to
               enquire and place your order.
             </p>
 
-            <div className="mt-8 flex flex-col gap-3 sm:flex-row">
+            <div
+              data-hero-buttons
+              className="mt-8 flex flex-col gap-3 sm:flex-row"
+            >
               <a href="#eggs" className="btn btn-secondary">
                 Shop Eggs
               </a>
@@ -171,9 +207,13 @@ export default function Products() {
       {/* =====================================================
           EGG PRODUCTS
       ===================================================== */}
+
       <section id="eggs" className="section bg-white">
         <div className="site-container">
-          <div className="mx-auto max-w-3xl text-center">
+          <div
+            data-reveal
+            className="products-section-heading mx-auto max-w-3xl text-center"
+          >
             <span className="eyebrow">Egg Products</span>
 
             <h2 className="section-title mt-5">
@@ -186,13 +226,19 @@ export default function Products() {
             </p>
           </div>
 
-          <div className="mt-14 grid gap-6 sm:grid-cols-2 lg:grid-cols-3">
+          <div
+            data-stagger-group
+            className="mt-14 grid gap-6 sm:grid-cols-2 lg:grid-cols-3"
+          >
             {eggProducts.map((product) => (
               <EggProductCard key={product.name} product={product} />
             ))}
           </div>
 
-          <div className="mt-10 rounded-2xl border border-yellow-200 bg-yellow-50 p-5 text-center">
+          <div
+            data-reveal
+            className="products-feature mt-10 rounded-2xl border border-yellow-200 bg-yellow-50 p-5 text-center"
+          >
             <p className="text-sm leading-6 text-gray-700">
               <strong className="text-green-900">Please note:</strong> Prices
               shown are per crate and may be subject to change. Contact MEBREK
@@ -206,9 +252,13 @@ export default function Products() {
       {/* =====================================================
           OTHER FARM PRODUCTS
       ===================================================== */}
+
       <section className="section bg-stone-50">
         <div className="site-container">
-          <div className="mx-auto max-w-3xl text-center">
+          <div
+            data-reveal
+            className="products-section-heading mx-auto max-w-3xl text-center"
+          >
             <span className="eyebrow">More From The Farm</span>
 
             <h2 className="section-title mt-5">More than eggs</h2>
@@ -219,7 +269,7 @@ export default function Products() {
             </p>
           </div>
 
-          <div className="mt-14 grid gap-6 md:grid-cols-3">
+          <div data-stagger-group className="mt-14 grid gap-6 md:grid-cols-3">
             <ServiceCard
               icon="🐔"
               title="Poultry"
@@ -244,10 +294,11 @@ export default function Products() {
       {/* =====================================================
           WHY BUY FROM US
       ===================================================== */}
+
       <section className="section bg-white">
         <div className="site-container">
           <div className="grid gap-12 lg:grid-cols-2 lg:items-center lg:gap-20">
-            <div>
+            <div data-reveal className="products-feature">
               <span className="eyebrow">Why Choose Us</span>
 
               <h2 className="section-title mt-5">
@@ -315,7 +366,10 @@ export default function Products() {
               </div>
             </div>
 
-            <div className="rounded-3xl bg-green-950 p-8 shadow-2xl sm:p-10">
+            <div
+              data-reveal
+              className="products-feature rounded-3xl bg-green-950 p-8 shadow-2xl sm:p-10"
+            >
               <div className="text-5xl">🥚</div>
 
               <h3 className="mt-6 text-2xl font-bold text-white sm:text-3xl">
@@ -344,9 +398,13 @@ export default function Products() {
       {/* =====================================================
           ORDER CTA
       ===================================================== */}
+
       <section className="bg-yellow-300">
         <div className="site-container py-14 sm:py-16">
-          <div className="flex flex-col items-start justify-between gap-8 lg:flex-row lg:items-center">
+          <div
+            data-reveal
+            className="products-cta-content flex flex-col items-start justify-between gap-8 lg:flex-row lg:items-center"
+          >
             <div className="max-w-2xl">
               <p className="text-sm font-bold uppercase tracking-[0.2em] text-green-900">
                 Place an enquiry
