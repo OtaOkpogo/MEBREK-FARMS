@@ -14,10 +14,6 @@ import {
   ResponsiveContainer,
 } from "recharts";
 
-import * as XLSX from "xlsx";
-import jsPDF from "jspdf";
-import autoTable from "jspdf-autotable";
-
 import {
   getProductionReport,
   getEggSalesReport,
@@ -185,6 +181,12 @@ const formatRecordForDisplay = (record) => {
   return formatted;
 };
 
+const normalizeRole = (value) =>
+  String(value || "")
+    .trim()
+    .toLowerCase()
+    .replace(/[\s_-]+/g, "");
+
 // ============================================================
 // PRODUCTION NORMALIZATION
 // ============================================================
@@ -194,12 +196,23 @@ const normalizeProductionRow = (row = {}) => {
   const pen = getValue(row, "pen", "Pen", "penName", "house", "houseName");
 
   const openingStock = getNumber(getValue(row, "openingStock", "OpeningStock"));
+
   const mortality = getNumber(getValue(row, "mortality", "Mortality"));
 
-  const closingStock = getNumber(
-    getValue(row, "closingStock", "ClosingStock"),
-    openingStock - mortality,
+  const transferIn = getNumber(
+    getValue(row, "transferIn", "TransferIn", "stockTransferredIn"),
   );
+
+  const transferOut = getNumber(
+    getValue(row, "transferOut", "TransferOut", "stockTransferredOut"),
+  );
+
+  const suppliedClosingStock = getValue(row, "closingStock", "ClosingStock");
+
+  const closingStock =
+    suppliedClosingStock !== undefined
+      ? getNumber(suppliedClosingStock)
+      : openingStock + transferIn - transferOut - mortality;
 
   const feedConsumed = getNumber(
     getValue(
@@ -234,6 +247,8 @@ const normalizeProductionRow = (row = {}) => {
     Date: date,
     Pen: pen || "Unknown Pen",
     OpeningStock: openingStock,
+    TransferIn: transferIn,
+    TransferOut: transferOut,
     ClosingStock: closingStock,
     Mortality: mortality,
     FeedConsumed: feedConsumed,
@@ -434,9 +449,7 @@ const RAW_ARRAY_TRANSFORMERS = {
 // ============================================================
 
 const buildBatteryCageCombinedReport = (response, startDate, endDate) => {
-  const payload = unwrapResponse(response);
-
-  let rows = extractProductionRows(payload)
+  let rows = extractProductionRows(response)
     .filter((row) => row?.isDeleted !== true)
     .map(normalizeProductionRow);
 
@@ -467,6 +480,8 @@ const buildBatteryCageCombinedReport = (response, startDate, endDate) => {
       Date: row.Date,
       Pen: "Battery Cage Combined",
       OpeningStock: 0,
+      TransferIn: 0,
+      TransferOut: 0,
       ClosingStock: 0,
       Mortality: 0,
       FeedConsumed: 0,
@@ -478,6 +493,8 @@ const buildBatteryCageCombinedReport = (response, startDate, endDate) => {
     };
 
     current.OpeningStock += getNumber(row.OpeningStock);
+    current.TransferIn += getNumber(row.TransferIn);
+    current.TransferOut += getNumber(row.TransferOut);
     current.ClosingStock += getNumber(row.ClosingStock);
     current.Mortality += getNumber(row.Mortality);
     current.FeedConsumed += getNumber(row.FeedConsumed);
@@ -696,7 +713,10 @@ export default function Reports() {
     }
   }, []);
 
-  const userRole = String(currentUser?.role || "").toLowerCase();
+  const storedRole =
+    typeof window !== "undefined" ? localStorage.getItem("role") : "";
+
+  const userRole = normalizeRole(currentUser?.role || storedRole);
   const hasReportsAccess = ["superadmin", "manager"].includes(userRole);
 
   const [reportType, setReportType] = useState("Production");
@@ -716,6 +736,7 @@ export default function Reports() {
   const [page, setPage] = useState(1);
   const [pageSize, setPageSize] = useState(10);
   const [loading, setLoading] = useState(false);
+  const [exporting, setExporting] = useState("");
 
   const isProductionReport =
     reportType === "Production" || reportType === "Battery Cage Combined";
@@ -972,13 +993,19 @@ export default function Reports() {
   // EXPORT TO EXCEL
   // ==========================================================
 
-  const exportExcel = () => {
+  const exportExcel = async () => {
     if (!filteredRecords.length) {
       toast.info("There are no records to export.");
       return;
     }
 
+    if (exporting) return;
+
+    setExporting("excel");
+
     try {
+      const XLSX = await import("xlsx");
+
       const exportRows = filteredRecords.map((record) => {
         const output = {};
 
@@ -1006,6 +1033,8 @@ export default function Reports() {
     } catch (error) {
       console.error("Excel export failed:", error);
       toast.error("Failed to export Excel report.");
+    } finally {
+      setExporting("");
     }
   };
 
@@ -1013,13 +1042,25 @@ export default function Reports() {
   // EXPORT TO PDF
   // ==========================================================
 
-  const exportPDF = () => {
+  const exportPDF = async () => {
     if (!filteredRecords.length) {
       toast.info("There are no records to export.");
       return;
     }
 
+    if (exporting) return;
+
+    setExporting("pdf");
+
     try {
+      const [jsPDFModule, autoTableModule] = await Promise.all([
+        import("jspdf"),
+        import("jspdf-autotable"),
+      ]);
+
+      const jsPDF = jsPDFModule.default;
+      const autoTable = autoTableModule.default;
+
       const pdf = new jsPDF({
         orientation: columns.length > 6 ? "landscape" : "portrait",
       });
@@ -1090,6 +1131,8 @@ export default function Reports() {
     } catch (error) {
       console.error("PDF export failed:", error);
       toast.error("Failed to export PDF report.");
+    } finally {
+      setExporting("");
     }
   };
 
@@ -1134,7 +1177,7 @@ export default function Reports() {
         </div>
       )}
 
-      {/* WARM, FARM-INSPIRED PAGE HEADER */}
+      {/* PAGE HEADER */}
 
       <section className="relative overflow-hidden rounded-3xl border border-[#d6e1d3] bg-gradient-to-br from-[#edf3e8] via-[#e7eee3] to-[#e4efeb] p-6 text-[#263d30] shadow-sm sm:p-8">
         <div className="pointer-events-none absolute -right-12 -top-24 h-64 w-64 rounded-full bg-[#9dbb9f]/20 blur-3xl" />
@@ -1185,21 +1228,25 @@ export default function Reports() {
             <button
               type="button"
               onClick={exportExcel}
-              disabled={loading || filteredRecords.length === 0}
+              disabled={
+                loading || Boolean(exporting) || filteredRecords.length === 0
+              }
               className="inline-flex items-center justify-center gap-2 rounded-xl border border-[#4d7557] bg-[#557b5e] px-4 py-3 text-sm font-bold text-white shadow-sm transition hover:bg-[#46694f] focus:outline-none focus:ring-4 focus:ring-[#7b9c7b]/25 disabled:cursor-not-allowed disabled:opacity-50"
             >
               <span aria-hidden="true">↓</span>
-              Excel
+              {exporting === "excel" ? "Preparing Excel..." : "Excel"}
             </button>
 
             <button
               type="button"
               onClick={exportPDF}
-              disabled={loading || filteredRecords.length === 0}
+              disabled={
+                loading || Boolean(exporting) || filteredRecords.length === 0
+              }
               className="inline-flex items-center justify-center gap-2 rounded-xl border border-[#d5e0d1] bg-white px-4 py-3 text-sm font-bold text-[#34533e] shadow-sm transition hover:bg-[#f3f7f0] focus:outline-none focus:ring-4 focus:ring-[#7b9c7b]/25 disabled:cursor-not-allowed disabled:opacity-50"
             >
               <span aria-hidden="true">▤</span>
-              PDF
+              {exporting === "pdf" ? "Preparing PDF..." : "PDF"}
             </button>
           </div>
         </div>
@@ -1554,7 +1601,11 @@ export default function Reports() {
                         name="Total Eggs"
                         stroke={COLORS[1]}
                         strokeWidth={3}
-                        dot={{ r: 3.5, fill: COLORS[1], strokeWidth: 0 }}
+                        dot={{
+                          r: 3.5,
+                          fill: COLORS[1],
+                          strokeWidth: 0,
+                        }}
                         activeDot={{ r: 6 }}
                         connectNulls
                         isAnimationActive={false}
@@ -1567,7 +1618,11 @@ export default function Reports() {
                         name="Mortality"
                         stroke={COLORS[3]}
                         strokeWidth={2.5}
-                        dot={{ r: 3.5, fill: COLORS[3], strokeWidth: 0 }}
+                        dot={{
+                          r: 3.5,
+                          fill: COLORS[3],
+                          strokeWidth: 0,
+                        }}
                         activeDot={{ r: 6 }}
                         connectNulls
                         isAnimationActive={false}

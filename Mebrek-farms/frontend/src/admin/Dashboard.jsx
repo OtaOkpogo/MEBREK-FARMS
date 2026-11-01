@@ -6,6 +6,8 @@ import {
 } from "../services/notificationService";
 import NotificationPopup from "../components/NotificationPopup";
 import { getCurrentUser } from "../services/authService";
+import socket from "../services/socket";
+
 import {
   ResponsiveContainer,
   LineChart,
@@ -167,13 +169,38 @@ const getStoredRole = () => {
   try {
     const storedUser = JSON.parse(localStorage.getItem("user") || "{}");
 
-    return String(
-      storedUser.role || localStorage.getItem("role") || "staff",
-    ).toLowerCase();
+    return String(storedUser.role || localStorage.getItem("role") || "staff")
+      .trim()
+      .toLowerCase()
+      .replace(/[\s_-]+/g, "");
   } catch {
-    return String(localStorage.getItem("role") || "staff").toLowerCase();
+    return String(localStorage.getItem("role") || "staff")
+      .trim()
+      .toLowerCase()
+      .replace(/[\s_-]+/g, "");
   }
 };
+
+// Notification helpers
+const getNotificationId = (notification) =>
+  String(notification?._id || notification?.id || "");
+
+const getSenderId = (notification) =>
+  String(
+    notification?.senderId?._id ||
+      notification?.senderId ||
+      notification?.sender?._id ||
+      notification?.sender ||
+      "",
+  );
+
+// Shared styling for dashboard cards
+const CARD_STYLE = "bg-white border border-[#e5ebe3] rounded-2xl shadow-sm";
+
+const CHART_STYLE =
+  "bg-white border border-[#e5ebe3] p-5 sm:p-6 rounded-2xl shadow-sm hover:shadow-md transition-shadow duration-200";
+
+// ================= DASHBOARD =================
 
 export default function Dashboard() {
   const [data, setData] = useState({
@@ -192,19 +219,24 @@ export default function Dashboard() {
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState("");
   const [user, setUser] = useState(null);
+
+  // Notification popup state
   const [popupVisible, setPopupVisible] = useState(false);
   const [unreadNotifications, setUnreadNotifications] = useState([]);
 
-  // Financial report state. The report is fetched only for superadmins.
+  // Financial report state
   const [profitLoss, setProfitLoss] = useState(EMPTY_PROFIT_LOSS);
   const [profitLossLoading, setProfitLossLoading] = useState(false);
   const [profitLossError, setProfitLossError] = useState("");
 
+  // ================= INITIAL LOAD =================
+
   useEffect(() => {
     loadDashboard();
     loadUser();
-    checkNotifications();
   }, []);
+
+  // ================= DASHBOARD DATA =================
 
   const loadDashboard = async () => {
     try {
@@ -214,14 +246,18 @@ export default function Dashboard() {
       const res = await fetchDashboardData();
 
       setData({
-        orders: res?.orders || [],
-        workers: res?.workers || [],
-        production: res?.production || [],
-        feeds: res?.feeds || [],
-        attendance: res?.attendance || [],
-        mortality: res?.mortality || [],
-        roomInventory: res?.roomInventory || [],
-        roomInventorySummary: res?.roomInventorySummary || [],
+        orders: Array.isArray(res?.orders) ? res.orders : [],
+        workers: Array.isArray(res?.workers) ? res.workers : [],
+        production: Array.isArray(res?.production) ? res.production : [],
+        feeds: Array.isArray(res?.feeds) ? res.feeds : [],
+        attendance: Array.isArray(res?.attendance) ? res.attendance : [],
+        mortality: Array.isArray(res?.mortality) ? res.mortality : [],
+        roomInventory: Array.isArray(res?.roomInventory)
+          ? res.roomInventory
+          : [],
+        roomInventorySummary: Array.isArray(res?.roomInventorySummary)
+          ? res.roomInventorySummary
+          : [],
         estimatedRevenue: res?.estimatedRevenue ?? 0,
         eggProductionSummary: res?.eggProductionSummary || EMPTY_EGG_SUMMARY,
       });
@@ -233,8 +269,48 @@ export default function Dashboard() {
     }
   };
 
+  // ================= USER =================
+
+  const loadUser = async () => {
+    try {
+      const response = await getCurrentUser();
+
+      const currentUser =
+        response?.admin ||
+        response?.user ||
+        response?.data?.admin ||
+        response?.data?.user ||
+        response?.data ||
+        response;
+
+      setUser(currentUser);
+    } catch (err) {
+      console.error("LOAD USER ERROR:", err);
+
+      try {
+        const storedUser = JSON.parse(localStorage.getItem("user") || "{}");
+        setUser(storedUser);
+      } catch {
+        setUser(null);
+      }
+    }
+  };
+
+  // ================= PERMISSIONS =================
+
+  const role = String(user?.role || getStoredRole())
+    .trim()
+    .toLowerCase()
+    .replace(/[\s_-]+/g, "");
+
+  const perms = ROLE_PERMISSIONS[role] || ROLE_PERMISSIONS.staff;
+
+  const isSuperAdmin = role === "superadmin";
+  const isManager = role === "manager";
+
+  // ================= PROFIT AND LOSS =================
+
   const loadProfitLoss = async () => {
-    // Prevent financial data from being requested by other roles.
     if (!isSuperAdmin) {
       setProfitLoss(EMPTY_PROFIT_LOSS);
       setProfitLossError("");
@@ -247,7 +323,6 @@ export default function Dashboard() {
       setProfitLossError("");
 
       const response = await getProfitLossReport();
-
       const periods = response?.periods || {};
 
       setProfitLoss({
@@ -268,91 +343,6 @@ export default function Dashboard() {
     }
   };
 
-  const loadUser = async () => {
-    try {
-      const response = await getCurrentUser();
-
-      const currentUser =
-        response?.admin || response?.user || response?.data || response;
-
-      setUser(currentUser);
-    } catch (err) {
-      console.error("LOAD USER ERROR:", err);
-
-      try {
-        const storedUser = JSON.parse(localStorage.getItem("user") || "{}");
-
-        setUser(storedUser);
-      } catch {
-        setUser(null);
-      }
-    }
-  };
-
-  const checkNotifications = async () => {
-    try {
-      const storedUser = JSON.parse(localStorage.getItem("user") || "{}");
-      const storedRole = String(
-        storedUser.role || localStorage.getItem("role") || "",
-      ).toLowerCase();
-
-      if (storedRole !== "superadmin") {
-        return;
-      }
-
-      const res = await getNotifications();
-
-      const notifications = Array.isArray(res)
-        ? res
-        : Array.isArray(res?.notifications)
-          ? res.notifications
-          : Array.isArray(res?.data)
-            ? res.data
-            : [];
-
-      const unread = notifications.filter(
-        (notification) => !notification.isRead,
-      );
-
-      setUnreadNotifications(unread);
-      setPopupVisible(unread.length > 0);
-    } catch (err) {
-      console.error("CHECK NOTIFICATIONS ERROR:", err);
-    }
-  };
-
-  const handleReply = async (id, message) => {
-    try {
-      await replyNotification(id, { message });
-      await checkNotifications();
-    } catch (err) {
-      console.error("REPLY NOTIFICATION ERROR:", err);
-      throw err;
-    }
-  };
-
-  const markRead = async (id) => {
-    try {
-      await markNotificationRead(id);
-
-      setUnreadNotifications((prev) =>
-        prev.filter((notification) => notification._id !== id),
-      );
-    } catch (err) {
-      console.error("MARK NOTIFICATION READ ERROR:", err);
-    }
-  };
-
-  // ================= PERMISSIONS =================
-
-  const role = String(user?.role || getStoredRole()).toLowerCase();
-
-  const perms = ROLE_PERMISSIONS[role] || ROLE_PERMISSIONS.staff;
-
-  const isSuperAdmin = role === "superadmin";
-  const isManager = role === "manager";
-
-  // Load the financial report after the user's role is resolved.
   useEffect(() => {
     if (isSuperAdmin) {
       loadProfitLoss();
@@ -363,6 +353,80 @@ export default function Dashboard() {
     }
   }, [isSuperAdmin]);
 
+  // ================= LIVE NOTIFICATIONS =================
+
+  useEffect(() => {
+    // Never show Dashboard notification popups to other roles.
+    if (!isSuperAdmin) {
+      setPopupVisible(false);
+      setUnreadNotifications([]);
+      return;
+    }
+
+    const currentUserId = String(user?._id || user?.id || user?.adminId || "");
+
+    const handleNewNotification = (notification) => {
+      if (!notification) return;
+
+      // Ignore messages sent by the currently logged-in superadmin.
+      const senderId = getSenderId(notification);
+
+      if (currentUserId && senderId === currentUserId) {
+        return;
+      }
+
+      const notificationId = getNotificationId(notification);
+
+      if (!notificationId) return;
+
+      // Add only genuinely new notifications.
+      setUnreadNotifications((previous) => {
+        const alreadyExists = previous.some(
+          (item) => getNotificationId(item) === notificationId,
+        );
+
+        if (alreadyExists) {
+          return previous;
+        }
+
+        return [notification, ...previous];
+      });
+
+      setPopupVisible(true);
+    };
+
+    socket.on("notificationCreated", handleNewNotification);
+
+    return () => {
+      socket.off("notificationCreated", handleNewNotification);
+    };
+  }, [isSuperAdmin, user]);
+
+  // ================= NOTIFICATION ACTIONS =================
+
+  const handleReply = async (id, message) => {
+    try {
+      await replyNotification(id, { message });
+    } catch (err) {
+      console.error("REPLY NOTIFICATION ERROR:", err);
+      throw err;
+    }
+  };
+
+  const markRead = async (id) => {
+    try {
+      await markNotificationRead(id);
+
+      setUnreadNotifications((previous) =>
+        previous.filter(
+          (notification) => getNotificationId(notification) !== String(id),
+        ),
+      );
+    } catch (err) {
+      console.error("MARK NOTIFICATION READ ERROR:", err);
+    }
+  };
+
   // ================= DATA =================
 
   const orders = data.orders;
@@ -371,8 +435,8 @@ export default function Dashboard() {
   const feeds = data.feeds;
   const attendance = data.attendance;
   const mortality = data.mortality;
-  const roomInventory = data.roomInventory || [];
-  const roomInventorySummary = data.roomInventorySummary || [];
+  const roomInventory = data.roomInventory;
+  const roomInventorySummary = data.roomInventorySummary;
 
   const eggProductionSummary = data.eggProductionSummary || EMPTY_EGG_SUMMARY;
 
@@ -488,7 +552,7 @@ export default function Dashboard() {
     { name: "Missing", value: missingItems },
   ];
 
-  const COLORS = ["#16a34a", "#2563eb", "#f59e0b", "#dc2626"];
+  const COLORS = ["#4d8060", "#6688a5", "#d8a64b", "#c76b5b"];
 
   // ================= KPI CARDS =================
 
@@ -497,37 +561,37 @@ export default function Dashboard() {
       key: "orders",
       label: "Orders",
       value: totalOrders,
-      color: "text-green-600",
+      color: "text-green-700",
     },
     perms.workers && {
       key: "workers",
       label: "Workers",
       value: totalWorkers,
-      color: "text-blue-600",
+      color: "text-blue-700",
     },
     perms.production && {
       key: "production",
       label: "Egg Production",
       value: formatNumber(totalEggs),
-      color: "text-yellow-600",
+      color: "text-amber-700",
     },
     perms.revenue && {
       key: "revenue",
       label: "Estimated Revenue",
       value: formatCurrency(estimatedRevenue),
-      color: "text-purple-600",
+      color: "text-purple-700",
     },
     perms.feedStock && {
       key: "feedStock",
       label: "Feed Stock",
       value: formatNumber(totalFeedStock),
-      color: "text-green-700",
+      color: "text-green-800",
     },
     perms.mortality && {
       key: "mortality",
       label: "Mortality",
       value: formatNumber(totalMortality),
-      color: "text-red-600",
+      color: "text-red-700",
     },
   ].filter(Boolean);
 
@@ -545,15 +609,15 @@ export default function Dashboard() {
 
   if (loading) {
     return (
-      <div className="flex items-center justify-center min-h-[70vh]">
+      <div className="flex items-center justify-center min-h-[70vh] bg-[#f6f8f4]">
         <div className="text-center">
-          <div className="w-16 h-16 border-4 border-green-600 border-t-transparent rounded-full animate-spin mx-auto" />
+          <div className="w-14 h-14 border-4 border-[#dce8dc] border-t-[#39734d] rounded-full animate-spin mx-auto" />
 
-          <p className="mt-6 text-lg font-semibold text-gray-700">
+          <p className="mt-6 text-lg font-semibold text-[#294b36]">
             Loading Dashboard...
           </p>
 
-          <p className="text-gray-500">
+          <p className="text-gray-500 text-sm mt-1">
             Please wait while we fetch your farm data.
           </p>
         </div>
@@ -565,19 +629,19 @@ export default function Dashboard() {
 
   if (error) {
     return (
-      <div className="flex items-center justify-center min-h-[70vh]">
-        <div className="bg-white shadow-lg rounded-2xl p-10 text-center max-w-md">
-          <div className="text-6xl mb-4">⚠️</div>
+      <div className="flex items-center justify-center min-h-[70vh] bg-[#f6f8f4] p-4">
+        <div className="bg-white border border-red-100 shadow-sm rounded-2xl p-8 sm:p-10 text-center max-w-md w-full">
+          <div className="text-5xl mb-4">⚠️</div>
 
-          <h2 className="text-2xl font-bold text-red-600">
+          <h2 className="text-xl sm:text-2xl font-bold text-red-700">
             Something went wrong
           </h2>
 
-          <p className="text-gray-600 mt-3">{error}</p>
+          <p className="text-gray-600 mt-3 text-sm">{error}</p>
 
           <button
             onClick={loadDashboard}
-            className="mt-6 bg-green-600 hover:bg-green-700 text-white px-6 py-3 rounded-lg"
+            className="mt-6 bg-[#39734d] hover:bg-[#2e603f] text-white px-6 py-3 rounded-xl font-semibold transition-colors"
           >
             Retry
           </button>
@@ -589,61 +653,105 @@ export default function Dashboard() {
   // ================= DASHBOARD =================
 
   return (
-    <div className="p-6 bg-gray-100 min-h-screen">
+    <div className="p-4 sm:p-6 bg-[#f6f8f4] min-h-screen">
       <div className="mb-8">
-        <h1 className="text-4xl font-bold text-green-700">
+        <p className="text-xs uppercase tracking-widest font-semibold text-[#829482]">
+          Mebrek Farms / Administration
+        </p>
+
+        <h1 className="text-2xl sm:text-3xl font-bold text-[#294b36] mt-2">
           Mebrek Farms Dashboard 🚜
         </h1>
 
-        <p className="text-gray-600 mt-2">Farm Operations Monitoring Center</p>
+        <p className="text-gray-500 mt-2 text-sm sm:text-base">
+          Farm Operations Monitoring Center
+        </p>
       </div>
 
       {/* Welcome panel */}
-      <div className="bg-white rounded-2xl shadow-lg p-6 mb-8">
-        <h2 className="text-3xl font-bold text-green-700">
-          Welcome back {user?.name || user?.adminName || "User"} 👋
-        </h2>
+      <div className="relative overflow-hidden bg-gradient-to-r from-[#294b36] to-[#477b53] rounded-2xl shadow-md p-6 sm:p-7 mb-8 text-white">
+        <div className="absolute -right-10 -top-10 w-48 h-48 rounded-full bg-white/5" />
+        <div className="absolute right-24 -bottom-16 w-40 h-40 rounded-full bg-white/5" />
 
-        <p className="text-gray-500 mt-2">Farm Management Dashboard</p>
+        <div className="relative z-10">
+          <p className="text-green-100 text-sm font-medium">Welcome back</p>
 
-        <div className="grid md:grid-cols-3 gap-4 mt-6">
-          <div className="bg-gray-50 p-4 rounded-xl">
-            <p className="text-gray-500 text-sm">Role</p>
-            <p className="font-bold text-lg uppercase">{role}</p>
-          </div>
+          <h2 className="text-2xl sm:text-3xl font-bold mt-1">
+            {user?.name || user?.adminName || "User"} 👋
+          </h2>
 
-          <div className="bg-gray-50 p-4 rounded-xl">
-            <p className="text-gray-500 text-sm">Status</p>
-            <p
-              className={`font-bold text-lg ${
-                String(user?.status ?? "active").toLowerCase() === "active"
-                  ? "text-green-600"
-                  : "text-red-600"
-              }`}
-            >
-              {String(user?.status ?? "active").toUpperCase()}
-            </p>
-          </div>
+          <p className="text-green-100 text-sm mt-2">
+            Here's an overview of your farm operations.
+          </p>
 
-          <div className="bg-gray-50 p-4 rounded-xl">
-            <p className="text-gray-500 text-sm">Last Login</p>
-            <p className="font-bold text-lg">
-              {user?.lastLogin
-                ? new Date(user.lastLogin).toLocaleString()
-                : "Never"}
-            </p>
+          <div className="grid grid-cols-1 sm:grid-cols-3 gap-3 mt-7">
+            <div className="bg-white/10 border border-white/10 rounded-xl p-4">
+              <p className="text-green-100 text-xs uppercase tracking-wide">
+                Role
+              </p>
+
+              <p className="font-bold text-lg mt-1 capitalize">
+                {role === "superadmin" ? "Super Admin" : role}
+              </p>
+            </div>
+
+            <div className="bg-white/10 border border-white/10 rounded-xl p-4">
+              <p className="text-green-100 text-xs uppercase tracking-wide">
+                Account Status
+              </p>
+
+              <p
+                className={`font-bold text-lg mt-1 ${
+                  String(user?.status ?? "active").toLowerCase() === "active"
+                    ? "text-green-100"
+                    : "text-red-200"
+                }`}
+              >
+                {String(user?.status ?? "active").toUpperCase()}
+              </p>
+            </div>
+
+            <div className="bg-white/10 border border-white/10 rounded-xl p-4">
+              <p className="text-green-100 text-xs uppercase tracking-wide">
+                Last Login
+              </p>
+
+              <p className="font-bold text-sm sm:text-base mt-2">
+                {user?.lastLogin
+                  ? new Date(user.lastLogin).toLocaleString("en-NG", {
+                      day: "2-digit",
+                      month: "short",
+                      year: "numeric",
+                      hour: "2-digit",
+                      minute: "2-digit",
+                      hour12: true,
+                    })
+                  : "Never"}
+              </p>
+            </div>
           </div>
         </div>
       </div>
 
-      {/* Existing KPI cards */}
+      {/* KPI cards */}
       {kpiCards.length > 0 && (
-        <div className={`grid ${gridColsClass(kpiCards.length)} gap-6 mb-8`}>
+        <div className={`grid ${gridColsClass(kpiCards.length)} gap-5 mb-8`}>
           {kpiCards.map((card) => (
-            <div key={card.key} className="bg-white p-5 rounded-2xl shadow">
-              <h3 className="text-gray-500">{card.label}</h3>
+            <div
+              key={card.key}
+              className={`${CARD_STYLE} p-5 transition-all duration-200 hover:shadow-md hover:-translate-y-0.5`}
+            >
+              <h3 className="text-sm font-medium text-gray-500">
+                {card.label}
+              </h3>
 
-              <p className={`text-3xl font-bold ${card.color}`}>{card.value}</p>
+              <p
+                className={`text-2xl sm:text-3xl font-bold mt-3 break-words ${card.color}`}
+              >
+                {card.value}
+              </p>
+
+              <div className="w-10 h-1 rounded-full bg-[#dce8dc] mt-4" />
             </div>
           ))}
         </div>
@@ -654,7 +762,7 @@ export default function Dashboard() {
         <section className="mb-8">
           <div className="flex flex-col sm:flex-row sm:items-end sm:justify-between gap-3 mb-5">
             <div>
-              <h2 className="text-2xl font-bold text-gray-800">
+              <h2 className="text-xl sm:text-2xl font-bold text-[#294b36]">
                 Farm Profit &amp; Loss 💰
               </h2>
 
@@ -663,7 +771,7 @@ export default function Dashboard() {
                 invoices.
               </p>
 
-              <p className="text-xs text-gray-500 mt-1">
+              <p className="text-xs text-gray-400 mt-1">
                 Currency: NGN · Farm timezone: Africa/Lagos
               </p>
             </div>
@@ -672,7 +780,7 @@ export default function Dashboard() {
               type="button"
               onClick={loadProfitLoss}
               disabled={profitLossLoading}
-              className="px-4 py-2 rounded-lg bg-green-700 hover:bg-green-800 disabled:opacity-60 text-white font-semibold text-sm"
+              className="px-4 py-2.5 rounded-xl bg-[#39734d] hover:bg-[#2e603f] disabled:opacity-60 text-white font-semibold text-sm transition-colors"
             >
               {profitLossLoading ? "Refreshing..." : "Refresh Financials"}
             </button>
@@ -681,6 +789,7 @@ export default function Dashboard() {
           {profitLossError && (
             <div className="bg-red-50 border border-red-200 text-red-700 rounded-xl p-4 mb-5">
               <p className="font-semibold">{profitLossError}</p>
+
               <p className="text-sm mt-1">
                 Your other dashboard sections are still available. Check that
                 the superadmin-only profit/loss API route is configured.
@@ -690,7 +799,7 @@ export default function Dashboard() {
 
           {profitLossLoading &&
           !PROFIT_LOSS_PERIODS.some((period) => profitLoss[period.key]) ? (
-            <div className="bg-white rounded-xl border border-gray-200 p-8 text-center text-gray-500">
+            <div className={`${CARD_STYLE} p-8 text-center text-gray-500`}>
               Loading financial summary...
             </div>
           ) : (
@@ -699,11 +808,9 @@ export default function Dashboard() {
                 const summary = profitLoss[period.key];
 
                 const totalIncome = Number(summary?.income?.totalIncome || 0);
-
                 const totalExpenses = Number(
                   summary?.expenses?.totalExpenses || 0,
                 );
-
                 const netProfit = Number(summary?.netProfit || 0);
 
                 const isLoss = netProfit < 0;
@@ -712,9 +819,9 @@ export default function Dashboard() {
                 return (
                   <article
                     key={period.key}
-                    className={`bg-white rounded-xl shadow-sm border border-gray-200 border-l-4 ${period.accent} p-5`}
+                    className={`${CARD_STYLE} border-l-4 ${period.accent} p-5`}
                   >
-                    <h3 className="text-lg font-bold text-gray-800">
+                    <h3 className="text-lg font-bold text-[#294b36]">
                       {period.title}
                     </h3>
 
@@ -723,39 +830,39 @@ export default function Dashboard() {
                     </p>
 
                     {!summary ? (
-                      <div className="bg-gray-50 rounded-lg p-4 text-sm text-gray-500">
+                      <div className="bg-[#f6f8f4] rounded-xl p-4 text-sm text-gray-500">
                         {profitLossError
                           ? "Financial data unavailable."
                           : "No summary available."}
                       </div>
                     ) : (
                       <>
-                        <div className="bg-green-50 rounded-lg p-3 mb-3">
+                        <div className="bg-[#edf5ee] rounded-xl p-3 mb-3">
                           <p className="text-xs text-gray-600">
                             Recorded income
                           </p>
 
-                          <p className="text-xl font-bold text-green-700 break-words">
+                          <p className="text-xl font-bold text-[#39734d] break-words mt-1">
                             {formatCurrency(totalIncome)}
                           </p>
                         </div>
 
-                        <div className="bg-red-50 rounded-lg p-3 mb-3">
+                        <div className="bg-[#fbefed] rounded-xl p-3 mb-3">
                           <p className="text-xs text-gray-600">
                             Recorded expenses
                           </p>
 
-                          <p className="text-xl font-bold text-red-700 break-words">
+                          <p className="text-xl font-bold text-[#b45345] break-words mt-1">
                             {formatCurrency(totalExpenses)}
                           </p>
                         </div>
 
                         <div
-                          className={`rounded-lg p-4 ${
+                          className={`rounded-xl p-4 ${
                             isLoss
-                              ? "bg-red-100"
+                              ? "bg-red-50"
                               : isProfit
-                                ? "bg-emerald-100"
+                                ? "bg-emerald-50"
                                 : "bg-gray-100"
                           }`}
                         >
@@ -764,7 +871,7 @@ export default function Dashboard() {
                           </p>
 
                           <p
-                            className={`text-2xl font-bold break-words ${
+                            className={`text-2xl font-bold break-words mt-1 ${
                               isLoss
                                 ? "text-red-800"
                                 : isProfit
@@ -793,24 +900,24 @@ export default function Dashboard() {
                           </p>
                         </div>
 
-                        <div className="border-t border-gray-100 mt-4 pt-3 space-y-1">
+                        <div className="border-t border-gray-100 mt-4 pt-3 space-y-2">
                           <div className="flex justify-between gap-2 text-xs text-gray-500">
                             <span>Egg sales</span>
-                            <span className="text-right">
+                            <span className="text-right font-medium text-gray-700">
                               {formatCurrency(summary.income?.eggSales)}
                             </span>
                           </div>
 
                           <div className="flex justify-between gap-2 text-xs text-gray-500">
                             <span>Manure sales</span>
-                            <span className="text-right">
+                            <span className="text-right font-medium text-gray-700">
                               {formatCurrency(summary.income?.manureSales)}
                             </span>
                           </div>
 
                           <div className="flex justify-between gap-2 text-xs text-gray-500">
                             <span>Feed purchases &amp; transport</span>
-                            <span className="text-right">
+                            <span className="text-right font-medium text-gray-700">
                               {formatCurrency(
                                 Number(summary.expenses?.feedPurchases || 0) +
                                   Number(summary.expenses?.feedTransport || 0),
@@ -826,7 +933,7 @@ export default function Dashboard() {
             </div>
           )}
 
-          <p className="text-xs text-gray-500 mt-4">
+          <p className="text-xs text-gray-400 mt-4 leading-relaxed">
             This summary uses recorded sales and purchase/expense dates. It is
             not a full accrual-accounting statement and does not calculate the
             historical cost of feed consumed. Receipts recorded against older
@@ -836,12 +943,12 @@ export default function Dashboard() {
         </section>
       )}
 
-      {/* MANAGER-ONLY DAILY EGG PRODUCTION: LAST 24 HOURS */}
+      {/* MANAGER-ONLY DAILY EGG PRODUCTION */}
       {isManager && (
         <section className="mb-8">
           <div className="flex flex-col sm:flex-row sm:items-end sm:justify-between gap-3 mb-5">
             <div>
-              <h2 className="text-2xl font-bold text-gray-800">
+              <h2 className="text-xl sm:text-2xl font-bold text-[#294b36]">
                 Daily Egg Production 🥚
               </h2>
 
@@ -854,19 +961,21 @@ export default function Dashboard() {
             <button
               type="button"
               onClick={loadDashboard}
-              className="px-4 py-2 rounded-lg bg-green-700 hover:bg-green-800 text-white font-semibold text-sm"
+              className="px-4 py-2.5 rounded-xl bg-[#39734d] hover:bg-[#2e603f] text-white font-semibold text-sm transition-colors"
             >
               Refresh Production
             </button>
           </div>
 
           <div className="grid sm:grid-cols-2 gap-5">
-            <article className="bg-white rounded-xl shadow-sm border border-gray-200 border-l-4 border-l-green-600 p-6">
+            <article
+              className={`${CARD_STYLE} border-l-4 border-l-green-600 p-6`}
+            >
               <p className="text-sm font-medium text-gray-500">
                 Crates Produced
               </p>
 
-              <p className="text-4xl font-bold text-green-700 mt-2">
+              <p className="text-3xl sm:text-4xl font-bold text-green-700 mt-3">
                 {formatNumber(dailyEggSummary.cratesProduced)}
               </p>
 
@@ -875,12 +984,14 @@ export default function Dashboard() {
               </p>
             </article>
 
-            <article className="bg-white rounded-xl shadow-sm border border-gray-200 border-l-4 border-l-amber-500 p-6">
+            <article
+              className={`${CARD_STYLE} border-l-4 border-l-amber-500 p-6`}
+            >
               <p className="text-sm font-medium text-gray-500">
                 Extra Egg Pieces
               </p>
 
-              <p className="text-4xl font-bold text-amber-600 mt-2">
+              <p className="text-3xl sm:text-4xl font-bold text-amber-600 mt-3">
                 {formatNumber(dailyEggSummary.extraEggPieces)}
               </p>
 
@@ -897,7 +1008,7 @@ export default function Dashboard() {
         <section className="mb-8">
           <div className="flex flex-col sm:flex-row sm:items-end sm:justify-between gap-2 mb-5">
             <div>
-              <h2 className="text-2xl font-bold text-gray-800">
+              <h2 className="text-xl sm:text-2xl font-bold text-[#294b36]">
                 Egg Production Summary 🥚
               </h2>
 
@@ -906,7 +1017,7 @@ export default function Dashboard() {
               </p>
             </div>
 
-            <span className="text-xs font-semibold text-green-800 bg-green-100 rounded-full px-3 py-1 w-fit">
+            <span className="text-xs font-semibold text-[#39734d] bg-[#e8f1e7] rounded-full px-3 py-1.5 w-fit">
               Superadmin view
             </span>
           </div>
@@ -921,9 +1032,9 @@ export default function Dashboard() {
               return (
                 <article
                   key={period.key}
-                  className={`bg-white rounded-xl shadow-sm border border-gray-200 border-l-4 ${period.accent} p-5`}
+                  className={`${CARD_STYLE} border-l-4 ${period.accent} p-5`}
                 >
-                  <h3 className="text-lg font-bold text-gray-800">
+                  <h3 className="text-lg font-bold text-[#294b36]">
                     {period.title}
                   </h3>
 
@@ -931,18 +1042,20 @@ export default function Dashboard() {
                     {period.subtitle}
                   </p>
 
-                  <div className="bg-gray-50 rounded-lg p-4 mb-3">
+                  <div className="bg-[#f6f8f4] rounded-xl p-4 mb-3">
                     <p className="text-sm text-gray-500">Crates produced</p>
 
-                    <p className={`text-3xl font-bold ${period.crateColor}`}>
+                    <p
+                      className={`text-3xl font-bold mt-2 ${period.crateColor}`}
+                    >
                       {formatNumber(summary.cratesProduced)}
                     </p>
                   </div>
 
-                  <div className="bg-amber-50 rounded-lg p-4">
+                  <div className="bg-[#fbf5e9] rounded-xl p-4">
                     <p className="text-sm text-gray-600">Extra egg pieces</p>
 
-                    <p className={`text-2xl font-bold ${period.eggColor}`}>
+                    <p className={`text-2xl font-bold mt-2 ${period.eggColor}`}>
                       {formatNumber(summary.extraEggPieces)}
                     </p>
                   </div>
@@ -953,59 +1066,58 @@ export default function Dashboard() {
         </section>
       )}
 
-      {/* Room inventory KPIs */}
+      {/* ROOM INVENTORY KPIs */}
       {perms.roomInventory && (
-        <div className="grid md:grid-cols-5 gap-6 mb-8">
-          <div className="bg-white p-5 rounded-2xl shadow">
-            <h3 className="text-gray-500">Rooms</h3>
-
-            <p className="text-3xl font-bold text-indigo-600">
+        <div className="grid grid-cols-2 sm:grid-cols-3 md:grid-cols-5 gap-4 sm:gap-5 mb-8">
+          <div className={`${CARD_STYLE} p-5`}>
+            <h3 className="text-sm text-gray-500">Rooms</h3>
+            <p className="text-2xl sm:text-3xl font-bold text-indigo-600 mt-3">
               {formatNumber(totalRooms)}
             </p>
           </div>
 
-          <div className="bg-white p-5 rounded-2xl shadow">
-            <h3 className="text-gray-500">Inventory Items</h3>
-
-            <p className="text-3xl font-bold text-green-700">
+          <div className={`${CARD_STYLE} p-5`}>
+            <h3 className="text-sm text-gray-500">Inventory Items</h3>
+            <p className="text-2xl sm:text-3xl font-bold text-green-700 mt-3">
               {formatNumber(totalRoomItems)}
             </p>
           </div>
 
-          <div className="bg-white p-5 rounded-2xl shadow">
-            <h3 className="text-gray-500">Good Items</h3>
-
-            <p className="text-3xl font-bold text-green-500">
+          <div className={`${CARD_STYLE} p-5`}>
+            <h3 className="text-sm text-gray-500">Good Items</h3>
+            <p className="text-2xl sm:text-3xl font-bold text-green-600 mt-3">
               {formatNumber(goodItems)}
             </p>
           </div>
 
-          <div className="bg-white p-5 rounded-2xl shadow">
-            <h3 className="text-gray-500">Damaged</h3>
-
-            <p className="text-3xl font-bold text-yellow-500">
+          <div className={`${CARD_STYLE} p-5`}>
+            <h3 className="text-sm text-gray-500">Damaged</h3>
+            <p className="text-2xl sm:text-3xl font-bold text-amber-600 mt-3">
               {formatNumber(damagedItems)}
             </p>
           </div>
 
-          <div className="bg-white p-5 rounded-2xl shadow">
-            <h3 className="text-gray-500">Missing</h3>
-
-            <p className="text-3xl font-bold text-red-600">
+          <div className={`${CARD_STYLE} p-5`}>
+            <h3 className="text-sm text-gray-500">Missing</h3>
+            <p className="text-2xl sm:text-3xl font-bold text-red-600 mt-3">
               {formatNumber(missingItems)}
             </p>
           </div>
         </div>
       )}
 
-      {/* Production trend and farm overview */}
+      {/* PRODUCTION TREND AND FARM OVERVIEW */}
       {row1Count > 0 && (
-        <div className={`grid ${gridColsClass(row1Count)} gap-6 mb-8`}>
+        <div className={`grid ${gridColsClass(row1Count)} gap-5 mb-8`}>
           {showEggTrend && (
-            <div className="bg-white p-6 rounded-2xl shadow">
-              <h2 className="text-xl font-bold mb-4">
+            <div className={CHART_STYLE}>
+              <h2 className="text-lg sm:text-xl font-bold text-[#294b36] mb-2">
                 Egg Production Trend 🥚
               </h2>
+
+              <p className="text-sm text-gray-500 mb-4">
+                Production performance across recorded dates.
+              </p>
 
               <ResponsiveContainer
                 width="100%"
@@ -1015,9 +1127,12 @@ export default function Dashboard() {
                 debounce={200}
               >
                 <LineChart data={productionChart}>
-                  <CartesianGrid strokeDasharray="3 3" />
-                  <XAxis dataKey="date" />
-                  <YAxis />
+                  <CartesianGrid stroke="#e8eee7" strokeDasharray="3 3" />
+                  <XAxis
+                    dataKey="date"
+                    tick={{ fill: "#6b7280", fontSize: 12 }}
+                  />
+                  <YAxis tick={{ fill: "#6b7280", fontSize: 12 }} />
                   <Tooltip />
                   <Legend />
 
@@ -1025,8 +1140,9 @@ export default function Dashboard() {
                     type="monotone"
                     dataKey="eggs"
                     name="Total eggs"
-                    stroke="#16a34a"
+                    stroke="#4d8060"
                     strokeWidth={3}
+                    dot={{ r: 3 }}
                   />
                 </LineChart>
               </ResponsiveContainer>
@@ -1034,8 +1150,14 @@ export default function Dashboard() {
           )}
 
           {showFarmOverview && (
-            <div className="bg-white p-6 rounded-2xl shadow">
-              <h2 className="text-xl font-bold mb-4">Farm Overview 📊</h2>
+            <div className={CHART_STYLE}>
+              <h2 className="text-lg sm:text-xl font-bold text-[#294b36] mb-2">
+                Farm Overview 📊
+              </h2>
+
+              <p className="text-sm text-gray-500 mb-4">
+                Summary of important farm activities.
+              </p>
 
               <ResponsiveContainer
                 width="100%"
@@ -1065,10 +1187,16 @@ export default function Dashboard() {
         </div>
       )}
 
-      {/* Feed inventory */}
+      {/* FEED INVENTORY */}
       {perms.feedStock && (
-        <div className="bg-white p-6 rounded-2xl shadow mb-8">
-          <h2 className="text-xl font-bold mb-4">Feed Inventory 🌽</h2>
+        <div className={`${CHART_STYLE} mb-8`}>
+          <h2 className="text-lg sm:text-xl font-bold text-[#294b36] mb-2">
+            Feed Inventory 🌽
+          </h2>
+
+          <p className="text-sm text-gray-500 mb-4">
+            Overview of recorded feed quantities.
+          </p>
 
           <ResponsiveContainer
             width="100%"
@@ -1078,25 +1206,35 @@ export default function Dashboard() {
             debounce={200}
           >
             <BarChart data={inventoryChart}>
-              <CartesianGrid strokeDasharray="3 3" />
-              <XAxis dataKey="name" />
-              <YAxis />
+              <CartesianGrid stroke="#e8eee7" strokeDasharray="3 3" />
+              <XAxis dataKey="name" tick={{ fill: "#6b7280", fontSize: 12 }} />
+              <YAxis tick={{ fill: "#6b7280", fontSize: 12 }} />
               <Tooltip />
               <Legend />
-              <Bar dataKey="stock" name="Stock" fill="#16a34a" />
+
+              <Bar
+                dataKey="stock"
+                name="Stock"
+                fill="#668b69"
+                radius={[5, 5, 0, 0]}
+              />
             </BarChart>
           </ResponsiveContainer>
         </div>
       )}
 
-      {/* Attendance and worker performance */}
+      {/* ATTENDANCE AND WORKER PERFORMANCE */}
       {row2Count > 0 && (
-        <div className={`grid ${gridColsClass(row2Count)} gap-6`}>
+        <div className={`grid ${gridColsClass(row2Count)} gap-5`}>
           {showAttendance && (
-            <div className="bg-white p-6 rounded-2xl shadow">
-              <h2 className="text-xl font-bold mb-4">
+            <div className={CHART_STYLE}>
+              <h2 className="text-lg sm:text-xl font-bold text-[#294b36] mb-2">
                 Attendance Analytics 📅
               </h2>
+
+              <p className="text-sm text-gray-500 mb-4">
+                Distribution of recorded attendance statuses.
+              </p>
 
               <ResponsiveContainer
                 width="100%"
@@ -1112,9 +1250,9 @@ export default function Dashboard() {
                     outerRadius={110}
                     label
                   >
-                    <Cell fill="#16a34a" />
-                    <Cell fill="#dc2626" />
-                    <Cell fill="#f59e0b" />
+                    <Cell fill="#4d8060" />
+                    <Cell fill="#c76b5b" />
+                    <Cell fill="#d8a64b" />
                   </Pie>
 
                   <Tooltip />
@@ -1125,8 +1263,14 @@ export default function Dashboard() {
           )}
 
           {showWorkerPerf && (
-            <div className="bg-white p-6 rounded-2xl shadow">
-              <h2 className="text-xl font-bold mb-4">Worker Performance 📈</h2>
+            <div className={CHART_STYLE}>
+              <h2 className="text-lg sm:text-xl font-bold text-[#294b36] mb-2">
+                Worker Performance 📈
+              </h2>
+
+              <p className="text-sm text-gray-500 mb-4">
+                Performance figures from worker records.
+              </p>
 
               <ResponsiveContainer
                 width="100%"
@@ -1136,16 +1280,20 @@ export default function Dashboard() {
                 debounce={200}
               >
                 <BarChart data={workerPerformance}>
-                  <CartesianGrid strokeDasharray="3 3" />
-                  <XAxis dataKey="name" />
-                  <YAxis />
+                  <CartesianGrid stroke="#e8eee7" strokeDasharray="3 3" />
+                  <XAxis
+                    dataKey="name"
+                    tick={{ fill: "#6b7280", fontSize: 12 }}
+                  />
+                  <YAxis tick={{ fill: "#6b7280", fontSize: 12 }} />
                   <Tooltip />
                   <Legend />
 
                   <Bar
                     dataKey="performance"
                     name="Performance"
-                    fill="#2563eb"
+                    fill="#6688a5"
+                    radius={[5, 5, 0, 0]}
                   />
                 </BarChart>
               </ResponsiveContainer>
@@ -1154,11 +1302,17 @@ export default function Dashboard() {
         </div>
       )}
 
-      {/* Room inventory charts and recent records */}
+      {/* ROOM INVENTORY CHARTS AND RECENT RECORDS */}
       {perms.roomInventory && (
-        <div className="grid md:grid-cols-2 gap-6 mt-8">
-          <div className="bg-white rounded-2xl shadow p-6">
-            <h2 className="text-xl font-bold mb-4">Room Inventory Status 🏠</h2>
+        <div className="grid md:grid-cols-2 gap-5 mt-8">
+          <div className={CHART_STYLE}>
+            <h2 className="text-lg sm:text-xl font-bold text-[#294b36] mb-2">
+              Room Inventory Status 🏠
+            </h2>
+
+            <p className="text-sm text-gray-500 mb-4">
+              Overview of room inventory conditions.
+            </p>
 
             <ResponsiveContainer
               width="100%"
@@ -1169,9 +1323,9 @@ export default function Dashboard() {
             >
               <PieChart>
                 <Pie data={roomChart} dataKey="value" outerRadius={110} label>
-                  <Cell fill="#22c55e" />
-                  <Cell fill="#f59e0b" />
-                  <Cell fill="#ef4444" />
+                  <Cell fill="#4d8060" />
+                  <Cell fill="#d8a64b" />
+                  <Cell fill="#c76b5b" />
                 </Pie>
 
                 <Tooltip />
@@ -1180,36 +1334,60 @@ export default function Dashboard() {
             </ResponsiveContainer>
           </div>
 
-          <div className="bg-white rounded-2xl shadow p-6">
-            <h2 className="text-xl font-bold mb-4">Recent Room Inventory</h2>
+          <div className={CHART_STYLE}>
+            <h2 className="text-lg sm:text-xl font-bold text-[#294b36] mb-2">
+              Recent Room Inventory
+            </h2>
+
+            <p className="text-sm text-gray-500 mb-4">
+              Latest available room inventory records.
+            </p>
 
             <div className="overflow-auto max-h-80">
-              <table className="w-full">
+              <table className="w-full min-w-[420px] text-sm">
                 <thead>
-                  <tr className="border-b">
-                    <th className="text-left py-2">Room</th>
-                    <th className="text-left py-2">Item</th>
-                    <th className="text-left py-2">Condition</th>
+                  <tr className="border-b border-[#e5ebe3] bg-[#f6f8f4]">
+                    <th className="text-left py-3 px-3 text-gray-600 font-semibold">
+                      Room
+                    </th>
+
+                    <th className="text-left py-3 px-3 text-gray-600 font-semibold">
+                      Item
+                    </th>
+
+                    <th className="text-left py-3 px-3 text-gray-600 font-semibold">
+                      Condition
+                    </th>
                   </tr>
                 </thead>
 
                 <tbody>
-                  {roomInventory.slice(0, 10).map((item) => (
-                    <tr key={item._id} className="border-b">
-                      <td className="py-2">{item.roomName}</td>
-                      <td className="py-2">{item.itemName}</td>
+                  {roomInventory.slice(0, 10).map((item, index) => (
+                    <tr
+                      key={item._id || index}
+                      className="border-b border-gray-100 hover:bg-[#f8faf7] transition-colors"
+                    >
+                      <td className="py-3 px-3 text-gray-700 font-medium">
+                        {item.roomName}
+                      </td>
 
-                      <td
-                        className={`py-2 font-semibold ${
-                          item.condition === "Good"
-                            ? "text-green-600"
-                            : item.condition === "Damaged" ||
-                                item.condition === "Needs Repair"
-                              ? "text-yellow-600"
-                              : "text-red-600"
-                        }`}
-                      >
-                        {item.condition}
+                      <td className="py-3 px-3 text-gray-600">
+                        {item.itemName}
+                      </td>
+
+                      <td className="py-3 px-3">
+                        <span
+                          className={`inline-flex rounded-full px-2.5 py-1 text-xs font-semibold ${
+                            item.condition === "Good"
+                              ? "bg-green-50 text-green-700"
+                              : item.condition === "Damaged" ||
+                                  item.condition === "Needs Repair"
+                                ? "bg-amber-50 text-amber-700"
+                                : "bg-red-50 text-red-700"
+                          }`}
+                        >
+                          {item.condition}
+                        </span>
                       </td>
                     </tr>
                   ))}
@@ -1218,7 +1396,7 @@ export default function Dashboard() {
                     <tr>
                       <td
                         colSpan={3}
-                        className="py-6 text-center text-gray-500"
+                        className="py-8 text-center text-gray-500"
                       >
                         No room inventory records found.
                       </td>
@@ -1231,8 +1409,8 @@ export default function Dashboard() {
         </div>
       )}
 
-      {/* Notifications */}
-      {popupVisible && (
+      {/* SUPERADMIN LIVE NOTIFICATION POPUP */}
+      {isSuperAdmin && popupVisible && (
         <NotificationPopup
           notifications={unreadNotifications}
           onClose={() => setPopupVisible(false)}

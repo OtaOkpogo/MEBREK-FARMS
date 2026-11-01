@@ -22,9 +22,14 @@ import socket from "../services/socket";
 // ============================================================
 
 const PAGE_SIZE = 10;
-
 const BROODING_HOUSE = "Brooding House";
 const DAY_MS = 24 * 60 * 60 * 1000;
+
+const BATTERY_CAGE_PENS = [
+  "Battery Cage Row 1",
+  "Battery Cage Row 2",
+  "Battery Cage Row 3",
+];
 
 // ============================================================
 // EMPTY FORM
@@ -57,29 +62,39 @@ const isBroodingHouse = (pen) => pen === BROODING_HOUSE;
 
 const getCalendarDay = (value) => {
   if (!value) return null;
+
   if (typeof value === "string") {
     const match = value.match(/^(\d{4})-(\d{2})-(\d{2})/);
-    if (match)
+
+    if (match) {
       return Date.UTC(Number(match[1]), Number(match[2]) - 1, Number(match[3]));
+    }
   }
+
   const date = new Date(value);
+
   if (Number.isNaN(date.getTime())) return null;
+
   return Date.UTC(date.getUTCFullYear(), date.getUTCMonth(), date.getUTCDate());
 };
 
 const calculateDaysFromFlock = (flock, productionDate) => {
   if (!flock?.placementDate || !productionDate) return "";
+
   const placementDay = getCalendarDay(flock.placementDate);
   const productionDay = getCalendarDay(productionDate);
   const startingAgeWeeks = Number(flock.startingAgeWeeks ?? 0);
+
   if (
     placementDay === null ||
     productionDay === null ||
     productionDay < placementDay ||
     !Number.isFinite(startingAgeWeeks) ||
     startingAgeWeeks < 0
-  )
+  ) {
     return "";
+  }
+
   return (
     startingAgeWeeks * 7 + Math.floor((productionDay - placementDay) / DAY_MS)
   );
@@ -104,6 +119,14 @@ const toFormData = (record) => ({
   remarks: record?.remarks || "",
 });
 
+const formatNumber = (value) =>
+  Number(value || 0).toLocaleString("en-NG", {
+    maximumFractionDigits: 2,
+  });
+
+const formatDate = (value) =>
+  value ? new Date(value).toLocaleDateString("en-NG") : "—";
+
 // ============================================================
 // COMPONENT
 // ============================================================
@@ -113,44 +136,58 @@ const Production = () => {
   // USER / ROLE
   // ============================================================
 
-  const user = JSON.parse(localStorage.getItem("user") || "{}");
+  let storedUser = {};
 
-  const role = user?.role || localStorage.getItem("role");
+  try {
+    storedUser = JSON.parse(localStorage.getItem("user") || "{}");
+  } catch {
+    storedUser = {};
+  }
+
+  const role = String(storedUser?.role || localStorage.getItem("role") || "")
+    .trim()
+    .toLowerCase();
 
   // ============================================================
   // STATE
   // ============================================================
 
   const [productions, setProductions] = useState([]);
-
   const [formData, setFormData] = useState(emptyFormData);
-
-  const broodingHouse = isBroodingHouse(formData.pen);
-
   const [editingId, setEditingId] = useState(null);
-
   const [saving, setSaving] = useState(false);
-
   const [loading, setLoading] = useState(false);
 
   const [search, setSearch] = useState("");
   const [dateFrom, setDateFrom] = useState("");
   const [dateTo, setDateTo] = useState("");
 
-  // Report view only filters existing records; it never creates or merges records.
   const [reportView, setReportView] = useState("All Pens");
-
   const [currentPage, setCurrentPage] = useState(1);
 
-  // ============================================================
-  // ACTIVE FLOCK STATE
-  // ============================================================
-
   const [activeFlock, setActiveFlock] = useState(null);
-
   const [flockLoading, setFlockLoading] = useState(false);
-
   const [flockError, setFlockError] = useState("");
+
+  const broodingHouse = isBroodingHouse(formData.pen);
+  const isCombinedBatteryReport = reportView === "Battery Cage Combined";
+
+  // ============================================================
+  // STYLES
+  // ============================================================
+
+  const inputClass =
+    "w-full min-w-0 rounded-lg border border-gray-200 bg-white px-3 py-2.5 text-sm text-gray-800 outline-none transition placeholder:text-gray-400 focus:border-green-600 focus:ring-2 focus:ring-green-100";
+
+  const labelClass = "mb-1.5 block text-sm font-semibold text-gray-700";
+
+  const panelClass = "rounded-xl border border-[#e5ebe3] bg-white shadow-sm";
+
+  const statCardClass =
+    "rounded-xl border border-[#e5ebe3] bg-white p-4 shadow-sm transition hover:-translate-y-0.5 hover:shadow-md";
+
+  const previewCardClass =
+    "rounded-lg border border-[#e2e9df] bg-[#f7faf5] p-4";
 
   // ============================================================
   // LOAD PRODUCTIONS
@@ -161,7 +198,6 @@ const Production = () => {
       setLoading(true);
 
       const data = await fetchProductions();
-
       const records = Array.isArray(data) ? data : [];
 
       setProductions(records);
@@ -193,25 +229,19 @@ const Production = () => {
   // ============================================================
 
   useEffect(() => {
-    if (!socket) {
-      return;
-    }
+    if (!socket) return;
 
     const handleProductionUpdate = () => {
       loadProductions(false);
     };
 
     socket.on("productionCreated", handleProductionUpdate);
-
     socket.on("productionUpdated", handleProductionUpdate);
-
     socket.on("productionDeleted", handleProductionUpdate);
 
     return () => {
       socket.off("productionCreated", handleProductionUpdate);
-
       socket.off("productionUpdated", handleProductionUpdate);
-
       socket.off("productionDeleted", handleProductionUpdate);
     };
   }, []);
@@ -224,13 +254,7 @@ const Production = () => {
     setActiveFlock(null);
     setFlockError("");
 
-    if (!pen) {
-      setFlockLoading(false);
-      return;
-    }
-
-    // Brooding House does not require a flock.
-    if (pen === BROODING_HOUSE) {
+    if (!pen || pen === BROODING_HOUSE) {
       setFlockLoading(false);
       return;
     }
@@ -239,7 +263,6 @@ const Production = () => {
 
     try {
       const flock = await fetchActiveFlockByPen(pen);
-
       setActiveFlock(flock || null);
     } catch (error) {
       console.error("ACTIVE FLOCK ERROR:", error);
@@ -261,8 +284,11 @@ const Production = () => {
 
   useEffect(() => {
     if (broodingHouse || !activeFlock || !formData.date) return;
+
     const calculatedDays = calculateDaysFromFlock(activeFlock, formData.date);
+
     if (calculatedDays === "") return;
+
     setFormData((previous) =>
       String(previous.days) === String(calculatedDays)
         ? previous
@@ -280,6 +306,7 @@ const Production = () => {
     }
 
     const selectedDay = getCalendarDay(formData.date);
+
     if (selectedDay === null) return;
 
     const previousRecords = productions
@@ -288,29 +315,29 @@ const Production = () => {
           return false;
         }
 
-        // Do not use the record currently being edited as its own source.
         if (editingId && String(record._id) === String(editingId)) {
           return false;
         }
 
         const recordDay = getCalendarDay(record.date);
+
         return recordDay !== null && recordDay < selectedDay;
       })
       .sort((a, b) => getCalendarDay(b.date) - getCalendarDay(a.date));
 
     if (previousRecords.length === 0) {
-      // The first record for a pen needs its verified starting stock entered
-      // manually. While editing, preserve the record's existing opening stock.
       if (!editingId) {
         setFormData((current) => {
           if (current.pen !== formData.pen || current.date !== formData.date) {
             return current;
           }
+
           return current.openingStock === ""
             ? current
             : { ...current, openingStock: "" };
         });
       }
+
       return;
     }
 
@@ -323,7 +350,10 @@ const Production = () => {
 
       return String(current.openingStock) === String(previousClosingStock)
         ? current
-        : { ...current, openingStock: String(previousClosingStock) };
+        : {
+            ...current,
+            openingStock: String(previousClosingStock),
+          };
     });
   }, [formData.pen, formData.date, productions, editingId]);
 
@@ -338,10 +368,7 @@ const Production = () => {
       ...prev,
       pen,
       days: "",
-      // For a new entry, the opening-stock effect below will fill this from
-      // the selected pen's latest earlier production record, if one exists.
       openingStock: editingId ? prev.openingStock : "",
-
       ...(pen === BROODING_HOUSE
         ? {
             cratesProduced: "",
@@ -401,54 +428,27 @@ const Production = () => {
       toast.error(
         "Closing stock cannot be negative. Check opening stock, transfers, and mortality.",
       );
-
       return;
     }
 
-    // ==========================================================
-    // IMPORTANT:
-    //
-    // We deliberately DO NOT send:
-    //
-    // flock
-    // flockId
-    // flockAgeWeeks
-    //
-    // The backend determines those values from the active flock
-    // for the selected pen.
-    // ==========================================================
+    // The backend determines flock, flockId and flockAgeWeeks.
+    // These values are deliberately not sent by the frontend.
 
     const payload = {
       ...formData,
       days: Number(formData.days || 0),
-
-      days: Number(formData.days || 0),
-
       openingStock: Number(formData.openingStock || 0),
-
       transferIn: Number(formData.transferIn || 0),
-
       transferOut: Number(formData.transferOut || 0),
-
       mortality: Number(formData.mortality || 0),
-
       sickBirds: Number(formData.sickBirds || 0),
-
-      // Decimal values are preserved.
-      // Examples: 0.5, 1.25, 2.5
       feedBagsConsumed: Number(formData.feedBagsConsumed || 0),
-
       waterConsumed: Number(formData.waterConsumed || 0),
-
-      // Brooding House has no egg production fields.
       cratesProduced: broodingHouse ? 0 : Number(formData.cratesProduced || 0),
-
       extraEggPieces: broodingHouse ? 0 : Number(formData.extraEggPieces || 0),
-
       miscarriageProduction: broodingHouse
         ? 0
         : Number(formData.miscarriageProduction || 0),
-
       crackedEggs: broodingHouse ? 0 : Number(formData.crackedEggs || 0),
     };
 
@@ -463,7 +463,6 @@ const Production = () => {
         );
 
         toast.success("Production record updated successfully");
-
         setEditingId(null);
       } else {
         const created = await createProduction(payload);
@@ -478,11 +477,9 @@ const Production = () => {
       }
 
       setFormData(emptyFormData);
-
       setActiveFlock(null);
       setFlockError("");
       setFlockLoading(false);
-
       setCurrentPage(1);
     } catch (error) {
       console.error("SAVE PRODUCTION ERROR:", error);
@@ -501,9 +498,7 @@ const Production = () => {
 
   const startEdit = async (record) => {
     setEditingId(record._id);
-
     setFormData(toFormData(record));
-
     setActiveFlock(null);
     setFlockError("");
 
@@ -521,9 +516,7 @@ const Production = () => {
 
   const cancelEdit = () => {
     setEditingId(null);
-
     setFormData(emptyFormData);
-
     setActiveFlock(null);
     setFlockError("");
     setFlockLoading(false);
@@ -538,9 +531,7 @@ const Production = () => {
       "Are you sure you want to delete this production record?",
     );
 
-    if (!confirmed) {
-      return;
-    }
+    if (!confirmed) return;
 
     try {
       await deleteProduction(id);
@@ -549,12 +540,7 @@ const Production = () => {
         role === "superadmin"
           ? prev.filter((item) => item._id !== id)
           : prev.map((item) =>
-              item._id === id
-                ? {
-                    ...item,
-                    isDeleted: true,
-                  }
-                : item,
+              item._id === id ? { ...item, isDeleted: true } : item,
             ),
       );
 
@@ -571,16 +557,8 @@ const Production = () => {
   };
 
   // ============================================================
-  // SEARCH
+  // FILTERING
   // ============================================================
-
-  const BATTERY_CAGE_PENS = [
-    "Battery Cage Row 1",
-    "Battery Cage Row 2",
-    "Battery Cage Row 3",
-  ];
-
-  const isCombinedBatteryReport = reportView === "Battery Cage Combined";
 
   const filteredProductions = useMemo(() => {
     const query = search.trim().toLowerCase();
@@ -589,10 +567,15 @@ const Production = () => {
       const recordDay = getCalendarDay(record?.date);
       const fromDay = dateFrom ? getCalendarDay(dateFrom) : null;
       const toDay = dateTo ? getCalendarDay(dateTo) : null;
-      if (fromDay !== null && (recordDay === null || recordDay < fromDay))
+
+      if (fromDay !== null && (recordDay === null || recordDay < fromDay)) {
         return false;
-      if (toDay !== null && (recordDay === null || recordDay > toDay))
+      }
+
+      if (toDay !== null && (recordDay === null || recordDay > toDay)) {
         return false;
+      }
+
       const matchesPen =
         reportView === "All Pens" ||
         (isCombinedBatteryReport
@@ -670,8 +653,6 @@ const Production = () => {
       0,
     );
 
-    // Closing stock is a point-in-time balance, not a daily value to sum.
-    // For every pen, use only its latest active production record.
     const currentStockByPen = PENS.map((pen) => {
       const latestRecord =
         activeRecords
@@ -680,9 +661,7 @@ const Production = () => {
             const dateDifference =
               new Date(b.date).getTime() - new Date(a.date).getTime();
 
-            if (dateDifference !== 0) {
-              return dateDifference;
-            }
+            if (dateDifference !== 0) return dateDifference;
 
             return (
               new Date(b.updatedAt || b.createdAt || 0).getTime() -
@@ -709,34 +688,42 @@ const Production = () => {
     };
   }, [productions]);
 
-  // Combined battery-cage report. Egg/mortality/feed totals are summed from
-  // the existing active records. Closing stock is taken from each row's latest
-  // record, because stock is a balance and must not be summed across dates.
+  // ============================================================
+  // BATTERY CAGE COMBINED SUMMARY
+  // ============================================================
+
   const batteryCombinedSummary = useMemo(() => {
     const rows = BATTERY_CAGE_PENS.map((pen) => {
       const activeRows = filteredProductions.filter(
         (record) => record.pen === pen && !record.isDeleted,
       );
+
       const sortedRows = [...activeRows].sort((a, b) => {
         const dateDiff =
           new Date(b.date || 0).getTime() - new Date(a.date || 0).getTime();
+
         if (dateDiff !== 0) return dateDiff;
+
         return (
           new Date(b.updatedAt || b.createdAt || 0).getTime() -
           new Date(a.updatedAt || a.createdAt || 0).getTime()
         );
       });
+
       const earliestRows = [...activeRows].sort(
         (a, b) =>
           new Date(a.date || 0).getTime() - new Date(b.date || 0).getTime(),
       );
+
       const totalEggs = activeRows.reduce(
         (sum, r) => sum + Number(r.totalEggs || 0),
         0,
       );
+
       const openingStock = earliestRows.length
         ? Number(earliestRows[0].openingStock || 0)
         : 0;
+
       return {
         pen,
         records: activeRows.length,
@@ -795,10 +782,12 @@ const Production = () => {
 
     const sum = (key) =>
       rows.reduce((total, row) => total + Number(row[key] || 0), 0);
+
     const latestStocks = rows.reduce(
       (total, row) => total + (row.hasStock ? row.closingStock : 0),
       0,
     );
+
     const totalBirdDays = sum("birdDays");
     const totalEggs = sum("eggs");
 
@@ -830,59 +819,37 @@ const Production = () => {
   const handleExportExcel = () => {
     if (!filteredProductions.length) {
       toast.info("There are no production records to export.");
-
       return;
     }
 
     const data = filteredProductions.map((record) => ({
       Date: record.date ? new Date(record.date).toLocaleDateString() : "",
-
       Pen: record.pen || "",
-
       "Flock ID": record.flockId || record.flock?.flockId || "",
-
       "Flock Age":
         record.flockAgeWeeks !== null && record.flockAgeWeeks !== undefined
           ? `${record.flockAgeWeeks} weeks`
           : "",
-
       Days: record.days ?? "",
-
       "Opening Stock": record.openingStock ?? "",
-
       "Transfer In": record.transferIn ?? 0,
-
       "Transfer Out": record.transferOut ?? 0,
-
       Mortality: record.mortality ?? 0,
-
       "Closing Stock": record.closingStock ?? 0,
-
       "Sick Birds": record.sickBirds ?? 0,
-
       "Feed Bags": record.feedBagsConsumed ?? 0,
-
       "Water Consumed": record.waterConsumed ?? 0,
-
       "Crates Produced": record.cratesProduced ?? 0,
-
       "Extra Eggs": record.extraEggPieces ?? 0,
-
       "Total Eggs": record.totalEggs ?? 0,
-
       "Production %": record.productionPercentage ?? 0,
-
       "Miscarriage Production": record.miscarriageProduction ?? 0,
-
       "Cracked Eggs": record.crackedEggs ?? 0,
-
       "Drugs Used": record.drugsUsed || "",
-
       Remarks: record.remarks || "",
     }));
 
     const worksheet = XLSX.utils.json_to_sheet(data);
-
     const workbook = XLSX.utils.book_new();
 
     XLSX.utils.book_append_sheet(workbook, worksheet, "Production Records");
@@ -890,8 +857,14 @@ const Production = () => {
     if (isCombinedBatteryReport) {
       const summaryRows = [
         { Metric: "Total Eggs", Combined: batteryCombinedSummary.eggs },
-        { Metric: "Crates Produced", Combined: batteryCombinedSummary.crates },
-        { Metric: "Mortality", Combined: batteryCombinedSummary.mortality },
+        {
+          Metric: "Crates Produced",
+          Combined: batteryCombinedSummary.crates,
+        },
+        {
+          Metric: "Mortality",
+          Combined: batteryCombinedSummary.mortality,
+        },
         {
           Metric: "Current Birds (latest closing stock per row)",
           Combined: batteryCombinedSummary.closingStock,
@@ -905,14 +878,26 @@ const Production = () => {
           Metric: "Opening Stock (first record per row)",
           Combined: batteryCombinedSummary.openingStock,
         },
-        { Metric: "Transfers In", Combined: batteryCombinedSummary.transferIn },
+        {
+          Metric: "Transfers In",
+          Combined: batteryCombinedSummary.transferIn,
+        },
         {
           Metric: "Transfers Out",
           Combined: batteryCombinedSummary.transferOut,
         },
-        { Metric: "Sick Birds", Combined: batteryCombinedSummary.sickBirds },
-        { Metric: "Water Consumed", Combined: batteryCombinedSummary.water },
-        { Metric: "Cracked Eggs", Combined: batteryCombinedSummary.cracked },
+        {
+          Metric: "Sick Birds",
+          Combined: batteryCombinedSummary.sickBirds,
+        },
+        {
+          Metric: "Water Consumed",
+          Combined: batteryCombinedSummary.water,
+        },
+        {
+          Metric: "Cracked Eggs",
+          Combined: batteryCombinedSummary.cracked,
+        },
         ...batteryCombinedSummary.rows.map((row) => ({
           Pen: row.pen,
           Records: row.records,
@@ -924,6 +909,7 @@ const Production = () => {
           "Cracked Eggs": row.cracked,
         })),
       ];
+
       XLSX.utils.book_append_sheet(
         workbook,
         XLSX.utils.json_to_sheet(summaryRows),
@@ -948,7 +934,6 @@ const Production = () => {
   const handleExportPDF = () => {
     if (!filteredProductions.length) {
       toast.info("There are no production records to export.");
-
       return;
     }
 
@@ -969,10 +954,10 @@ const Production = () => {
     );
 
     doc.setFontSize(9);
-
     doc.text(`Generated: ${new Date().toLocaleString()}`, 14, 21);
 
     let detailStartY = 26;
+
     if (isCombinedBatteryReport) {
       autoTable(doc, {
         startY: 26,
@@ -1050,7 +1035,9 @@ const Production = () => {
         styles: { fontSize: 7, cellPadding: 1.5 },
         margin: { left: 8, right: 8 },
       });
+
       detailStartY = (doc.lastAutoTable?.finalY || 60) + 6;
+
       if (detailStartY > 170) {
         doc.addPage();
         detailStartY = 15;
@@ -1059,33 +1046,20 @@ const Production = () => {
 
     const rows = filteredProductions.map((record) => [
       record.date ? new Date(record.date).toLocaleDateString() : "",
-
       record.pen || "",
-
       record.flockId || record.flock?.flockId || "—",
-
       record.flockAgeWeeks !== null && record.flockAgeWeeks !== undefined
         ? `${record.flockAgeWeeks} w`
         : "—",
-
       record.days ?? "",
-
       record.openingStock ?? 0,
-
       record.transferIn ?? 0,
-
       record.transferOut ?? 0,
-
       record.mortality ?? 0,
-
       record.closingStock ?? 0,
-
       record.cratesProduced ?? 0,
-
       record.extraEggPieces ?? 0,
-
       record.totalEggs ?? 0,
-
       record.productionPercentage !== undefined
         ? `${record.productionPercentage}%`
         : "0%",
@@ -1093,7 +1067,6 @@ const Production = () => {
 
     autoTable(doc, {
       startY: detailStartY,
-
       head: [
         [
           "Date",
@@ -1112,18 +1085,14 @@ const Production = () => {
           "Production %",
         ],
       ],
-
       body: rows,
-
       styles: {
         fontSize: 7,
         cellPadding: 2,
       },
-
       headStyles: {
         fontSize: 7,
       },
-
       margin: {
         left: 8,
         right: 8,
@@ -1140,31 +1109,45 @@ const Production = () => {
   };
 
   // ============================================================
-  // FORM FIELD STYLES
+  // CALCULATED FORM VALUES
   // ============================================================
 
-  const inputClass =
-    "w-full rounded-lg border border-gray-300 px-3 py-2 outline-none focus:border-blue-500 focus:ring-2 focus:ring-blue-100";
+  const calculatedClosingStock =
+    Number(formData.openingStock || 0) +
+    Number(formData.transferIn || 0) -
+    Number(formData.transferOut || 0) -
+    Number(formData.mortality || 0);
 
-  const labelClass = "mb-1 block text-sm font-medium text-gray-700";
+  const calculatedTotalEggs =
+    Number(formData.cratesProduced || 0) * 30 +
+    Number(formData.extraEggPieces || 0);
+
+  const calculatedProductionPercentage =
+    calculatedClosingStock > 0
+      ? (calculatedTotalEggs / calculatedClosingStock) * 100
+      : 0;
 
   // ============================================================
   // RENDER
   // ============================================================
 
   return (
-    <div className="space-y-6 p-4 md:p-6">
-      {/* ======================================================
-          PAGE HEADER
-      ====================================================== */}
+    <div className="min-h-screen space-y-6 bg-[#f5f7f3] p-4 md:p-6">
+      {/* PAGE HEADER */}
 
-      <div className="flex flex-col gap-4 md:flex-row md:items-center md:justify-between">
+      <div className="flex flex-col gap-4 rounded-xl border border-[#e5ebe3] bg-white p-5 shadow-sm md:flex-row md:items-center md:justify-between">
         <div>
-          <h1 className="text-2xl font-bold text-gray-800">
+          <div className="mb-2 flex items-center gap-2">
+            <span className="rounded-full bg-[#eaf2e7] px-3 py-1 text-xs font-semibold text-[#315f3d]">
+              FARM OPERATIONS
+            </span>
+          </div>
+
+          <h1 className="text-2xl font-bold tracking-tight text-[#263b2b] md:text-3xl">
             Poultry Production
           </h1>
 
-          <p className="text-sm text-gray-500">
+          <p className="mt-1 max-w-2xl text-sm leading-6 text-gray-500">
             Record daily production, stock movement, mortality and flock
             performance.
           </p>
@@ -1175,7 +1158,7 @@ const Production = () => {
             type="button"
             onClick={() => loadProductions(true)}
             disabled={loading}
-            className="rounded-lg border border-gray-300 bg-white px-4 py-2 text-sm font-medium text-gray-700 hover:bg-gray-50 disabled:opacity-50"
+            className="rounded-lg border border-gray-200 bg-white px-4 py-2.5 text-sm font-semibold text-gray-700 transition hover:bg-gray-50 disabled:opacity-50"
           >
             {loading ? "Refreshing..." : "Refresh"}
           </button>
@@ -1183,32 +1166,31 @@ const Production = () => {
           <button
             type="button"
             onClick={handleExportExcel}
-            className="rounded-lg bg-green-600 px-4 py-2 text-sm font-medium text-white hover:bg-green-700"
+            className="rounded-lg bg-[#39784b] px-4 py-2.5 text-sm font-semibold text-white transition hover:bg-[#2d633d]"
           >
-            Excel
+            Export Excel
           </button>
 
           <button
             type="button"
             onClick={handleExportPDF}
-            className="rounded-lg bg-red-600 px-4 py-2 text-sm font-medium text-white hover:bg-red-700"
+            className="rounded-lg bg-[#a94b43] px-4 py-2.5 text-sm font-semibold text-white transition hover:bg-[#913d36]"
           >
-            PDF
+            Export PDF
           </button>
         </div>
       </div>
 
-      {/* ======================================================
-          PRODUCTION REPORT VIEW
-      ====================================================== */}
+      {/* REPORT VIEW */}
 
-      <div className="rounded-xl border border-blue-200 bg-blue-50/50 p-4 shadow-sm">
+      <div className="rounded-xl border border-[#dce8d8] bg-[#edf4e9] p-4 shadow-sm">
         <label
           htmlFor="productionReportView"
-          className="mb-2 block text-sm font-semibold text-gray-800"
+          className="mb-2 block text-sm font-bold text-[#31543a]"
         >
           Production Report View
         </label>
+
         <select
           id="productionReportView"
           value={reportView}
@@ -1216,7 +1198,7 @@ const Production = () => {
             setReportView(e.target.value);
             setCurrentPage(1);
           }}
-          className={`${inputClass} w-full bg-white md:max-w-xl`}
+          className={`${inputClass} w-full md:max-w-xl`}
         >
           <option value="All Pens">All Pens — Individual Records</option>
           <option value="Battery Cage Combined">
@@ -1228,58 +1210,68 @@ const Production = () => {
             </option>
           ))}
         </select>
+
         {isCombinedBatteryReport && (
-          <p className="mt-2 text-sm text-blue-800">
-            Combined report selected: Battery Cage Rows 1, 2 and 3. The original
+          <p className="mt-2 text-sm text-[#42694a]">
+            Combined report selected: Battery Cage Rows 1, 2 and 3. Original
             individual production records are preserved.
           </p>
         )}
       </div>
 
-      {/* ======================================================
-          STATISTICS
-      ====================================================== */}
+      {/* STATISTICS */}
 
-      <div className="grid grid-cols-1 gap-4 sm:grid-cols-2 lg:grid-cols-5">
-        <div className="rounded-xl border bg-white p-4 shadow-sm">
-          <p className="text-sm text-gray-500">Records</p>
-          <p className="mt-1 text-2xl font-bold">{stats.records}</p>
+      <div className="grid grid-cols-1 gap-4 sm:grid-cols-2 lg:grid-cols-4">
+        <div className={statCardClass}>
+          <p className="text-sm font-medium text-gray-500">
+            Production Records
+          </p>
+          <p className="mt-2 text-2xl font-bold text-[#315f3d]">
+            {formatNumber(stats.records)}
+          </p>
+          <p className="mt-1 text-xs text-gray-400">Active records</p>
         </div>
 
-        <div className="rounded-xl border bg-white p-4 shadow-sm">
-          <p className="text-sm text-gray-500">Total Eggs</p>
-          <p className="mt-1 text-2xl font-bold">
-            {stats.totalEggs.toLocaleString()}
+        <div className={statCardClass}>
+          <p className="text-sm font-medium text-gray-500">Total Eggs</p>
+          <p className="mt-2 text-2xl font-bold text-[#315f3d]">
+            {formatNumber(stats.totalEggs)}
+          </p>
+          <p className="mt-1 text-xs text-gray-400">
+            Eggs recorded across all pens
           </p>
         </div>
 
-        <div className="rounded-xl border bg-white p-4 shadow-sm">
-          <p className="text-sm text-gray-500">Mortality</p>
-          <p className="mt-1 text-2xl font-bold">
-            {stats.totalMortality.toLocaleString()}
+        <div className={statCardClass}>
+          <p className="text-sm font-medium text-gray-500">Total Mortality</p>
+          <p className="mt-2 text-2xl font-bold text-[#a94b43]">
+            {formatNumber(stats.totalMortality)}
           </p>
+          <p className="mt-1 text-xs text-gray-400">Recorded bird losses</p>
         </div>
 
-        <div className="rounded-xl border bg-white p-4 shadow-sm">
-          <p className="text-sm text-gray-500">Feed Bags</p>
-          <p className="mt-1 text-2xl font-bold">
-            {stats.totalFeed.toLocaleString()}
+        <div className={statCardClass}>
+          <p className="text-sm font-medium text-gray-500">
+            Feed Bags Consumed
+          </p>
+          <p className="mt-2 text-2xl font-bold text-[#9a742e]">
+            {formatNumber(stats.totalFeed)}
+          </p>
+          <p className="mt-1 text-xs text-gray-400">
+            Decimal quantities included
           </p>
         </div>
       </div>
 
-      {/* ======================================================
-          CURRENT STOCK BY PEN
-      ====================================================== */}
+      {/* CURRENT STOCK BY PEN */}
 
-      <div className="space-y-3">
+      <section className="space-y-3">
         <div>
-          <h2 className="text-lg font-semibold text-gray-800">
+          <h2 className="text-lg font-bold text-[#2c4331]">
             Current Stock by Pen
           </h2>
-
           <p className="text-sm text-gray-500">
-            Shows the latest closing stock recorded for each pen.
+            Latest closing stock recorded for each pen.
           </p>
         </div>
 
@@ -1287,45 +1279,44 @@ const Production = () => {
           {stats.currentStockByPen.map((item) => (
             <div
               key={item.pen}
-              className="rounded-xl border bg-white p-4 shadow-sm"
+              className="rounded-xl border border-[#e5ebe3] bg-white p-4 shadow-sm transition hover:shadow-md"
             >
-              <p className="text-sm font-medium text-gray-500">
-                {item.pen} Current Stock
-              </p>
+              <p className="text-sm font-semibold text-gray-600">{item.pen}</p>
 
               {item.hasRecord ? (
                 <>
-                  <p className="mt-1 text-2xl font-bold text-gray-800">
-                    {item.currentStock.toLocaleString()}
+                  <p className="mt-2 text-2xl font-bold text-[#315f3d]">
+                    {formatNumber(item.currentStock)}
                   </p>
-
-                  <p className="mt-1 text-xs text-gray-500">
-                    As of {new Date(item.date).toLocaleDateString("en-US")}
+                  <p className="mt-1 text-xs text-gray-400">
+                    As of {formatDate(item.date)}
                   </p>
                 </>
               ) : (
-                <p className="mt-2 text-sm font-medium text-gray-400">
+                <p className="mt-3 text-sm font-medium text-gray-400">
                   No production record yet
                 </p>
               )}
             </div>
           ))}
         </div>
-      </div>
+      </section>
 
-      {/* ======================================================
-          PRODUCTION FORM
-      ====================================================== */}
+      {/* PRODUCTION FORM */}
 
-      <div className="rounded-xl border bg-white p-5 shadow-sm">
-        <div className="mb-5 flex items-center justify-between">
+      <section className={`${panelClass} overflow-hidden`}>
+        <div className="flex flex-col gap-3 border-b border-[#e8ede6] bg-[#fbfcfa] p-5 sm:flex-row sm:items-center sm:justify-between">
           <div>
-            <h2 className="text-lg font-semibold text-gray-800">
+            <h2 className="text-lg font-bold text-[#2c4331]">
               {editingId ? "Edit Production Record" : "Add Production Record"}
             </h2>
 
+            <p className="mt-1 text-sm text-gray-500">
+              Enter the daily production and stock information below.
+            </p>
+
             {editingId && (
-              <p className="mt-1 text-sm text-blue-600">
+              <p className="mt-2 text-sm font-medium text-blue-600">
                 You are editing an existing production record.
               </p>
             )}
@@ -1335,7 +1326,7 @@ const Production = () => {
             <button
               type="button"
               onClick={cancelEdit}
-              className="rounded-lg border border-gray-300 px-4 py-2 text-sm font-medium hover:bg-gray-50"
+              className="rounded-lg border border-gray-200 bg-white px-4 py-2 text-sm font-semibold text-gray-700 hover:bg-gray-50"
             >
               Cancel Edit
             </button>
@@ -1344,7 +1335,7 @@ const Production = () => {
 
         <form
           onSubmit={handleSubmit}
-          className="grid grid-cols-1 gap-4 md:grid-cols-3"
+          className="grid grid-cols-1 gap-5 p-5 md:grid-cols-3"
         >
           {/* PEN */}
 
@@ -1362,7 +1353,6 @@ const Production = () => {
               className={inputClass}
             >
               <option value="">Select pen</option>
-
               {PENS.map((pen) => (
                 <option key={pen} value={pen}>
                   {pen}
@@ -1374,81 +1364,54 @@ const Production = () => {
           {/* ACTIVE FLOCK */}
 
           {formData.pen && (
-            <div className="rounded-lg border border-blue-200 bg-blue-50 p-4 md:col-span-2">
-              <h3 className="mb-3 font-semibold text-gray-800">
-                Active Flock Information
-              </h3>
+            <div className="rounded-xl border border-[#dce8d8] bg-[#f5f9f2] p-4 md:col-span-2">
+              <div className="mb-3 flex items-center justify-between gap-2">
+                <h3 className="font-bold text-[#31543a]">
+                  Active Flock Information
+                </h3>
+
+                <span className="rounded-full bg-white px-2.5 py-1 text-xs font-semibold text-[#54765a]">
+                  {broodingHouse ? "Not Required" : "Flock Details"}
+                </span>
+              </div>
 
               {flockLoading ? (
                 <p className="text-sm text-gray-600">Loading active flock...</p>
               ) : flockError ? (
                 <p className="text-sm text-red-600">{flockError}</p>
               ) : activeFlock ? (
-                <div className="grid grid-cols-1 gap-3 sm:grid-cols-2 lg:grid-cols-4">
-                  <div>
-                    <p className="text-xs text-gray-500">Flock ID</p>
-                    <p className="font-semibold text-gray-800">
-                      {activeFlock.flockId}
-                    </p>
-                  </div>
-
-                  <div>
-                    <p className="text-xs text-gray-500">Pen</p>
-                    <p className="font-semibold text-gray-800">
-                      {activeFlock.pen}
-                    </p>
-                  </div>
-
-                  <div>
-                    <p className="text-xs text-gray-500">Current Age</p>
-                    <p className="font-semibold text-gray-800">
-                      {activeFlock.currentAgeWeeks ?? "—"}{" "}
-                      {activeFlock.currentAgeWeeks !== undefined ? "weeks" : ""}
-                    </p>
-                  </div>
-
-                  <div>
-                    <p className="text-xs text-gray-500">Lifecycle</p>
-                    <p className="font-semibold text-gray-800">
-                      {activeFlock.lifecycleStatus || "—"}
-                    </p>
-                  </div>
-
-                  <div>
-                    <p className="text-xs text-gray-500">Starting Age</p>
-                    <p className="font-semibold text-gray-800">
-                      {activeFlock.startingAgeWeeks ?? "—"} weeks
-                    </p>
-                  </div>
-
-                  <div>
-                    <p className="text-xs text-gray-500">Placement Date</p>
-                    <p className="font-semibold text-gray-800">
-                      {activeFlock.placementDate
-                        ? new Date(
-                            activeFlock.placementDate,
-                          ).toLocaleDateString()
-                        : "—"}
-                    </p>
-                  </div>
-
-                  <div>
-                    <p className="text-xs text-gray-500">Weeks Remaining</p>
-                    <p className="font-semibold text-gray-800">
-                      {activeFlock.weeksRemaining ?? "—"} weeks
-                    </p>
-                  </div>
-
-                  <div>
-                    <p className="text-xs text-gray-500">Expected End of Lay</p>
-                    <p className="font-semibold text-gray-800">
-                      {activeFlock.expectedEndOfLay
-                        ? new Date(
-                            activeFlock.expectedEndOfLay,
-                          ).toLocaleDateString()
-                        : "—"}
-                    </p>
-                  </div>
+                <div className="grid grid-cols-1 gap-4 sm:grid-cols-2 lg:grid-cols-4">
+                  {[
+                    ["Flock ID", activeFlock.flockId || "—"],
+                    ["Pen", activeFlock.pen || "—"],
+                    [
+                      "Current Age",
+                      `${activeFlock.currentAgeWeeks ?? "—"} ${
+                        activeFlock.currentAgeWeeks !== undefined ? "weeks" : ""
+                      }`,
+                    ],
+                    ["Lifecycle", activeFlock.lifecycleStatus || "—"],
+                    [
+                      "Starting Age",
+                      `${activeFlock.startingAgeWeeks ?? "—"} weeks`,
+                    ],
+                    ["Placement Date", formatDate(activeFlock.placementDate)],
+                    [
+                      "Weeks Remaining",
+                      `${activeFlock.weeksRemaining ?? "—"} weeks`,
+                    ],
+                    [
+                      "Expected End of Lay",
+                      formatDate(activeFlock.expectedEndOfLay),
+                    ],
+                  ].map(([label, value]) => (
+                    <div key={label}>
+                      <p className="text-xs text-gray-500">{label}</p>
+                      <p className="mt-1 text-sm font-bold text-gray-800">
+                        {value}
+                      </p>
+                    </div>
+                  ))}
                 </div>
               ) : broodingHouse ? (
                 <p className="text-sm text-gray-600">
@@ -1468,9 +1431,8 @@ const Production = () => {
 
           <div>
             <label htmlFor="date" className={labelClass}>
-              Date
+              Production Date
             </label>
-
             <input
               id="date"
               type="date"
@@ -1488,7 +1450,6 @@ const Production = () => {
             <label htmlFor="days" className={labelClass}>
               Days
             </label>
-
             <input
               id="days"
               type="number"
@@ -1498,9 +1459,13 @@ const Production = () => {
               onChange={handleChange}
               readOnly={Boolean(activeFlock) && !broodingHouse}
               required
-              className={`${inputClass} ${activeFlock && !broodingHouse ? "cursor-not-allowed bg-gray-100" : ""}`}
+              className={`${inputClass} ${
+                activeFlock && !broodingHouse
+                  ? "cursor-not-allowed bg-gray-100"
+                  : ""
+              }`}
             />
-            <p className="mt-1 text-xs text-gray-500">
+            <p className="mt-1.5 text-xs text-gray-500">
               {activeFlock && !broodingHouse
                 ? "Calculated automatically from flock age and production date."
                 : broodingHouse
@@ -1517,7 +1482,6 @@ const Production = () => {
             <label htmlFor="openingStock" className={labelClass}>
               Opening Stock
             </label>
-
             <input
               id="openingStock"
               type="number"
@@ -1541,7 +1505,6 @@ const Production = () => {
             <label htmlFor="transferIn" className={labelClass}>
               Transfer In
             </label>
-
             <input
               id="transferIn"
               type="number"
@@ -1559,7 +1522,6 @@ const Production = () => {
             <label htmlFor="transferOut" className={labelClass}>
               Transfer Out
             </label>
-
             <input
               id="transferOut"
               type="number"
@@ -1577,7 +1539,6 @@ const Production = () => {
             <label htmlFor="mortality" className={labelClass}>
               Mortality
             </label>
-
             <input
               id="mortality"
               type="number"
@@ -1595,7 +1556,6 @@ const Production = () => {
             <label htmlFor="sickBirds" className={labelClass}>
               Sick Birds
             </label>
-
             <input
               id="sickBirds"
               type="number"
@@ -1607,16 +1567,12 @@ const Production = () => {
             />
           </div>
 
-          {/* ==================================================
-              FEED
-              DECIMALS ARE ALLOWED
-          ================================================== */}
+          {/* FEED */}
 
           <div>
             <label htmlFor="feedBagsConsumed" className={labelClass}>
               Feed Bags Consumed
             </label>
-
             <input
               id="feedBagsConsumed"
               type="number"
@@ -1627,6 +1583,9 @@ const Production = () => {
               onChange={handleChange}
               className={inputClass}
             />
+            <p className="mt-1 text-xs text-gray-400">
+              Decimal values are allowed, e.g. 0.5 or 1.25.
+            </p>
           </div>
 
           {/* WATER */}
@@ -1635,7 +1594,6 @@ const Production = () => {
             <label htmlFor="waterConsumed" className={labelClass}>
               Water Consumed
             </label>
-
             <input
               id="waterConsumed"
               type="number"
@@ -1653,7 +1611,6 @@ const Production = () => {
             <label htmlFor="drugsUsed" className={labelClass}>
               Drugs Used
             </label>
-
             <input
               id="drugsUsed"
               type="text"
@@ -1672,7 +1629,6 @@ const Production = () => {
                 <label htmlFor="cratesProduced" className={labelClass}>
                   Crates Produced
                 </label>
-
                 <input
                   id="cratesProduced"
                   type="number"
@@ -1688,7 +1644,6 @@ const Production = () => {
                 <label htmlFor="extraEggPieces" className={labelClass}>
                   Extra Egg Pieces
                 </label>
-
                 <input
                   id="extraEggPieces"
                   type="number"
@@ -1704,7 +1659,6 @@ const Production = () => {
                 <label htmlFor="miscarriageProduction" className={labelClass}>
                   Miscarriage Production
                 </label>
-
                 <input
                   id="miscarriageProduction"
                   type="number"
@@ -1720,7 +1674,6 @@ const Production = () => {
                 <label htmlFor="crackedEggs" className={labelClass}>
                   Cracked Eggs
                 </label>
-
                 <input
                   id="crackedEggs"
                   type="number"
@@ -1734,59 +1687,44 @@ const Production = () => {
             </>
           )}
 
-          {/* CLOSING STOCK PREVIEW */}
+          {/* CALCULATED PREVIEWS */}
 
-          <div className="rounded-lg border border-gray-200 bg-gray-50 p-4">
-            <p className="text-sm text-gray-500">Calculated Closing Stock</p>
-
-            <p className="mt-1 text-xl font-bold text-gray-800">
-              {Math.max(
-                0,
-                Number(formData.openingStock || 0) +
-                  Number(formData.transferIn || 0) -
-                  Number(formData.transferOut || 0) -
-                  Number(formData.mortality || 0),
-              ).toLocaleString()}
+          <div className={previewCardClass}>
+            <p className="text-sm font-medium text-gray-500">
+              Calculated Closing Stock
+            </p>
+            <p className="mt-2 text-2xl font-bold text-[#315f3d]">
+              {formatNumber(Math.max(0, calculatedClosingStock))}
+            </p>
+            <p className="mt-1 text-xs text-gray-400">
+              Opening + transfers in − transfers out − mortality
             </p>
           </div>
 
-          {/* TOTAL EGGS PREVIEW */}
-
           {!broodingHouse && (
-            <div className="rounded-lg border border-gray-200 bg-gray-50 p-4">
-              <p className="text-sm text-gray-500">Calculated Total Eggs</p>
-
-              <p className="mt-1 text-xl font-bold text-gray-800">
-                {(
-                  Number(formData.cratesProduced || 0) * 30 +
-                  Number(formData.extraEggPieces || 0)
-                ).toLocaleString()}
+            <div className={previewCardClass}>
+              <p className="text-sm font-medium text-gray-500">
+                Calculated Total Eggs
+              </p>
+              <p className="mt-2 text-2xl font-bold text-[#315f3d]">
+                {formatNumber(calculatedTotalEggs)}
+              </p>
+              <p className="mt-1 text-xs text-gray-400">
+                Crates × 30 + extra egg pieces
               </p>
             </div>
           )}
 
-          {/* PRODUCTION PERCENTAGE */}
-
           {!broodingHouse && (
-            <div className="rounded-lg border border-gray-200 bg-gray-50 p-4">
-              <p className="text-sm text-gray-500">Production Percentage</p>
-
-              <p className="mt-1 text-xl font-bold text-gray-800">
-                {(() => {
-                  const closingStock =
-                    Number(formData.openingStock || 0) +
-                    Number(formData.transferIn || 0) -
-                    Number(formData.transferOut || 0) -
-                    Number(formData.mortality || 0);
-
-                  const totalEggs =
-                    Number(formData.cratesProduced || 0) * 30 +
-                    Number(formData.extraEggPieces || 0);
-
-                  return closingStock > 0
-                    ? `${((totalEggs / closingStock) * 100).toFixed(2)}%`
-                    : "0%";
-                })()}
+            <div className={previewCardClass}>
+              <p className="text-sm font-medium text-gray-500">
+                Production Percentage
+              </p>
+              <p className="mt-2 text-2xl font-bold text-[#315f3d]">
+                {calculatedProductionPercentage.toFixed(2)}%
+              </p>
+              <p className="mt-1 text-xs text-gray-400">
+                Calculated using closing stock
               </p>
             </div>
           )}
@@ -1797,7 +1735,6 @@ const Production = () => {
             <label htmlFor="remarks" className={labelClass}>
               Remarks
             </label>
-
             <textarea
               id="remarks"
               name="remarks"
@@ -1811,11 +1748,11 @@ const Production = () => {
 
           {/* FORM ACTIONS */}
 
-          <div className="flex flex-wrap gap-3 md:col-span-3">
+          <div className="flex flex-wrap gap-3 border-t border-gray-100 pt-4 md:col-span-3">
             <button
               type="submit"
               disabled={saving}
-              className="rounded-lg bg-blue-600 px-5 py-2.5 font-medium text-white hover:bg-blue-700 disabled:cursor-not-allowed disabled:opacity-50"
+              className="rounded-lg bg-[#39784b] px-6 py-2.5 text-sm font-semibold text-white transition hover:bg-[#2d633d] disabled:cursor-not-allowed disabled:opacity-50"
             >
               {saving
                 ? "Saving..."
@@ -1829,34 +1766,31 @@ const Production = () => {
                 type="button"
                 onClick={cancelEdit}
                 disabled={saving}
-                className="rounded-lg border border-gray-300 px-5 py-2.5 font-medium text-gray-700 hover:bg-gray-50 disabled:opacity-50"
+                className="rounded-lg border border-gray-200 bg-white px-6 py-2.5 text-sm font-semibold text-gray-700 hover:bg-gray-50 disabled:opacity-50"
               >
                 Cancel
               </button>
             )}
           </div>
         </form>
-      </div>
+      </section>
 
-      {/* ======================================================
-          PRODUCTION LIST
-      ====================================================== */}
+      {/* PRODUCTION RECORDS */}
 
-      <div className="rounded-xl border bg-white shadow-sm">
-        <div className="flex flex-col gap-4 border-b p-5 md:flex-row md:items-center md:justify-between">
+      <section className={`${panelClass} overflow-hidden`}>
+        <div className="flex flex-col gap-4 border-b border-[#e8ede6] bg-[#fbfcfa] p-5 xl:flex-row xl:items-center xl:justify-between">
           <div>
-            <h2 className="text-lg font-semibold text-gray-800">
+            <h2 className="text-lg font-bold text-[#2c4331]">
               Production Records
             </h2>
-
-            <p className="text-sm text-gray-500">
+            <p className="mt-1 text-sm text-gray-500">
               Flock information shown here is the information saved with each
               production record.
             </p>
           </div>
 
-          <div className="flex w-full flex-col gap-2 sm:flex-row md:w-auto">
-            <div className="flex flex-wrap gap-2">
+          <div className="flex w-full flex-col gap-2 xl:w-auto">
+            <div className="flex flex-col gap-2 sm:flex-row">
               <input
                 type="date"
                 value={dateFrom}
@@ -1867,6 +1801,7 @@ const Production = () => {
                 aria-label="Report start date"
                 className={inputClass}
               />
+
               <input
                 type="date"
                 value={dateTo}
@@ -1878,6 +1813,7 @@ const Production = () => {
                 aria-label="Report end date"
                 className={inputClass}
               />
+
               {(dateFrom || dateTo) && (
                 <button
                   type="button"
@@ -1886,12 +1822,13 @@ const Production = () => {
                     setDateTo("");
                     setCurrentPage(1);
                   }}
-                  className="rounded-lg border border-gray-300 px-3 py-2 text-sm"
+                  className="whitespace-nowrap rounded-lg border border-gray-200 bg-white px-3 py-2 text-sm font-medium text-gray-600 hover:bg-gray-50"
                 >
                   Clear dates
                 </button>
               )}
             </div>
+
             <input
               type="text"
               value={search}
@@ -1905,17 +1842,20 @@ const Production = () => {
           </div>
         </div>
 
+        {/* BATTERY CAGE COMBINED REPORT */}
+
         {isCombinedBatteryReport && (
-          <div className="space-y-4 border-b bg-blue-50/50 p-5">
+          <div className="space-y-4 border-b border-[#e5ebe3] bg-[#f5f8f2] p-5">
             <div>
-              <h3 className="text-lg font-bold text-gray-800">
+              <h3 className="text-lg font-bold text-[#2c4331]">
                 Battery Cage Combined Summary
               </h3>
-              <p className="text-sm text-gray-600">
+              <p className="text-sm text-gray-500">
                 Combined from active records for Rows 1–3. Individual production
                 records remain unchanged below.
               </p>
             </div>
+
             <div className="grid grid-cols-2 gap-3 md:grid-cols-4 xl:grid-cols-6">
               {[
                 ["Total Eggs", batteryCombinedSummary.eggs],
@@ -1934,17 +1874,21 @@ const Production = () => {
                 ["Water Consumed", batteryCombinedSummary.water],
                 ["Cracked Eggs", batteryCombinedSummary.cracked],
               ].map(([label, value]) => (
-                <div key={label} className="rounded-lg border bg-white p-3">
-                  <p className="text-xs text-gray-500">{label}</p>
-                  <p className="mt-1 text-xl font-bold text-gray-800">
-                    {typeof value === "number" ? value.toLocaleString() : value}
+                <div
+                  key={label}
+                  className="rounded-lg border border-[#e2e9df] bg-white p-3"
+                >
+                  <p className="text-xs font-medium text-gray-500">{label}</p>
+                  <p className="mt-1 text-xl font-bold text-[#315f3d]">
+                    {typeof value === "number" ? formatNumber(value) : value}
                   </p>
                 </div>
               ))}
             </div>
-            <div className="overflow-x-auto rounded-lg border bg-white">
+
+            <div className="overflow-x-auto rounded-lg border border-[#e2e9df] bg-white">
               <table className="w-full min-w-[800px] text-sm">
-                <thead className="bg-gray-100 text-left">
+                <thead className="bg-[#edf3e9] text-left text-[#38563d]">
                   <tr>
                     {[
                       "Pen",
@@ -1956,37 +1900,37 @@ const Production = () => {
                       "Current Birds",
                       "Cracked Eggs",
                     ].map((heading) => (
-                      <th key={heading} className="px-3 py-2 font-semibold">
+                      <th key={heading} className="px-3 py-3 font-semibold">
                         {heading}
                       </th>
                     ))}
                   </tr>
                 </thead>
-                <tbody className="divide-y">
+
+                <tbody className="divide-y divide-gray-100">
                   {batteryCombinedSummary.rows.map((row) => (
-                    <tr key={row.pen}>
-                      <td className="px-3 py-2 font-medium">{row.pen}</td>
-                      <td className="px-3 py-2">{row.records}</td>
-                      <td className="px-3 py-2">{row.eggs.toLocaleString()}</td>
-                      <td className="px-3 py-2">
-                        {row.crates.toLocaleString()}
+                    <tr key={row.pen} className="hover:bg-gray-50">
+                      <td className="px-3 py-3 font-semibold text-gray-700">
+                        {row.pen}
                       </td>
-                      <td className="px-3 py-2">
-                        {row.mortality.toLocaleString()}
+                      <td className="px-3 py-3">{row.records}</td>
+                      <td className="px-3 py-3">{formatNumber(row.eggs)}</td>
+                      <td className="px-3 py-3">{formatNumber(row.crates)}</td>
+                      <td className="px-3 py-3">
+                        {formatNumber(row.mortality)}
                       </td>
-                      <td className="px-3 py-2">{row.feed.toLocaleString()}</td>
-                      <td className="px-3 py-2">
-                        {row.hasStock ? row.closingStock.toLocaleString() : "—"}
+                      <td className="px-3 py-3">{formatNumber(row.feed)}</td>
+                      <td className="px-3 py-3">
+                        {row.hasStock ? formatNumber(row.closingStock) : "—"}
                       </td>
-                      <td className="px-3 py-2">
-                        {row.cracked.toLocaleString()}
-                      </td>
+                      <td className="px-3 py-3">{formatNumber(row.cracked)}</td>
                     </tr>
                   ))}
                 </tbody>
               </table>
             </div>
-            <p className="text-xs text-gray-500">
+
+            <p className="text-xs leading-5 text-gray-500">
               *Opening stock shows the first recorded opening stock per row in
               the current result set. Current birds sums each row's latest
               closing stock. Production % is a weighted estimate using recorded
@@ -1996,60 +1940,51 @@ const Production = () => {
           </div>
         )}
 
+        {/* RECORD TABLE */}
+
         <div className="overflow-x-auto">
-          <table className="min-w-[1500px] w-full text-sm">
-            <thead className="bg-gray-50 text-left">
+          <table className="w-full min-w-[1500px] text-sm">
+            <thead className="bg-[#edf3e9] text-left text-[#38563d]">
               <tr>
-                <th className="px-4 py-3 font-semibold">Date</th>
-
-                <th className="px-4 py-3 font-semibold">Pen</th>
-
-                <th className="px-4 py-3 font-semibold">Flock ID</th>
-
-                <th className="px-4 py-3 font-semibold">Flock Age</th>
-
-                <th className="px-4 py-3 font-semibold">Days</th>
-
-                <th className="px-4 py-3 font-semibold">Opening</th>
-
-                <th className="px-4 py-3 font-semibold">Transfer In</th>
-
-                <th className="px-4 py-3 font-semibold">Transfer Out</th>
-
-                <th className="px-4 py-3 font-semibold">Mortality</th>
-
-                <th className="px-4 py-3 font-semibold">Closing</th>
-
-                <th className="px-4 py-3 font-semibold">Sick</th>
-
-                <th className="px-4 py-3 font-semibold">Feed</th>
-
-                <th className="px-4 py-3 font-semibold">Water</th>
-
-                <th className="px-4 py-3 font-semibold">Crates</th>
-
-                <th className="px-4 py-3 font-semibold">Extra Eggs</th>
-
-                <th className="px-4 py-3 font-semibold">Total Eggs</th>
-
-                <th className="px-4 py-3 font-semibold">Production %</th>
-
-                <th className="px-4 py-3 font-semibold">Miscarriage</th>
-
-                <th className="px-4 py-3 font-semibold">Cracked</th>
-
-                <th className="px-4 py-3 font-semibold">Status</th>
-
-                <th className="px-4 py-3 font-semibold">Actions</th>
+                {[
+                  "Date",
+                  "Pen",
+                  "Flock ID",
+                  "Flock Age",
+                  "Days",
+                  "Opening",
+                  "Transfer In",
+                  "Transfer Out",
+                  "Mortality",
+                  "Closing",
+                  "Sick",
+                  "Feed",
+                  "Water",
+                  "Crates",
+                  "Extra Eggs",
+                  "Total Eggs",
+                  "Production %",
+                  "Miscarriage",
+                  "Cracked",
+                  "Status",
+                  "Actions",
+                ].map((heading) => (
+                  <th
+                    key={heading}
+                    className="whitespace-nowrap px-4 py-3 font-semibold"
+                  >
+                    {heading}
+                  </th>
+                ))}
               </tr>
             </thead>
 
-            <tbody className="divide-y">
+            <tbody className="divide-y divide-gray-100">
               {loading ? (
                 <tr>
                   <td
                     colSpan="21"
-                    className="px-4 py-10 text-center text-gray-500"
+                    className="px-4 py-12 text-center text-gray-500"
                   >
                     Loading production records...
                   </td>
@@ -2058,7 +1993,7 @@ const Production = () => {
                 <tr>
                   <td
                     colSpan="21"
-                    className="px-4 py-10 text-center text-gray-500"
+                    className="px-4 py-12 text-center text-gray-500"
                   >
                     No production records found.
                   </td>
@@ -2068,24 +2003,24 @@ const Production = () => {
                   <tr
                     key={record._id}
                     className={
-                      record.isDeleted ? "bg-red-50" : "hover:bg-gray-50"
+                      record.isDeleted
+                        ? "bg-red-50/70"
+                        : "transition hover:bg-[#f7faf5]"
                     }
                   >
-                    <td className="px-4 py-3 whitespace-nowrap">
-                      {record.date
-                        ? new Date(record.date).toLocaleDateString()
-                        : "—"}
+                    <td className="whitespace-nowrap px-4 py-3">
+                      {formatDate(record.date)}
                     </td>
 
-                    <td className="px-4 py-3 whitespace-nowrap font-medium">
+                    <td className="whitespace-nowrap px-4 py-3 font-semibold text-gray-700">
                       {record.pen || "—"}
                     </td>
 
-                    <td className="px-4 py-3 whitespace-nowrap">
+                    <td className="whitespace-nowrap px-4 py-3">
                       {record.flockId || record.flock?.flockId || "—"}
                     </td>
 
-                    <td className="px-4 py-3 whitespace-nowrap">
+                    <td className="whitespace-nowrap px-4 py-3">
                       {record.flockAgeWeeks !== null &&
                       record.flockAgeWeeks !== undefined
                         ? `${record.flockAgeWeeks} weeks`
@@ -2095,47 +2030,47 @@ const Production = () => {
                     <td className="px-4 py-3">{record.days ?? 0}</td>
 
                     <td className="px-4 py-3">
-                      {Number(record.openingStock || 0).toLocaleString()}
+                      {formatNumber(record.openingStock)}
                     </td>
 
                     <td className="px-4 py-3">
-                      {Number(record.transferIn || 0).toLocaleString()}
+                      {formatNumber(record.transferIn)}
                     </td>
 
                     <td className="px-4 py-3">
-                      {Number(record.transferOut || 0).toLocaleString()}
+                      {formatNumber(record.transferOut)}
                     </td>
 
                     <td className="px-4 py-3">
-                      {Number(record.mortality || 0).toLocaleString()}
+                      {formatNumber(record.mortality)}
                     </td>
 
-                    <td className="px-4 py-3 font-semibold">
-                      {Number(record.closingStock || 0).toLocaleString()}
-                    </td>
-
-                    <td className="px-4 py-3">
-                      {Number(record.sickBirds || 0).toLocaleString()}
+                    <td className="px-4 py-3 font-semibold text-[#315f3d]">
+                      {formatNumber(record.closingStock)}
                     </td>
 
                     <td className="px-4 py-3">
-                      {Number(record.feedBagsConsumed || 0).toLocaleString()}
+                      {formatNumber(record.sickBirds)}
                     </td>
 
                     <td className="px-4 py-3">
-                      {Number(record.waterConsumed || 0).toLocaleString()}
+                      {formatNumber(record.feedBagsConsumed)}
                     </td>
 
                     <td className="px-4 py-3">
-                      {Number(record.cratesProduced || 0).toLocaleString()}
+                      {formatNumber(record.waterConsumed)}
                     </td>
 
                     <td className="px-4 py-3">
-                      {Number(record.extraEggPieces || 0).toLocaleString()}
+                      {formatNumber(record.cratesProduced)}
                     </td>
 
-                    <td className="px-4 py-3 font-semibold">
-                      {Number(record.totalEggs || 0).toLocaleString()}
+                    <td className="px-4 py-3">
+                      {formatNumber(record.extraEggPieces)}
+                    </td>
+
+                    <td className="px-4 py-3 font-semibold text-[#315f3d]">
+                      {formatNumber(record.totalEggs)}
                     </td>
 
                     <td className="px-4 py-3">
@@ -2143,22 +2078,20 @@ const Production = () => {
                     </td>
 
                     <td className="px-4 py-3">
-                      {Number(
-                        record.miscarriageProduction || 0,
-                      ).toLocaleString()}
+                      {formatNumber(record.miscarriageProduction)}
                     </td>
 
                     <td className="px-4 py-3">
-                      {Number(record.crackedEggs || 0).toLocaleString()}
+                      {formatNumber(record.crackedEggs)}
                     </td>
 
-                    <td className="px-4 py-3 whitespace-nowrap">
+                    <td className="whitespace-nowrap px-4 py-3">
                       {record.isDeleted ? (
-                        <span className="rounded-full bg-red-100 px-2.5 py-1 text-xs font-medium text-red-700">
+                        <span className="rounded-full bg-red-100 px-2.5 py-1 text-xs font-semibold text-red-700">
                           Deleted
                         </span>
                       ) : (
-                        <span className="rounded-full bg-green-100 px-2.5 py-1 text-xs font-medium text-green-700">
+                        <span className="rounded-full bg-[#e7f3e7] px-2.5 py-1 text-xs font-semibold text-[#347044]">
                           Active
                         </span>
                       )}
@@ -2170,7 +2103,7 @@ const Production = () => {
                           <button
                             type="button"
                             onClick={() => startEdit(record)}
-                            className="rounded-lg border border-blue-200 px-3 py-1.5 text-xs font-medium text-blue-600 hover:bg-blue-50"
+                            className="rounded-lg border border-blue-200 px-3 py-1.5 text-xs font-semibold text-blue-700 transition hover:bg-blue-50"
                           >
                             Edit
                           </button>
@@ -2178,7 +2111,7 @@ const Production = () => {
                           <button
                             type="button"
                             onClick={() => handleDelete(record._id)}
-                            className="rounded-lg border border-red-200 px-3 py-1.5 text-xs font-medium text-red-600 hover:bg-red-50"
+                            className="rounded-lg border border-red-200 px-3 py-1.5 text-xs font-semibold text-red-700 transition hover:bg-red-50"
                           >
                             Delete
                           </button>
@@ -2201,7 +2134,7 @@ const Production = () => {
         {/* PAGINATION */}
 
         {filteredProductions.length > 0 && (
-          <div className="flex flex-col gap-3 border-t p-4 sm:flex-row sm:items-center sm:justify-between">
+          <div className="flex flex-col gap-3 border-t border-[#e8ede6] bg-[#fbfcfa] p-4 sm:flex-row sm:items-center sm:justify-between">
             <p className="text-sm text-gray-500">
               Showing {(currentPage - 1) * PAGE_SIZE + 1} to{" "}
               {Math.min(currentPage * PAGE_SIZE, filteredProductions.length)} of{" "}
@@ -2213,12 +2146,12 @@ const Production = () => {
                 type="button"
                 disabled={currentPage === 1}
                 onClick={() => setCurrentPage((page) => Math.max(1, page - 1))}
-                className="rounded-lg border border-gray-300 px-3 py-2 text-sm disabled:cursor-not-allowed disabled:opacity-40"
+                className="rounded-lg border border-gray-200 bg-white px-3 py-2 text-sm font-medium text-gray-700 transition hover:bg-gray-50 disabled:cursor-not-allowed disabled:opacity-40"
               >
                 Previous
               </button>
 
-              <span className="px-2 text-sm text-gray-600">
+              <span className="px-2 text-sm font-medium text-gray-600">
                 Page {currentPage} of {totalPages}
               </span>
 
@@ -2228,14 +2161,14 @@ const Production = () => {
                 onClick={() =>
                   setCurrentPage((page) => Math.min(totalPages, page + 1))
                 }
-                className="rounded-lg border border-gray-300 px-3 py-2 text-sm disabled:cursor-not-allowed disabled:opacity-40"
+                className="rounded-lg border border-gray-200 bg-white px-3 py-2 text-sm font-medium text-gray-700 transition hover:bg-gray-50 disabled:cursor-not-allowed disabled:opacity-40"
               >
                 Next
               </button>
             </div>
           </div>
         )}
-      </div>
+      </section>
     </div>
   );
 };
