@@ -22,6 +22,7 @@ import {
   BedDouble,
   UserCog,
   Database,
+  ClipboardList,
   Globe,
   LogOut,
   User,
@@ -113,7 +114,11 @@ const getActiveSection = (pathname) => {
     "/admin/room-inventory",
   ];
 
-  const systemPaths = ["/admin/staff", "/admin/backup"];
+  const systemPaths = [
+    "/admin/staff",
+    "/admin/backup",
+    "/admin/login-activity",
+  ];
 
   if (
     managementPaths.some(
@@ -159,6 +164,7 @@ const getPageTitle = (pathname) => {
     ["/admin/room-inventory", "Room Inventory"],
     ["/admin/staff", "Staff Accounts"],
     ["/admin/backup", "System Backup"],
+    ["/admin/login-activity", "Login Activity"],
     ["/admin/profile", "My Profile"],
   ];
 
@@ -1080,9 +1086,9 @@ export default function AdminLayout() {
       </span>
     ) : null;
 
-  // ==========================================================
+  // ============================================================
   // SIDEBAR CONTENT
-  // ==========================================================
+  // ============================================================
 
   const SidebarContent = (
     <>
@@ -1304,6 +1310,7 @@ export default function AdminLayout() {
           </section>
         )}
 
+        {/* SYSTEM ADMINISTRATION - SUPERADMIN ONLY */}
         {role === "superadmin" && (
           <section className="flex min-w-0 flex-col gap-2">
             <MenuSectionHeader
@@ -1320,6 +1327,10 @@ export default function AdminLayout() {
             >
               <NavigationLink to="/admin/staff" icon={UserCog}>
                 Staff Accounts
+              </NavigationLink>
+
+              <NavigationLink to="/admin/login-activity" icon={ClipboardList}>
+                Login Activity
               </NavigationLink>
 
               <NavigationLink to="/admin/backup" icon={Database}>
@@ -1341,9 +1352,9 @@ export default function AdminLayout() {
     </>
   );
 
-  // ==========================================================
+  // ============================================================
   // MAIN UI
-  // ==========================================================
+  // ============================================================
 
   return (
     <div className="min-h-screen bg-[#F4F6F1] md:flex">

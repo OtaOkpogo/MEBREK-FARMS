@@ -44,6 +44,9 @@ const Profile = lazy(() => import("./admin/Profile"));
 const Backup = lazy(() => import("./admin/Backup"));
 const BulkSMS = lazy(() => import("./admin/BulkSMS"));
 
+// NEW: LOGIN ACTIVITY PAGE
+const LoginActivity = lazy(() => import("./admin/LoginActivity"));
+
 // ============================================================
 // LAZY-LOADED SALES AND MANAGEMENT PAGES
 // ============================================================
@@ -317,6 +320,17 @@ function App() {
               element={
                 <AdminPage allowedRoles={["superadmin"]}>
                   <Backup />
+                </AdminPage>
+              }
+            />
+
+            {/* LOGIN ACTIVITY - SUPERADMIN ONLY */}
+
+            <Route
+              path="login-activity"
+              element={
+                <AdminPage allowedRoles={["superadmin"]}>
+                  <LoginActivity />
                 </AdminPage>
               }
             />
