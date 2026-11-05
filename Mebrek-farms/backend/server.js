@@ -238,6 +238,11 @@ app.use("/api/attendance", attendanceRoutes);
 app.use("/api/production", require("./routes/productionRoutes"));
 app.use("/api/flocks", require("./routes/flockRoutes"));
 app.use("/api/auth", require("./routes/auth"));
+app.use("/api/login-activities", require("./routes/loginActivityRoutes"));
+
+// ADMINISTRATIVE AUDIT TRAIL
+app.use("/api/audit-logs", require("./routes/auditLogRoutes"));
+
 app.use("/api/staff", require("./routes/staffRoutes"));
 app.use("/api/feed-invoices", require("./routes/feedInvoiceRoutes"));
 app.use("/api/feeds", require("./routes/feedRoutes"));

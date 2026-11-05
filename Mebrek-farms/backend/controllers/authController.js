@@ -1,6 +1,22 @@
 const Admin = require("../models/Admin");
 const bcrypt = require("bcryptjs");
 const jwt = require("jsonwebtoken");
+const LoginActivity = require("../models/LoginActivity");
+
+// ================= LOGIN AUDIT HELPER =================
+
+const recordLoginActivity = async (req, details) => {
+  try {
+    await LoginActivity.create({
+      ...details,
+      ipAddress: req.ip || req.socket?.remoteAddress || "Unknown",
+      userAgent: req.get("user-agent") || "Unknown",
+    });
+  } catch (error) {
+    // Audit logging errors should not interrupt authentication.
+    console.error("LOGIN ACTIVITY LOG ERROR:", error);
+  }
+};
 
 // ================= REGISTER ADMIN =================
 
@@ -52,23 +68,64 @@ exports.loginAdmin = async (req, res) => {
   try {
     const { email, password } = req.body;
 
-    const admin = await Admin.findOne({ email });
+    const normalizedEmail = String(email || "")
+      .trim()
+      .toLowerCase();
 
+    if (!normalizedEmail || !password) {
+      return res.status(400).json({
+        message: "Email and password are required",
+      });
+    }
+
+    const admin = await Admin.findOne({
+      email: normalizedEmail,
+    });
+
+    // Account does not exist
     if (!admin) {
+      await recordLoginActivity(req, {
+        name: "Unknown User",
+        email: normalizedEmail,
+        role: "unknown",
+        status: "failed",
+        failureReason: "Invalid credentials",
+      });
+
       return res.status(401).json({
         message: "Invalid credentials",
       });
     }
 
+    // Account is disabled
     if (admin.status !== "active") {
+      await recordLoginActivity(req, {
+        adminId: admin._id,
+        name: admin.name,
+        email: admin.email,
+        role: admin.role,
+        status: "blocked",
+        failureReason: "Account disabled",
+      });
+
       return res.status(403).json({
         message: "Your account has been disabled",
       });
     }
 
+    // Verify password
     const isMatch = await bcrypt.compare(password, admin.password);
 
     if (!isMatch) {
+      await recordLoginActivity(req, {
+        adminId: admin._id,
+        name: admin.name,
+        email: admin.email,
+        role: admin.role,
+        status: "failed",
+        failureReason: "Invalid credentials",
+      });
+
       return res.status(401).json({
         message: "Invalid credentials",
       });
@@ -77,6 +134,16 @@ exports.loginAdmin = async (req, res) => {
     // Track last login
     admin.lastLogin = new Date();
     await admin.save();
+
+    // Record successful login
+    await recordLoginActivity(req, {
+      adminId: admin._id,
+      name: admin.name,
+      email: admin.email,
+      role: admin.role,
+      status: "success",
+      failureReason: null,
+    });
 
     const token = jwt.sign(
       {
