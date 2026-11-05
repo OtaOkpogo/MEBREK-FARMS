@@ -223,7 +223,7 @@ export default function Footer() {
                   className="flex items-start gap-3 text-green-100 transition-colors duration-200 hover:text-yellow-300"
                 >
                   <span>✉️</span>
-                  <span className="break-all">info@mebrekfarms.com</span>
+                  <span className="break-all">mebrekng@yahoo.com</span>
                 </a>
               </li>
 

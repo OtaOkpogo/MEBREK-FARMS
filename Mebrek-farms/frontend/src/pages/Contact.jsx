@@ -150,7 +150,7 @@ export default function Contact() {
 
                 {/* EMAIL */}
                 <a
-                  href="mailto:info@mebrekfarms.com"
+                  href="mailto:mebrekng@yahoo.com"
                   className="contact-info-card group flex items-center gap-4 rounded-2xl border border-gray-100 bg-stone-50 p-5 transition hover:-translate-y-1 hover:border-green-200 hover:bg-green-50 hover:shadow-md"
                 >
                   <div className="flex h-12 w-12 shrink-0 items-center justify-center rounded-xl bg-yellow-100 text-2xl">
@@ -161,7 +161,7 @@ export default function Contact() {
                     <p className="text-sm font-semibold text-gray-500">Email</p>
 
                     <p className="mt-1 font-bold text-gray-900 group-hover:text-green-800">
-                      info@mebrekfarms.com
+                      mebrekng@yahoo.com
                     </p>
                   </div>
                 </a>
