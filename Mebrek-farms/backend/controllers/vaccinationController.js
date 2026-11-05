@@ -1,9 +1,15 @@
 const Vaccination = require("../models/Vaccination");
+const { logAudit } = require("../utils/auditLogger");
+
 const {
   syncLinkedBirdHealth,
   softDeleteLinkedBirdHealth,
   restoreLinkedBirdHealth,
 } = require("../services/healthSyncService");
+
+// ============================================================
+// HELPERS
+// ============================================================
 
 const calculateStatus = (nextDueDate) => {
   if (!nextDueDate) return "Completed";
@@ -16,6 +22,7 @@ const calculateStatus = (nextDueDate) => {
 
   if (due < today) return "Overdue";
   if (due.getTime() === today.getTime()) return "Due Today";
+
   return "Upcoming";
 };
 
@@ -41,6 +48,33 @@ const emit = (req, event, record) => {
   if (io) io.emit(event, record);
 };
 
+// Snapshot only relevant vaccination information.
+// Keep deletion metadata separate in the audit metadata.
+const getVaccinationAuditSnapshot = (vaccination) => {
+  if (!vaccination) return null;
+
+  const data = vaccination.toObject ? vaccination.toObject() : vaccination;
+
+  return {
+    pen: data.pen,
+    vaccineName: data.vaccineName,
+    vaccineType: data.vaccineType,
+    batchNumber: data.batchNumber,
+    manufacturer: data.manufacturer,
+    quantityUsed: data.quantityUsed,
+    unit: data.unit,
+    birdsVaccinated: data.birdsVaccinated,
+    vaccinationDate: data.vaccinationDate,
+    nextDueDate: data.nextDueDate,
+    route: data.route,
+    cost: data.cost,
+    notes: data.notes,
+    status: calculateStatus(data.nextDueDate),
+    isDeleted: data.isDeleted,
+    administeredBy: data.administeredBy || null,
+  };
+};
+
 const UPDATABLE_FIELDS = [
   "pen",
   "vaccineName",
@@ -56,6 +90,10 @@ const UPDATABLE_FIELDS = [
   "cost",
   "notes",
 ];
+
+// ============================================================
+// GET VACCINATIONS
+// ============================================================
 
 exports.getVaccinations = async (req, res) => {
   try {
@@ -77,6 +115,10 @@ exports.getVaccinations = async (req, res) => {
     res.status(500).json({ error: err.message });
   }
 };
+
+// ============================================================
+// CREATE VACCINATION
+// ============================================================
 
 exports.createVaccination = async (req, res) => {
   try {
@@ -104,12 +146,30 @@ exports.createVaccination = async (req, res) => {
       console.error("Vaccination → Bird Health sync error:", syncError);
     }
 
+    await logAudit(req, {
+      action: "CREATE",
+      module: "Vaccinations",
+      description: `Recorded ${vaccination.vaccineName} vaccination for ${vaccination.pen}`,
+      entityId: vaccination._id,
+      entityName: vaccination.vaccineName,
+      after: getVaccinationAuditSnapshot(vaccination),
+      metadata: {
+        birdsVaccinated: vaccination.birdsVaccinated,
+        quantityUsed: vaccination.quantityUsed,
+        cost: vaccination.cost,
+      },
+    });
+
     res.status(201).json(vaccination);
   } catch (err) {
     console.error("Create Vaccination Error:", err);
     res.status(500).json({ error: err.message });
   }
 };
+
+// ============================================================
+// UPDATE VACCINATION
+// ============================================================
 
 exports.updateVaccination = async (req, res) => {
   try {
@@ -127,13 +187,37 @@ exports.updateVaccination = async (req, res) => {
       });
     }
 
+    const before = getVaccinationAuditSnapshot(vaccination);
+    const changedFields = [];
+
     for (const field of UPDATABLE_FIELDS) {
       if (req.body[field] !== undefined) {
-        vaccination[field] = req.body[field];
+        const oldValue = vaccination[field];
+        const newValue = req.body[field];
+
+        const oldComparable =
+          oldValue instanceof Date
+            ? oldValue.toISOString()
+            : oldValue?.toString?.();
+
+        const newComparable =
+          oldValue instanceof Date
+            ? new Date(newValue).toISOString()
+            : newValue?.toString?.();
+
+        if (oldComparable !== newComparable) {
+          changedFields.push(field);
+          vaccination[field] = newValue;
+        }
       }
     }
 
+    if (changedFields.length === 0) {
+      return res.json(vaccination);
+    }
+
     vaccination.status = calculateStatus(vaccination.nextDueDate);
+
     await vaccination.save();
 
     emit(req, "vaccinationUpdated", vaccination);
@@ -150,12 +234,29 @@ exports.updateVaccination = async (req, res) => {
       console.error("Vaccination update sync error:", syncError);
     }
 
+    await logAudit(req, {
+      action: "UPDATE",
+      module: "Vaccinations",
+      description: `Updated ${vaccination.vaccineName} vaccination for ${vaccination.pen}`,
+      entityId: vaccination._id,
+      entityName: vaccination.vaccineName,
+      before,
+      after: getVaccinationAuditSnapshot(vaccination),
+      metadata: {
+        changedFields,
+      },
+    });
+
     res.json(vaccination);
   } catch (err) {
     console.error("Update Vaccination Error:", err);
     res.status(500).json({ error: err.message });
   }
 };
+
+// ============================================================
+// DELETE VACCINATION (SOFT DELETE)
+// ============================================================
 
 exports.deleteVaccination = async (req, res) => {
   try {
@@ -172,6 +273,8 @@ exports.deleteVaccination = async (req, res) => {
         error: "Vaccination record is already deleted",
       });
     }
+
+    const before = getVaccinationAuditSnapshot(vaccination);
 
     vaccination.isDeleted = true;
     vaccination.deletedAt = new Date();
@@ -193,12 +296,32 @@ exports.deleteVaccination = async (req, res) => {
     }
 
     emit(req, "vaccinationDeleted", vaccination);
+
+    await logAudit(req, {
+      action: "DELETE",
+      module: "Vaccinations",
+      description: `Deleted vaccination record: ${vaccination.vaccineName}`,
+      entityId: vaccination._id,
+      entityName: vaccination.vaccineName,
+      before,
+      after: getVaccinationAuditSnapshot(vaccination),
+      metadata: {
+        deletedAt: vaccination.deletedAt,
+        deletedByName: vaccination.deletedByName,
+        deletedByRole: vaccination.deletedByRole,
+      },
+    });
+
     res.json({ message: "Vaccination deleted successfully" });
   } catch (err) {
     console.error("Delete Vaccination Error:", err);
     res.status(500).json({ error: err.message });
   }
 };
+
+// ============================================================
+// RESTORE VACCINATION
+// ============================================================
 
 exports.restoreVaccination = async (req, res) => {
   try {
@@ -215,6 +338,14 @@ exports.restoreVaccination = async (req, res) => {
         error: "Vaccination record is not deleted",
       });
     }
+
+    const before = getVaccinationAuditSnapshot(vaccination);
+
+    const previousDeletion = {
+      deletedAt: vaccination.deletedAt,
+      deletedByName: vaccination.deletedByName,
+      deletedByRole: vaccination.deletedByRole,
+    };
 
     vaccination.isDeleted = false;
     vaccination.deletedAt = null;
@@ -236,6 +367,20 @@ exports.restoreVaccination = async (req, res) => {
     }
 
     emit(req, "vaccinationRestored", vaccination);
+
+    await logAudit(req, {
+      action: "RESTORE",
+      module: "Vaccinations",
+      description: `Restored vaccination record: ${vaccination.vaccineName}`,
+      entityId: vaccination._id,
+      entityName: vaccination.vaccineName,
+      before,
+      after: getVaccinationAuditSnapshot(vaccination),
+      metadata: {
+        previousDeletion,
+      },
+    });
+
     res.json(vaccination);
   } catch (err) {
     console.error("Restore Vaccination Error:", err);

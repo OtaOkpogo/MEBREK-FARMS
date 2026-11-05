@@ -1,9 +1,15 @@
 const Medication = require("../models/Medication");
+const { logAudit } = require("../utils/auditLogger");
+
 const {
   syncLinkedBirdHealth,
   softDeleteLinkedBirdHealth,
   restoreLinkedBirdHealth,
 } = require("../services/healthSyncService");
+
+// ============================================================
+// HELPERS
+// ============================================================
 
 const buildHealthPayload = (medication) => {
   const actionTaken = [medication.purpose, medication.dosage]
@@ -26,6 +32,36 @@ const buildHealthPayload = (medication) => {
   };
 };
 
+// Snapshot only relevant medication information.
+const getMedicationAuditSnapshot = (medication) => {
+  if (!medication) return null;
+
+  const data = medication.toObject ? medication.toObject() : medication;
+
+  return {
+    medicationName: data.medicationName,
+    dosage: data.dosage,
+    purpose: data.purpose,
+    administeredTo: data.administeredTo,
+    dateAdministered: data.dateAdministered,
+    administeredBy: data.administeredBy?._id || data.administeredBy || null,
+    isDeleted: data.isDeleted,
+    deletedAt: data.deletedAt,
+  };
+};
+
+const UPDATABLE_FIELDS = [
+  "medicationName",
+  "dosage",
+  "purpose",
+  "administeredTo",
+  "dateAdministered",
+];
+
+// ============================================================
+// GET MEDICATIONS
+// ============================================================
+
 exports.getMedications = async (req, res) => {
   try {
     const filter = req.user?.role === "superadmin" ? {} : { isDeleted: false };
@@ -42,6 +78,10 @@ exports.getMedications = async (req, res) => {
     res.status(500).json({ message: err.message });
   }
 };
+
+// ============================================================
+// CREATE MEDICATION
+// ============================================================
 
 exports.createMedication = async (req, res) => {
   try {
@@ -80,12 +120,25 @@ exports.createMedication = async (req, res) => {
       console.error("Medication → Bird Health sync error:", syncError);
     }
 
+    await logAudit(req, {
+      action: "CREATE",
+      module: "Medications",
+      description: `Recorded administration of ${medication.medicationName} to ${medication.administeredTo || "unspecified pen"}`,
+      entityId: medication._id,
+      entityName: medication.medicationName,
+      after: getMedicationAuditSnapshot(medication),
+    });
+
     res.status(201).json(medication);
   } catch (err) {
     console.error("Create Medication Error:", err);
     res.status(500).json({ message: err.message });
   }
 };
+
+// ============================================================
+// UPDATE MEDICATION
+// ============================================================
 
 exports.updateMedication = async (req, res) => {
   try {
@@ -100,17 +153,28 @@ exports.updateMedication = async (req, res) => {
       });
     }
 
-    const fields = [
-      "medicationName",
-      "dosage",
-      "purpose",
-      "administeredTo",
-      "dateAdministered",
-    ];
+    const before = getMedicationAuditSnapshot(medication);
+    const changedFields = [];
 
-    for (const field of fields) {
+    for (const field of UPDATABLE_FIELDS) {
       if (req.body[field] !== undefined) {
-        medication[field] = req.body[field];
+        const oldValue = medication[field];
+        const newValue = req.body[field];
+
+        const oldComparable =
+          oldValue instanceof Date
+            ? oldValue.toISOString()
+            : oldValue?.toString?.();
+
+        const newComparable =
+          oldValue instanceof Date
+            ? new Date(newValue).toISOString()
+            : newValue?.toString?.();
+
+        if (oldComparable !== newComparable) {
+          changedFields.push(field);
+          medication[field] = newValue;
+        }
       }
     }
 
@@ -118,6 +182,10 @@ exports.updateMedication = async (req, res) => {
       return res.status(400).json({
         message: "Medication name is required",
       });
+    }
+
+    if (changedFields.length === 0) {
+      return res.json(medication);
     }
 
     await medication.save();
@@ -134,12 +202,29 @@ exports.updateMedication = async (req, res) => {
       console.error("Medication → Bird Health sync error:", syncError);
     }
 
+    await logAudit(req, {
+      action: "UPDATE",
+      module: "Medications",
+      description: `Updated medication record: ${medication.medicationName}`,
+      entityId: medication._id,
+      entityName: medication.medicationName,
+      before,
+      after: getMedicationAuditSnapshot(medication),
+      metadata: {
+        changedFields,
+      },
+    });
+
     res.json(medication);
   } catch (err) {
     console.error("Update Medication Error:", err);
     res.status(500).json({ message: err.message });
   }
 };
+
+// ============================================================
+// DELETE MEDICATION (SOFT DELETE)
+// ============================================================
 
 exports.deleteMedication = async (req, res) => {
   try {
@@ -153,6 +238,8 @@ exports.deleteMedication = async (req, res) => {
         message: "Medication record not found",
       });
     }
+
+    const before = getMedicationAuditSnapshot(medication);
 
     medication.isDeleted = true;
     medication.deletedAt = new Date();
@@ -171,12 +258,29 @@ exports.deleteMedication = async (req, res) => {
       console.error("Medication deletion sync error:", syncError);
     }
 
+    await logAudit(req, {
+      action: "DELETE",
+      module: "Medications",
+      description: `Deleted medication record: ${medication.medicationName}`,
+      entityId: medication._id,
+      entityName: medication.medicationName,
+      before,
+      after: getMedicationAuditSnapshot(medication),
+      metadata: {
+        deletedAt: medication.deletedAt,
+      },
+    });
+
     res.json({ message: "Medication record deleted" });
   } catch (err) {
     console.error("Delete Medication Error:", err);
     res.status(500).json({ message: err.message });
   }
 };
+
+// ============================================================
+// GET DELETED MEDICATIONS
+// ============================================================
 
 exports.getDeletedMedications = async (req, res) => {
   try {
@@ -193,6 +297,10 @@ exports.getDeletedMedications = async (req, res) => {
   }
 };
 
+// ============================================================
+// RESTORE MEDICATION
+// ============================================================
+
 exports.restoreMedication = async (req, res) => {
   try {
     const medication = await Medication.findOne({
@@ -205,6 +313,13 @@ exports.restoreMedication = async (req, res) => {
         message: "Deleted medication record not found",
       });
     }
+
+    const before = getMedicationAuditSnapshot(medication);
+
+    const previousDeletion = {
+      deletedAt: medication.deletedAt,
+      deletedBy: medication.deletedBy,
+    };
 
     medication.isDeleted = false;
     medication.deletedAt = null;
@@ -222,6 +337,19 @@ exports.restoreMedication = async (req, res) => {
     } catch (syncError) {
       console.error("Medication restore sync error:", syncError);
     }
+
+    await logAudit(req, {
+      action: "RESTORE",
+      module: "Medications",
+      description: `Restored medication record: ${medication.medicationName}`,
+      entityId: medication._id,
+      entityName: medication.medicationName,
+      before,
+      after: getMedicationAuditSnapshot(medication),
+      metadata: {
+        previousDeletion,
+      },
+    });
 
     res.json(medication);
   } catch (err) {

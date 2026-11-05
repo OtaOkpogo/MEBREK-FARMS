@@ -2,6 +2,7 @@ const EggSale = require("../models/EggSale");
 const Customer = require("../models/Customer");
 const { EGG_CATEGORY_PRICES } = require("../models/EggSale");
 const SaleAccessRequest = require("../models/SaleAccessRequest");
+const { logAudit } = require("../utils/auditLogger");
 
 const ACCESS_WINDOW_MS = 24 * 60 * 60 * 1000;
 
@@ -54,6 +55,38 @@ async function getGrantedSaleIds(req, saleType) {
 
 const EGGS_PER_CRATE = 30;
 const VALID_PAYMENT_METHODS = ["Cash", "Transfer", "POS"];
+
+// =====================================================
+// EGG SALE AUDIT SNAPSHOT
+// Excludes sensitive information.
+// =====================================================
+
+const getEggSaleAuditSnapshot = (sale) => {
+  if (!sale) return null;
+
+  return {
+    invoiceNumber: sale.invoiceNumber,
+    customerId: sale.customerId,
+    customer: sale.customer,
+    phone: sale.phone,
+    date: sale.date,
+    lineItems: sale.lineItems,
+    cratesSold: sale.cratesSold,
+    halfCratesSold: sale.halfCratesSold,
+    looseEggs: sale.looseEggs,
+    discount: sale.discount,
+    transportCharge: sale.transportCharge,
+    totalAmount: sale.totalAmount,
+    payments: sale.payments,
+    amountPaid: sale.amountPaid,
+    balance: sale.balance,
+    paymentMethod: sale.paymentMethod,
+    status: sale.status,
+    remarks: sale.remarks,
+    isDeleted: sale.isDeleted,
+    deletedAt: sale.deletedAt,
+  };
+};
 
 // =====================================================
 // EGG CATEGORY VALIDATION
@@ -477,9 +510,6 @@ exports.getOutstandingCustomers = async (req, res) => {
 
 // =====================================================
 // PERIOD SALES SUMMARY
-// Returns aggregate reporting data only; it does not expose
-// historical invoice records to the client.
-// GET /api/egg-sales/summary?period=daily|weekly|monthly|yearly&date=YYYY-MM-DD
 // =====================================================
 
 const EGG_CATEGORY_LABELS = {
@@ -533,11 +563,9 @@ exports.getSalesSummary = async (req, res) => {
     if (period === "daily") {
       endExclusive.setUTCDate(endExclusive.getUTCDate() + 1);
     } else if (period === "weekly") {
-      // Farm sales week runs Sunday through Friday; Saturday is excluded.
       const sundayOffset = start.getUTCDay();
       start.setUTCDate(start.getUTCDate() - sundayOffset);
       endExclusive = new Date(start);
-      // Saturday at 00:00 is exclusive, so the reporting period ends Friday.
       endExclusive.setUTCDate(endExclusive.getUTCDate() + 6);
     } else if (period === "monthly") {
       start = new Date(Date.UTC(year, month - 1, 1));
@@ -552,8 +580,6 @@ exports.getSalesSummary = async (req, res) => {
       .toISOString()
       .slice(0, 10);
 
-    // Aggregate reporting is available to managers, but invoice documents remain
-    // governed by the existing 24-hour / approved temporary-access rules.
     const sales = await EggSale.find({
       isDeleted: false,
       date: { $gte: start, $lt: endExclusive },
@@ -581,6 +607,7 @@ exports.getSalesSummary = async (req, res) => {
         },
       ]),
     );
+
     categories.other = {
       category: "other",
       label: "Other / legacy",
@@ -607,10 +634,12 @@ exports.getSalesSummary = async (req, res) => {
       summary.transactions += 1;
 
       const bucketKey = period === "yearly" ? saleDay.slice(0, 7) : saleDay;
+
       if (!buckets.has(bucketKey)) {
         const bucketDate = new Date(
           `${bucketKey}${period === "yearly" ? "-01" : ""}T12:00:00.000Z`,
         );
+
         buckets.set(bucketKey, {
           key: bucketKey,
           label:
@@ -628,6 +657,7 @@ exports.getSalesSummary = async (req, res) => {
           received: 0,
         });
       }
+
       const bucket = buckets.get(bucketKey);
       bucket.revenue += Number(sale.totalAmount || 0);
       bucket.received += Number(sale.amountPaid || 0);
@@ -637,9 +667,11 @@ exports.getSalesSummary = async (req, res) => {
           ? sale.lineItems
           : (() => {
               const legacyPrice = Number(sale.cratePrice || 0);
+
               const matchedCategory = Object.keys(EGG_CATEGORY_PRICES).find(
                 (key) => Number(EGG_CATEGORY_PRICES[key]) === legacyPrice,
               );
+
               return [
                 {
                   category: matchedCategory || "other",
@@ -661,9 +693,12 @@ exports.getSalesSummary = async (req, res) => {
         )
           ? item.category
           : "other";
+
         const category = categories[categoryKey];
+
         const crates =
           Number(item.cratesSold || 0) + Number(item.halfCratesSold || 0) / 2;
+
         category.crates += crates;
         category.revenue += Number(item.subtotal || 0);
       }
@@ -680,13 +715,13 @@ exports.getSalesSummary = async (req, res) => {
       summary,
       categories: Object.values(categories),
       chart,
-      // This explicitly distinguishes aggregate reporting from invoice access.
       reportingScope: "all_non_deleted_sales_aggregate",
       invoiceAccessNote:
         "This response contains aggregate figures only. Older invoice details remain subject to existing access restrictions.",
     });
   } catch (err) {
     console.error("GET EGG SALES SUMMARY ERROR:", err);
+
     return res.status(500).json({
       message: err.message || "Unable to load egg sales summary.",
     });
@@ -695,8 +730,6 @@ exports.getSalesSummary = async (req, res) => {
 
 // =====================================================
 // GET ALL SALES
-// Managers: non-deleted sales dated within the last 24 hours.
-// Superadmins: full sales history.
 // =====================================================
 
 exports.getSales = async (req, res) => {
@@ -706,7 +739,6 @@ exports.getSales = async (req, res) => {
     let filter = {};
 
     if (role === "superadmin") {
-      // Superadmin can view the full sales history.
       filter = {};
     } else if (role === "manager") {
       const now = new Date();
@@ -873,6 +905,24 @@ exports.createSale = async (req, res) => {
 
     await sale.populate("soldBy", "role name");
 
+    // AUDIT LOG: CREATE SALE
+    await logAudit(req, {
+      action: "CREATE",
+      module: "Egg Sales",
+      description: `Created egg sale invoice ${sale.invoiceNumber} for ${sale.customer}`,
+      entityId: sale._id,
+      entityName: sale.invoiceNumber,
+      after: getEggSaleAuditSnapshot(sale),
+      metadata: {
+        invoiceNumber: sale.invoiceNumber,
+        customer: sale.customer,
+        totalAmount: sale.totalAmount,
+        amountPaid: sale.amountPaid,
+        balance: sale.balance,
+        paymentStatus: sale.status,
+      },
+    });
+
     return res.status(201).json(sale);
   } catch (err) {
     console.error("CREATE SALE ERROR:", err);
@@ -901,6 +951,9 @@ exports.updateSale = async (req, res) => {
           "This sale is older than 24 hours. Request temporary access from a superadmin.",
       });
     }
+
+    // Capture the original state before making changes.
+    const before = getEggSaleAuditSnapshot(sale);
 
     const {
       customerId,
@@ -1137,6 +1190,29 @@ exports.updateSale = async (req, res) => {
 
     await sale.populate("soldBy", "role name");
 
+    // AUDIT LOG: UPDATE SALE
+    await logAudit(req, {
+      action: "UPDATE",
+      module: "Egg Sales",
+      description: `Updated egg sale invoice ${sale.invoiceNumber}`,
+      entityId: sale._id,
+      entityName: sale.invoiceNumber,
+      before,
+      after: getEggSaleAuditSnapshot(sale),
+      metadata: {
+        invoiceNumber: sale.invoiceNumber,
+        customer: sale.customer,
+        previousTotal: before.totalAmount,
+        newTotal: sale.totalAmount,
+        previousAmountPaid: before.amountPaid,
+        newAmountPaid: sale.amountPaid,
+        previousBalance: before.balance,
+        newBalance: sale.balance,
+        previousStatus: before.status,
+        newStatus: sale.status,
+      },
+    });
+
     return res.json(sale);
   } catch (err) {
     console.error("UPDATE SALE ERROR:", err);
@@ -1169,12 +1245,32 @@ exports.deleteSale = async (req, res) => {
       });
     }
 
+    // Capture original state before soft deletion.
+    const before = getEggSaleAuditSnapshot(sale);
+
     sale.isDeleted = true;
     sale.deletedAt = new Date();
     sale.deletedBy = req.user?.id || null;
 
     await sale.save({
       validateBeforeSave: false,
+    });
+
+    // AUDIT LOG: DELETE SALE
+    await logAudit(req, {
+      action: "DELETE",
+      module: "Egg Sales",
+      description: `Deleted egg sale invoice ${sale.invoiceNumber}`,
+      entityId: sale._id,
+      entityName: sale.invoiceNumber,
+      before,
+      after: getEggSaleAuditSnapshot(sale),
+      metadata: {
+        deletionType: "soft",
+        invoiceNumber: sale.invoiceNumber,
+        customer: sale.customer,
+        totalAmount: sale.totalAmount,
+      },
     });
 
     return res.json({
@@ -1230,6 +1326,9 @@ exports.restoreSale = async (req, res) => {
       });
     }
 
+    // Capture deleted state before restoration.
+    const before = getEggSaleAuditSnapshot(sale);
+
     sale.isDeleted = false;
     sale.deletedAt = null;
     sale.deletedBy = null;
@@ -1244,6 +1343,23 @@ exports.restoreSale = async (req, res) => {
     );
 
     await sale.populate("soldBy", "role name");
+
+    // AUDIT LOG: RESTORE SALE
+    await logAudit(req, {
+      action: "RESTORE",
+      module: "Egg Sales",
+      description: `Restored egg sale invoice ${sale.invoiceNumber}`,
+      entityId: sale._id,
+      entityName: sale.invoiceNumber,
+      before,
+      after: getEggSaleAuditSnapshot(sale),
+      metadata: {
+        invoiceNumber: sale.invoiceNumber,
+        customer: sale.customer,
+        totalAmount: sale.totalAmount,
+        restored: true,
+      },
+    });
 
     return res.json(sale);
   } catch (err) {

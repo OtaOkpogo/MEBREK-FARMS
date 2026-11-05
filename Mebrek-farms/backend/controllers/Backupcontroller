@@ -11,6 +11,8 @@ const Medication = require("../models/Medication");
 const BirdHealth = require("../models/BirdHealth");
 const Admin = require("../models/Admin");
 
+const { logAudit } = require("../utils/auditLogger");
+
 // @desc   Export every major collection as a single downloadable JSON file
 // @route  GET /api/backup/export
 // @access Superadmin only (gated in route)
@@ -41,14 +43,15 @@ exports.exportDatabase = async (req, res) => {
       EggSale.find(),
       Medication.find(),
       BirdHealth.find(),
-      // Never include password hashes (or any auth secrets) in a
-      // downloadable file, even though this endpoint is already
-      // restricted to superadmin — defense in depth.
+
+      // Never include password hashes or authentication secrets.
       Admin.find().select("-password"),
     ]);
 
+    const exportedAt = new Date();
+
     const backup = {
-      exportedAt: new Date().toISOString(),
+      exportedAt: exportedAt.toISOString(),
       exportedBy: req.user?.id || null,
       collections: {
         orders,
@@ -66,17 +69,54 @@ exports.exportDatabase = async (req, res) => {
       },
     };
 
-    const filename = `mebrek-farms-backup-${new Date()
+    const filename = `mebrek-farms-backup-${exportedAt
       .toISOString()
       .slice(0, 19)
       .replace(/[:T]/g, "-")}.json`;
 
+    // Record counts only; never store the actual backup contents in the audit log.
+    const collectionCounts = {
+      orders: orders.length,
+      workers: workers.length,
+      production: production.length,
+      feeds: feeds.length,
+      attendance: attendance.length,
+      roomInventory: roomInventory.length,
+      mortality: mortality.length,
+      vaccinations: vaccinations.length,
+      eggSales: eggSales.length,
+      medications: medications.length,
+      birdHealth: birdHealth.length,
+      admins: admins.length,
+    };
+
+    // Log the successful backup export.
+    await logAudit(req, {
+      action: "BACKUP",
+      module: "Backup",
+      description: "Database backup exported successfully",
+      entityName: filename,
+      metadata: {
+        operation: "DATABASE_EXPORT",
+        filename,
+        exportedAt: exportedAt.toISOString(),
+        collectionCounts,
+        totalRecords: Object.values(collectionCounts).reduce(
+          (total, count) => total + count,
+          0,
+        ),
+      },
+    });
+
     res.setHeader("Content-Type", "application/json");
     res.setHeader("Content-Disposition", `attachment; filename="${filename}"`);
 
-    res.send(JSON.stringify(backup, null, 2));
+    return res.send(JSON.stringify(backup, null, 2));
   } catch (err) {
     console.error("Database Export Error:", err);
-    res.status(500).json({ message: err.message });
+
+    return res.status(500).json({
+      message: err.message,
+    });
   }
 };

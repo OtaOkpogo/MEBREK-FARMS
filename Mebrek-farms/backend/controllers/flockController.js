@@ -1,5 +1,6 @@
 const mongoose = require("mongoose");
 const Flock = require("../models/Flock");
+const { logAudit } = require("../utils/auditLogger");
 
 const PENS = Flock.PENS || [
   "Battery Cage Row 1",
@@ -43,17 +44,38 @@ const buildFlockResponse = (flock) => {
 
   return {
     ...data,
-
     maxLayingAgeWeeks: MAX_LAYING_AGE_WEEKS,
-
     currentAgeWeeks: flock.currentAgeWeeks ?? data.currentAgeWeeks ?? 0,
-
     weeksRemaining: flock.weeksRemaining ?? data.weeksRemaining ?? 0,
-
     expectedEndOfLay: flock.expectedEndOfLay ?? data.expectedEndOfLay ?? null,
-
     lifecycleStatus: flock.lifecycleStatus ?? data.lifecycleStatus ?? null,
   };
+};
+
+// ------------------------------------------------------------
+// AUDIT SNAPSHOT
+// ------------------------------------------------------------
+
+const getFlockAuditSnapshot = (flock) => {
+  if (!flock) return null;
+
+  return {
+    flockId: flock.flockId,
+    pen: flock.pen,
+    placementDate: flock.placementDate,
+    startingAgeWeeks: flock.startingAgeWeeks,
+    remarks: flock.remarks,
+    status: flock.status,
+    saleDate: flock.saleDate || null,
+    isDeleted: flock.isDeleted,
+    deletedAt: flock.deletedAt || null,
+  };
+};
+
+const getFlockAuditName = (flock) => {
+  if (!flock) return "Unknown Flock";
+
+  return `${flock.flockId} - ${flock.pen}`;
 };
 
 /*
@@ -70,7 +92,6 @@ const getFlocks = async (req, res) => {
 
     const filter = {};
 
-    // Deleted flocks are hidden by default.
     if (includeDeleted === "true" && isSuperAdmin(req)) {
       filter.isDeleted = true;
     } else {
@@ -321,6 +342,17 @@ const createFlock = async (req, res) => {
       createdBy: getUserId(req),
     });
 
+    // AUDIT: Record flock creation.
+    await logAudit(req, {
+      action: "CREATE",
+      module: "Flocks",
+      description: `Created flock ${flock.flockId} in ${flock.pen}`,
+      entityId: flock._id,
+      entityName: getFlockAuditName(flock),
+      before: null,
+      after: getFlockAuditSnapshot(flock),
+    });
+
     const populatedFlock = await Flock.findById(flock._id).populate(
       "createdBy",
       "name email role",
@@ -375,6 +407,9 @@ const updateFlock = async (req, res) => {
         message: "Flock not found",
       });
     }
+
+    // AUDIT: Capture original values before editing.
+    const beforeAudit = getFlockAuditSnapshot(flock);
 
     const { flockId, pen, placementDate, startingAgeWeeks, remarks } = req.body;
 
@@ -496,6 +531,17 @@ const updateFlock = async (req, res) => {
 
     await flock.save();
 
+    // AUDIT: Record flock update.
+    await logAudit(req, {
+      action: "UPDATE",
+      module: "Flocks",
+      description: `Updated flock ${flock.flockId}`,
+      entityId: flock._id,
+      entityName: getFlockAuditName(flock),
+      before: beforeAudit,
+      after: getFlockAuditSnapshot(flock),
+    });
+
     const updatedFlock = await Flock.findById(flock._id)
       .populate("createdBy", "name email role")
       .populate("updatedBy", "name email role");
@@ -559,6 +605,9 @@ const sellFlock = async (req, res) => {
       });
     }
 
+    // AUDIT: Capture values before the sale.
+    const beforeAudit = getFlockAuditSnapshot(flock);
+
     const parsedSaleDate = saleDate ? new Date(saleDate) : new Date();
 
     if (Number.isNaN(parsedSaleDate.getTime())) {
@@ -574,6 +623,22 @@ const sellFlock = async (req, res) => {
     flock.updatedBy = getUserId(req);
 
     await flock.save();
+
+    // AUDIT: Record the flock status change.
+    await logAudit(req, {
+      action: "STATUS_CHANGE",
+      module: "Flocks",
+      description: `Marked flock ${flock.flockId} in ${flock.pen} as SOLD`,
+      entityId: flock._id,
+      entityName: getFlockAuditName(flock),
+      before: beforeAudit,
+      after: getFlockAuditSnapshot(flock),
+      metadata: {
+        previousStatus: "ACTIVE",
+        newStatus: "SOLD",
+        saleDate: parsedSaleDate,
+      },
+    });
 
     const soldFlock = await Flock.findById(flock._id)
       .populate("soldBy", "name email role")
@@ -634,12 +699,29 @@ const deleteFlock = async (req, res) => {
       });
     }
 
+    // AUDIT: Capture values before deletion.
+    const beforeAudit = getFlockAuditSnapshot(flock);
+
     flock.isDeleted = true;
     flock.deletedAt = new Date();
     flock.deletedBy = getUserId(req);
     flock.updatedBy = getUserId(req);
 
     await flock.save();
+
+    // AUDIT: Record soft deletion.
+    await logAudit(req, {
+      action: "DELETE",
+      module: "Flocks",
+      description: `Deleted flock ${flock.flockId} from ${flock.pen}`,
+      entityId: flock._id,
+      entityName: getFlockAuditName(flock),
+      before: beforeAudit,
+      after: getFlockAuditSnapshot(flock),
+      metadata: {
+        deletionType: "soft",
+      },
+    });
 
     return res.status(200).json({
       success: true,
@@ -691,6 +773,9 @@ const restoreFlock = async (req, res) => {
       });
     }
 
+    // AUDIT: Capture deleted state before restoration.
+    const beforeAudit = getFlockAuditSnapshot(flock);
+
     /*
      * If restoring an ACTIVE flock, ensure
      * its pen is still available.
@@ -719,6 +804,17 @@ const restoreFlock = async (req, res) => {
     flock.updatedBy = getUserId(req);
 
     await flock.save();
+
+    // AUDIT: Record restoration.
+    await logAudit(req, {
+      action: "RESTORE",
+      module: "Flocks",
+      description: `Restored flock ${flock.flockId} in ${flock.pen}`,
+      entityId: flock._id,
+      entityName: getFlockAuditName(flock),
+      before: beforeAudit,
+      after: getFlockAuditSnapshot(flock),
+    });
 
     return res.status(200).json({
       success: true,

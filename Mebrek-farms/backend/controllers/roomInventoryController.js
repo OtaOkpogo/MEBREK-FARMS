@@ -1,11 +1,46 @@
 const RoomInventory = require("../models/RoomInventory");
+const { logAudit } = require("../utils/auditLogger");
 
-// Helper to push a history entry without a separate save() round trip
+// ============================================================
+// HELPERS
+// ============================================================
+
+// Push a history entry without a separate save() round trip.
 const pushHistory = (doc, event, note, adminId) => {
-  doc.history.push({ event, note, by: adminId || null, date: new Date() });
+  doc.history.push({
+    event,
+    note,
+    by: adminId || null,
+    date: new Date(),
+  });
 };
 
+// Keep audit snapshots limited to relevant inventory information.
+const getRoomInventoryAuditSnapshot = (item) => {
+  if (!item) return null;
+
+  const data = item.toObject ? item.toObject() : item;
+
+  return {
+    roomName: data.roomName,
+    roomType: data.roomType,
+    itemName: data.itemName,
+    category: data.category,
+    quantity: data.quantity,
+    condition: data.condition,
+    serialNumber: data.serialNumber,
+    purchaseDate: data.purchaseDate,
+    purchaseValue: data.purchaseValue,
+    remarks: data.remarks,
+    assignedTo: data.assignedTo?._id || data.assignedTo || null,
+    status: data.status,
+  };
+};
+
+// ============================================================
 // POST /api/room-inventory
+// ============================================================
+
 exports.createItem = async (req, res) => {
   try {
     const {
@@ -47,6 +82,15 @@ exports.createItem = async (req, res) => {
 
     await item.save();
 
+    await logAudit(req, {
+      action: "CREATE",
+      module: "Room Inventory",
+      description: `Added ${item.itemName} to ${item.roomName}`,
+      entityId: item._id,
+      entityName: item.itemName,
+      after: getRoomInventoryAuditSnapshot(item),
+    });
+
     return res.status(201).json(item);
   } catch (err) {
     console.error("createItem error:", err);
@@ -54,7 +98,10 @@ exports.createItem = async (req, res) => {
   }
 };
 
+// ============================================================
 // PUT /api/room-inventory/:id
+// ============================================================
+
 exports.updateItem = async (req, res) => {
   try {
     const item = await RoomInventory.findById(req.params.id);
@@ -62,6 +109,9 @@ exports.updateItem = async (req, res) => {
     if (!item) {
       return res.status(404).json({ message: "Item not found." });
     }
+
+    const before = getRoomInventoryAuditSnapshot(item);
+    const changes = [];
 
     const editableFields = [
       "roomName",
@@ -75,8 +125,6 @@ exports.updateItem = async (req, res) => {
       "remarks",
     ];
 
-    const changes = [];
-
     editableFields.forEach((field) => {
       if (
         req.body[field] !== undefined &&
@@ -88,14 +136,19 @@ exports.updateItem = async (req, res) => {
       }
     });
 
-    // Condition changes get their own history event since they matter for audits
+    // Condition changes receive their own history event.
     if (req.body.condition && req.body.condition !== item.condition) {
       pushHistory(
         item,
         "Condition Changed",
         `${item.condition} -> ${req.body.condition}`,
-        req.user?._id
+        req.user?._id,
       );
+
+      if (!changes.includes("condition")) {
+        changes.push("condition");
+      }
+
       item.condition = req.body.condition;
     }
 
@@ -104,11 +157,24 @@ exports.updateItem = async (req, res) => {
         item,
         "Edited",
         `Updated fields: ${changes.join(", ")}`,
-        req.user?._id
+        req.user?._id,
       );
-    }
 
-    await item.save();
+      await item.save();
+
+      await logAudit(req, {
+        action: "UPDATE",
+        module: "Room Inventory",
+        description: `Updated ${item.itemName} in ${item.roomName}`,
+        entityId: item._id,
+        entityName: item.itemName,
+        before,
+        after: getRoomInventoryAuditSnapshot(item),
+        metadata: {
+          changedFields: changes,
+        },
+      });
+    }
 
     return res.json(item);
   } catch (err) {
@@ -117,9 +183,12 @@ exports.updateItem = async (req, res) => {
   }
 };
 
+// ============================================================
 // DELETE /api/room-inventory/:id
-// Soft delete by default (status: Removed) so history/audit trail survives.
+// Soft delete by default.
 // Pass ?hard=true to permanently remove the document.
+// ============================================================
+
 exports.deleteItem = async (req, res) => {
   try {
     const item = await RoomInventory.findById(req.params.id);
@@ -128,14 +197,50 @@ exports.deleteItem = async (req, res) => {
       return res.status(404).json({ message: "Item not found." });
     }
 
+    const before = getRoomInventoryAuditSnapshot(item);
+
     if (req.query.hard === "true") {
       await item.deleteOne();
+
+      await logAudit(req, {
+        action: "DELETE",
+        module: "Room Inventory",
+        description: `Permanently deleted ${item.itemName} from ${item.roomName}`,
+        entityId: item._id,
+        entityName: item.itemName,
+        before,
+        after: null,
+        metadata: {
+          permanent: true,
+        },
+      });
+
       return res.json({ message: "Item permanently deleted." });
     }
 
     item.status = "Removed";
-    pushHistory(item, "Deleted", "Item removed from active inventory", req.user?._id);
+
+    pushHistory(
+      item,
+      "Deleted",
+      "Item removed from active inventory",
+      req.user?._id,
+    );
+
     await item.save();
+
+    await logAudit(req, {
+      action: "DELETE",
+      module: "Room Inventory",
+      description: `Removed ${item.itemName} from ${item.roomName}`,
+      entityId: item._id,
+      entityName: item.itemName,
+      before,
+      after: getRoomInventoryAuditSnapshot(item),
+      metadata: {
+        permanent: false,
+      },
+    });
 
     return res.json({ message: "Item marked as removed.", item });
   } catch (err) {
@@ -144,8 +249,10 @@ exports.deleteItem = async (req, res) => {
   }
 };
 
+// ============================================================
 // GET /api/room-inventory/rooms
-// List distinct rooms with item counts and unread-style summary stats
+// ============================================================
+
 exports.listRooms = async (req, res) => {
   try {
     const rooms = await RoomInventory.aggregate([
@@ -190,8 +297,10 @@ exports.listRooms = async (req, res) => {
   }
 };
 
+// ============================================================
 // GET /api/room-inventory/rooms/:roomName
-// All items in a specific room (case-insensitive exact match)
+// ============================================================
+
 exports.getItemsByRoom = async (req, res) => {
   try {
     const { roomName } = req.params;
@@ -210,8 +319,10 @@ exports.getItemsByRoom = async (req, res) => {
   }
 };
 
+// ============================================================
 // GET /api/room-inventory
-// General list with optional filters: ?condition=&category=&status=&search=&roomType=
+// ============================================================
+
 exports.getAllItems = async (req, res) => {
   try {
     const { condition, category, status, roomType, search } = req.query;
@@ -242,12 +353,15 @@ exports.getAllItems = async (req, res) => {
   }
 };
 
+// ============================================================
 // GET /api/room-inventory/:id
+// ============================================================
+
 exports.getItemById = async (req, res) => {
   try {
     const item = await RoomInventory.findById(req.params.id).populate(
       "assignedTo",
-      "name role"
+      "name role",
     );
 
     if (!item) {
@@ -261,7 +375,10 @@ exports.getItemById = async (req, res) => {
   }
 };
 
+// ============================================================
 // PATCH /api/room-inventory/:id/assign
+// ============================================================
+
 exports.assignItem = async (req, res) => {
   try {
     const { staffId } = req.body;
@@ -272,15 +389,41 @@ exports.assignItem = async (req, res) => {
       return res.status(404).json({ message: "Item not found." });
     }
 
-    item.assignedTo = staffId || null;
-    pushHistory(
-      item,
-      staffId ? "Assigned" : "Unassigned",
-      staffId ? `Assigned to staff ${staffId}` : "Unassigned",
-      req.user?._id
-    );
+    const before = getRoomInventoryAuditSnapshot(item);
+    const previousAssignedTo = item.assignedTo
+      ? item.assignedTo.toString()
+      : null;
+    const nextAssignedTo = staffId || null;
 
-    await item.save();
+    if (previousAssignedTo !== nextAssignedTo) {
+      item.assignedTo = nextAssignedTo;
+
+      pushHistory(
+        item,
+        staffId ? "Assigned" : "Unassigned",
+        staffId ? `Assigned to staff ${staffId}` : "Unassigned",
+        req.user?._id,
+      );
+
+      await item.save();
+
+      await logAudit(req, {
+        action: "UPDATE",
+        module: "Room Inventory",
+        description: staffId
+          ? `Assigned ${item.itemName} to staff member ${staffId}`
+          : `Unassigned ${item.itemName}`,
+        entityId: item._id,
+        entityName: item.itemName,
+        before,
+        after: getRoomInventoryAuditSnapshot(item),
+        metadata: {
+          changeType: staffId ? "ASSIGNED" : "UNASSIGNED",
+          previousAssignedTo,
+          assignedTo: nextAssignedTo,
+        },
+      });
+    }
 
     return res.json(item);
   } catch (err) {
@@ -289,17 +432,19 @@ exports.assignItem = async (req, res) => {
   }
 };
 
+// ============================================================
 // PATCH /api/room-inventory/:id/status
-// Body: { status: "Checked Out" | "Checked In" | "Missing" | "Found", note }
+// ============================================================
+
 exports.updateStatus = async (req, res) => {
   try {
     const { status, note } = req.body;
 
     const validTransitions = {
       "Checked Out": "Checked Out",
-      "Checked In": "In Room",
+      "Checked In": "Checked In",
       Missing: "Missing",
-      Found: "In Room",
+      Found: "Found",
     };
 
     if (!validTransitions[status]) {
@@ -312,7 +457,14 @@ exports.updateStatus = async (req, res) => {
       return res.status(404).json({ message: "Item not found." });
     }
 
-    item.status = validTransitions[status];
+    const before = getRoomInventoryAuditSnapshot(item);
+
+    const nextStatus =
+      status === "Checked In" || status === "Found"
+        ? "In Room"
+        : validTransitions[status];
+
+    const previousStatus = item.status;
 
     const eventMap = {
       "Checked Out": "Checked Out",
@@ -321,9 +473,29 @@ exports.updateStatus = async (req, res) => {
       Found: "Marked Found",
     };
 
-    pushHistory(item, eventMap[status], note, req.user?._id);
+    if (previousStatus !== nextStatus) {
+      item.status = nextStatus;
 
-    await item.save();
+      pushHistory(item, eventMap[status], note, req.user?._id);
+
+      await item.save();
+
+      await logAudit(req, {
+        action: "STATUS_CHANGE",
+        module: "Room Inventory",
+        description: `${item.itemName} status changed from ${previousStatus} to ${nextStatus}`,
+        entityId: item._id,
+        entityName: item.itemName,
+        before,
+        after: getRoomInventoryAuditSnapshot(item),
+        metadata: {
+          requestedTransition: status,
+          previousStatus,
+          newStatus: nextStatus,
+          note: note || null,
+        },
+      });
+    }
 
     return res.json(item);
   } catch (err) {
@@ -332,8 +504,10 @@ exports.updateStatus = async (req, res) => {
   }
 };
 
+// ============================================================
 // GET /api/room-inventory/summary
-// Company-wide inventory summary — counts by condition/status/category
+// ============================================================
+
 exports.getInventorySummary = async (req, res) => {
   try {
     const [byCondition, byStatus, byCategory, totals] = await Promise.all([
@@ -366,7 +540,11 @@ exports.getInventorySummary = async (req, res) => {
       byCondition,
       byStatus,
       byCategory,
-      totals: totals[0] || { totalItems: 0, totalQuantity: 0, totalValue: 0 },
+      totals: totals[0] || {
+        totalItems: 0,
+        totalQuantity: 0,
+        totalValue: 0,
+      },
     });
   } catch (err) {
     console.error("getInventorySummary error:", err);
@@ -374,7 +552,10 @@ exports.getInventorySummary = async (req, res) => {
   }
 };
 
+// ============================================================
 // GET /api/room-inventory/missing
+// ============================================================
+
 exports.getMissingItems = async (req, res) => {
   try {
     const items = await RoomInventory.find({ status: "Missing" })

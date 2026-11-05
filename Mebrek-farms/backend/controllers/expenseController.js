@@ -3,6 +3,7 @@ const Expense = require("../models/Expense");
 const Counter = require("../models/Counter");
 const Worker = require("../models/Worker");
 const WorkerMonthlySalary = require("../models/WorkerMonthlySalary");
+const { logAudit } = require("../utils/auditLogger");
 
 const ALLOWED_CATEGORIES = [
   "Feed",
@@ -48,6 +49,40 @@ const getWorkerName = (worker) =>
   "Unknown Worker";
 
 const getEmployeeId = (worker) => worker.employeeId || worker.staffId || "";
+
+// ============================================================
+// AUDIT SNAPSHOT
+// ============================================================
+
+const getExpenseAuditSnapshot = (expense) => {
+  if (!expense) return null;
+
+  const data =
+    typeof expense.toObject === "function" ? expense.toObject() : expense;
+
+  return {
+    expenseNumber: data.expenseNumber,
+    expenseType: data.expenseType || "General",
+    date: data.date,
+    category: data.category,
+    description: data.description,
+    quantity: data.quantity,
+    unitCost: data.unitCost,
+    amount: data.amount,
+    supplier: data.supplier,
+    paymentMethod: data.paymentMethod,
+    remarks: data.remarks,
+    worker: data.worker,
+    workerName: data.workerName,
+    employeeId: data.employeeId,
+    salaryPeriod: data.salaryPeriod,
+    salaryAmount: data.salaryAmount,
+    payrollBatchId: data.payrollBatchId,
+    isDeleted: data.isDeleted,
+    deletedAt: data.deletedAt,
+    deletedByName: data.deletedByName,
+  };
+};
 
 const escapeRegex = (value) =>
   String(value).replace(/[.*+?^${}()|[\]\\]/g, "\\$&");
@@ -245,7 +280,13 @@ const getPaidToDate = async (
   return roundMoney(result[0]?.total || 0);
 };
 
+// ============================================================
+// CREATE SALARY PAYMENT RECORD
+// Shared by individual and bulk payroll payments.
+// ============================================================
+
 const createSalaryPaymentRecord = async ({
+  req,
   workerId,
   salaryPeriod,
   amount,
@@ -319,6 +360,25 @@ const createSalaryPaymentRecord = async ({
     payrollBatchId: payrollBatchId || undefined,
     createdBy: adminId || undefined,
     createdByName: adminName || "Administrator",
+  });
+
+  await logAudit(req, {
+    action: "CREATE",
+    module: "Expenses",
+    description: `Recorded salary payment of ₦${paymentAmount.toLocaleString("en-NG")} for ${getWorkerName(worker)} (${salaryPeriod})`,
+    entityId: expense._id,
+    entityName: expense.expenseNumber,
+    after: getExpenseAuditSnapshot(expense),
+    metadata: {
+      recordType: "Salary Payment",
+      workerId: worker._id,
+      workerName: getWorkerName(worker),
+      employeeId: getEmployeeId(worker),
+      salaryPeriod,
+      amount: paymentAmount,
+      paymentMethod,
+      payrollBatchId: payrollBatchId || null,
+    },
   });
 
   return expense;
@@ -420,6 +480,21 @@ exports.createExpense = async (req, res) => {
       remarks: remarks || "",
       createdBy: admin.adminId || undefined,
       createdByName: admin.adminName,
+    });
+
+    await logAudit(req, {
+      action: "CREATE",
+      module: "Expenses",
+      description: `Created expense ${expense.expenseNumber}: ${expense.description}`,
+      entityId: expense._id,
+      entityName: expense.expenseNumber,
+      after: getExpenseAuditSnapshot(expense),
+      metadata: {
+        expenseType: "General",
+        category: expense.category,
+        amount: expense.amount,
+        paymentMethod: expense.paymentMethod,
+      },
     });
 
     return res.status(201).json({
@@ -549,6 +624,8 @@ exports.updateExpense = async (req, res) => {
       });
     }
 
+    const beforeSnapshot = getExpenseAuditSnapshot(expense);
+
     const {
       date,
       category,
@@ -644,6 +721,25 @@ exports.updateExpense = async (req, res) => {
 
     await expense.save();
 
+    const afterSnapshot = getExpenseAuditSnapshot(expense);
+
+    if (JSON.stringify(beforeSnapshot) !== JSON.stringify(afterSnapshot)) {
+      await logAudit(req, {
+        action: "UPDATE",
+        module: "Expenses",
+        description: `Updated expense ${expense.expenseNumber}`,
+        entityId: expense._id,
+        entityName: expense.expenseNumber,
+        before: beforeSnapshot,
+        after: afterSnapshot,
+        metadata: {
+          expenseType: "General",
+          amount: expense.amount,
+          category: expense.category,
+        },
+      });
+    }
+
     return res.status(200).json({
       message: "Expense updated successfully.",
       expense,
@@ -682,6 +778,7 @@ exports.deleteExpense = async (req, res) => {
       });
     }
 
+    const beforeSnapshot = getExpenseAuditSnapshot(expense);
     const admin = getAdminInfo(req);
 
     expense.isDeleted = true;
@@ -690,6 +787,21 @@ exports.deleteExpense = async (req, res) => {
     expense.deletedByName = admin.adminName;
 
     await expense.save();
+
+    await logAudit(req, {
+      action: "DELETE",
+      module: "Expenses",
+      description: `Deleted expense ${expense.expenseNumber}`,
+      entityId: expense._id,
+      entityName: expense.expenseNumber,
+      before: beforeSnapshot,
+      after: getExpenseAuditSnapshot(expense),
+      metadata: {
+        expenseType: expense.expenseType || "General",
+        amount: expense.amount,
+        category: expense.category,
+      },
+    });
 
     return res.status(200).json({
       message:
@@ -729,6 +841,8 @@ exports.restoreExpense = async (req, res) => {
         message: "Deleted expense not found.",
       });
     }
+
+    const beforeSnapshot = getExpenseAuditSnapshot(expense);
 
     if (expense.expenseType === "Salary") {
       if (!expense.worker || !isValidSalaryPeriod(expense.salaryPeriod)) {
@@ -793,6 +907,22 @@ exports.restoreExpense = async (req, res) => {
     expense.updatedByName = admin.adminName;
 
     await expense.save();
+
+    await logAudit(req, {
+      action: "RESTORE",
+      module: "Expenses",
+      description: `Restored expense ${expense.expenseNumber}`,
+      entityId: expense._id,
+      entityName: expense.expenseNumber,
+      before: beforeSnapshot,
+      after: getExpenseAuditSnapshot(expense),
+      metadata: {
+        expenseType: expense.expenseType || "General",
+        amount: expense.amount,
+        category: expense.category,
+        salaryPeriod: expense.salaryPeriod || null,
+      },
+    });
 
     return res.status(200).json({
       message: "Expense restored successfully.",
@@ -1108,7 +1238,6 @@ exports.getPayrollWorkers = async (req, res) => {
         department: worker.department || "",
         status: worker.status,
 
-        // The agreed salary must be set separately for each month.
         salaryAmount: agreedSalary,
         agreedSalary,
         salarySet: Boolean(salaryRecord),
@@ -1116,8 +1245,6 @@ exports.getPayrollWorkers = async (req, res) => {
         salarySetByName:
           salaryRecord?.updatedByName || salaryRecord?.setByName || "",
 
-        // Existing Worker.salary is returned only as a suggestion.
-        // It is never treated as the agreed monthly salary.
         suggestedSalary: Number(worker.salary) || 0,
         paymentFrequency: worker.paymentFrequency || "",
 
@@ -1197,6 +1324,21 @@ exports.setPayrollSalary = async (req, res) => {
 
     const admin = getAdminInfo(req);
 
+    const previousSalaryRecord = await getSalaryRecord(
+      worker._id,
+      salaryPeriod,
+    );
+
+    const beforeSalary = previousSalaryRecord
+      ? {
+          worker: previousSalaryRecord.worker,
+          workerName: previousSalaryRecord.workerName,
+          employeeId: previousSalaryRecord.employeeId,
+          salaryPeriod: previousSalaryRecord.salaryPeriod,
+          salaryAmount: previousSalaryRecord.salaryAmount,
+        }
+      : null;
+
     const salaryRecord = await WorkerMonthlySalary.findOneAndUpdate(
       {
         worker: worker._id,
@@ -1224,6 +1366,30 @@ exports.setPayrollSalary = async (req, res) => {
         setDefaultsOnInsert: true,
       },
     );
+
+    await logAudit(req, {
+      action: previousSalaryRecord ? "UPDATE" : "CREATE",
+      module: "Expenses",
+      description: previousSalaryRecord
+        ? `Updated agreed monthly salary for ${getWorkerName(worker)} (${salaryPeriod})`
+        : `Set agreed monthly salary for ${getWorkerName(worker)} (${salaryPeriod})`,
+      entityId: worker._id,
+      entityName: getWorkerName(worker),
+      before: beforeSalary,
+      after: {
+        worker: salaryRecord.worker,
+        workerName: salaryRecord.workerName,
+        employeeId: salaryRecord.employeeId,
+        salaryPeriod: salaryRecord.salaryPeriod,
+        salaryAmount: salaryRecord.salaryAmount,
+      },
+      metadata: {
+        recordType: "Agreed Monthly Salary",
+        salaryPeriod,
+        salaryAmount: agreedSalary,
+        paidToDate,
+      },
+    });
 
     return res.status(200).json({
       message: "Agreed monthly salary saved successfully.",
@@ -1260,6 +1426,7 @@ exports.createSalaryPayment = async (req, res) => {
     const admin = getAdminInfo(req);
 
     const expense = await createSalaryPaymentRecord({
+      req,
       workerId,
       salaryPeriod,
       amount,
@@ -1317,7 +1484,6 @@ exports.createBulkSalaryPayments = async (req, res) => {
     });
   }
 
-  // "workers" is supported for compatibility with older frontend code.
   const submittedPayments = Array.isArray(payments)
     ? payments
     : Array.isArray(workers)
@@ -1350,7 +1516,6 @@ exports.createBulkSalaryPayments = async (req, res) => {
 
     const itemRemarks = item.remarks !== undefined ? item.remarks : remarks;
 
-    // A zero or empty amount means no payment was submitted for this worker.
     if (
       paymentAmount === undefined ||
       paymentAmount === null ||
@@ -1362,6 +1527,7 @@ exports.createBulkSalaryPayments = async (req, res) => {
 
     try {
       const expense = await createSalaryPaymentRecord({
+        req,
         workerId,
         salaryPeriod,
         amount: paymentAmount,

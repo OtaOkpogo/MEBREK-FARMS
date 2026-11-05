@@ -1,4 +1,27 @@
 const Warehouse = require("../models/Warehouse");
+const { logAudit } = require("../utils/auditLogger");
+
+// ============================================================
+// AUDIT SNAPSHOT
+// ============================================================
+
+const getWarehouseAuditSnapshot = (item) => {
+  if (!item) return null;
+
+  const data = typeof item.toObject === "function" ? item.toObject() : item;
+
+  return {
+    itemName: data.itemName,
+    category: data.category,
+    quantity: data.quantity,
+    unit: data.unit,
+    location: data.location,
+    status: data.status,
+    isDeleted: data.isDeleted,
+    deletedAt: data.deletedAt,
+    deletedBy: data.deletedBy,
+  };
+};
 
 // ================= GET =================
 
@@ -34,6 +57,21 @@ exports.createWarehouseItem = async (req, res) => {
 
     await item.save();
 
+    await logAudit(req, {
+      action: "CREATE",
+      module: "Warehouse",
+      description: `Added warehouse item: ${item.itemName}`,
+      entityId: item._id,
+      entityName: item.itemName,
+      after: getWarehouseAuditSnapshot(item),
+      metadata: {
+        category: item.category,
+        quantity: item.quantity,
+        unit: item.unit,
+        location: item.location,
+      },
+    });
+
     res.json(item);
   } catch (err) {
     res.status(500).json({
@@ -45,12 +83,8 @@ exports.createWarehouseItem = async (req, res) => {
 // ================= UPDATE =================
 
 // Only these fields can be changed through the regular update
-// endpoint. isDeleted/deletedAt/deletedBy are deliberately excluded —
-// previously req.body was passed through unfiltered, so a manager
-// could include isDeleted: false in an update payload and silently
-// restore a soft-deleted item without going through
-// restoreWarehouseItem's superadmin-only route, or set arbitrary
-// values for those fields directly.
+// endpoint. Deletion and restoration fields remain protected.
+
 const UPDATABLE_FIELDS = [
   "itemName",
   "category",
@@ -70,6 +104,17 @@ exports.updateWarehouseItem = async (req, res) => {
       }
     });
 
+    // Get the original record before applying changes.
+    const existingItem = await Warehouse.findById(req.params.id);
+
+    if (!existingItem) {
+      return res.status(404).json({
+        message: "Warehouse item not found",
+      });
+    }
+
+    const beforeSnapshot = getWarehouseAuditSnapshot(existingItem);
+
     const item = await Warehouse.findByIdAndUpdate(req.params.id, updates, {
       new: true,
       runValidators: true,
@@ -78,6 +123,26 @@ exports.updateWarehouseItem = async (req, res) => {
     if (!item) {
       return res.status(404).json({
         message: "Warehouse item not found",
+      });
+    }
+
+    const afterSnapshot = getWarehouseAuditSnapshot(item);
+
+    if (JSON.stringify(beforeSnapshot) !== JSON.stringify(afterSnapshot)) {
+      await logAudit(req, {
+        action: "UPDATE",
+        module: "Warehouse",
+        description: `Updated warehouse item: ${item.itemName}`,
+        entityId: item._id,
+        entityName: item.itemName,
+        before: beforeSnapshot,
+        after: afterSnapshot,
+        metadata: {
+          category: item.category,
+          quantity: item.quantity,
+          unit: item.unit,
+          location: item.location,
+        },
       });
     }
 
@@ -101,11 +166,29 @@ exports.deleteWarehouseItem = async (req, res) => {
       });
     }
 
+    const beforeSnapshot = getWarehouseAuditSnapshot(item);
+
     item.isDeleted = true;
     item.deletedAt = new Date();
     item.deletedBy = req.user.role;
 
     await item.save();
+
+    await logAudit(req, {
+      action: "DELETE",
+      module: "Warehouse",
+      description: `Deleted warehouse item: ${item.itemName}`,
+      entityId: item._id,
+      entityName: item.itemName,
+      before: beforeSnapshot,
+      after: getWarehouseAuditSnapshot(item),
+      metadata: {
+        category: item.category,
+        quantity: item.quantity,
+        unit: item.unit,
+        location: item.location,
+      },
+    });
 
     res.json({
       message: "Warehouse item deleted successfully",
@@ -135,11 +218,29 @@ exports.restoreWarehouseItem = async (req, res) => {
       });
     }
 
+    const beforeSnapshot = getWarehouseAuditSnapshot(item);
+
     item.isDeleted = false;
     item.deletedAt = null;
     item.deletedBy = "";
 
     await item.save();
+
+    await logAudit(req, {
+      action: "RESTORE",
+      module: "Warehouse",
+      description: `Restored warehouse item: ${item.itemName}`,
+      entityId: item._id,
+      entityName: item.itemName,
+      before: beforeSnapshot,
+      after: getWarehouseAuditSnapshot(item),
+      metadata: {
+        category: item.category,
+        quantity: item.quantity,
+        unit: item.unit,
+        location: item.location,
+      },
+    });
 
     res.json({
       message: "Warehouse item restored successfully",

@@ -1,8 +1,14 @@
 const Mortality = require("../models/Mortality");
+const { logAudit } = require("../utils/auditLogger");
+
 const {
   syncLinkedBirdHealth,
   softDeleteLinkedBirdHealth,
 } = require("../services/healthSyncService");
+
+// ============================================================
+// HELPERS
+// ============================================================
 
 const buildHealthPayload = (record) => ({
   date: record.date || new Date(),
@@ -18,6 +24,27 @@ const buildHealthPayload = (record) => ({
   remarks: record.notes || "",
 });
 
+const getMortalityAuditSnapshot = (record) => {
+  if (!record) return null;
+
+  const data = record.toObject ? record.toObject() : record;
+
+  return {
+    birdBatch: data.birdBatch,
+    numberDead: data.numberDead,
+    cause: data.cause,
+    estimatedLoss: data.estimatedLoss,
+    notes: data.notes,
+    date: data.date,
+    productionRecord: data.productionRecord || null,
+    birdHealthRecord: data.birdHealthRecord || null,
+  };
+};
+
+// ============================================================
+// GET MORTALITY
+// ============================================================
+
 exports.getMortality = async (req, res) => {
   try {
     const records = await Mortality.find()
@@ -31,6 +58,10 @@ exports.getMortality = async (req, res) => {
     res.status(500).json({ error: err.message });
   }
 };
+
+// ============================================================
+// CREATE MORTALITY
+// ============================================================
 
 exports.createMortality = async (req, res) => {
   try {
@@ -48,12 +79,25 @@ exports.createMortality = async (req, res) => {
       console.error("Mortality → Bird Health sync error:", syncError);
     }
 
+    await logAudit(req, {
+      action: "CREATE",
+      module: "Mortality",
+      description: `Recorded mortality of ${record.numberDead} bird(s) in ${record.birdBatch}`,
+      entityId: record._id,
+      entityName: `${record.birdBatch} - ${record.numberDead} deaths`,
+      after: getMortalityAuditSnapshot(record),
+    });
+
     res.status(201).json(record);
   } catch (err) {
     console.error("CREATE MORTALITY ERROR:", err);
     res.status(500).json({ error: err.message });
   }
 };
+
+// ============================================================
+// UPDATE MORTALITY
+// ============================================================
 
 exports.updateMortality = async (req, res) => {
   try {
@@ -72,6 +116,8 @@ exports.updateMortality = async (req, res) => {
       });
     }
 
+    const before = getMortalityAuditSnapshot(record);
+
     const allowedFields = [
       "birdBatch",
       "numberDead",
@@ -81,10 +127,33 @@ exports.updateMortality = async (req, res) => {
       "date",
     ];
 
+    const changedFields = [];
+
     for (const field of allowedFields) {
       if (req.body[field] !== undefined) {
-        record[field] = req.body[field];
+        const oldValue = record[field];
+
+        const newValue = req.body[field];
+
+        const oldComparable =
+          oldValue instanceof Date
+            ? oldValue.toISOString()
+            : oldValue?.toString?.();
+
+        const newComparable =
+          oldValue instanceof Date
+            ? new Date(newValue).toISOString()
+            : newValue?.toString?.();
+
+        if (oldComparable !== newComparable) {
+          changedFields.push(field);
+          record[field] = newValue;
+        }
       }
+    }
+
+    if (changedFields.length === 0) {
+      return res.json(record);
     }
 
     await record.save();
@@ -101,12 +170,29 @@ exports.updateMortality = async (req, res) => {
       console.error("Mortality update sync error:", syncError);
     }
 
+    await logAudit(req, {
+      action: "UPDATE",
+      module: "Mortality",
+      description: `Updated mortality record for ${record.birdBatch}`,
+      entityId: record._id,
+      entityName: `${record.birdBatch} - ${record.numberDead} deaths`,
+      before,
+      after: getMortalityAuditSnapshot(record),
+      metadata: {
+        changedFields,
+      },
+    });
+
     res.json(record);
   } catch (err) {
     console.error("UPDATE MORTALITY ERROR:", err);
     res.status(500).json({ error: err.message });
   }
 };
+
+// ============================================================
+// DELETE MORTALITY
+// ============================================================
 
 exports.deleteMortality = async (req, res) => {
   try {
@@ -125,6 +211,8 @@ exports.deleteMortality = async (req, res) => {
       });
     }
 
+    const before = getMortalityAuditSnapshot(record);
+
     try {
       await softDeleteLinkedBirdHealth({
         sourceRecord: record,
@@ -142,6 +230,20 @@ exports.deleteMortality = async (req, res) => {
     }
 
     await Mortality.findByIdAndDelete(record._id);
+
+    await logAudit(req, {
+      action: "DELETE",
+      module: "Mortality",
+      description: `Deleted mortality record for ${record.birdBatch}`,
+      entityId: record._id,
+      entityName: `${record.birdBatch} - ${record.numberDead} deaths`,
+      before,
+      after: null,
+      metadata: {
+        deletionType: "PERMANENT",
+        linkedBirdHealthRecord: record.birdHealthRecord || null,
+      },
+    });
 
     res.json({
       message: "Mortality record deleted successfully",

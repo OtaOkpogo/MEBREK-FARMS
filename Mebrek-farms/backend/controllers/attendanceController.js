@@ -1,6 +1,7 @@
 const mongoose = require("mongoose");
 const Attendance = require("../models/Attendance");
 const Worker = require("../models/Worker");
+const { logAudit } = require("../utils/auditLogger");
 
 const ALLOWED_STATUSES = [
   "Present",
@@ -13,6 +14,47 @@ const ALLOWED_STATUSES = [
 ];
 
 const TIME_PATTERN = /^([01]\d|2[0-3]):[0-5]\d$/;
+
+// ============================================================
+// AUDIT SNAPSHOT
+// ============================================================
+
+function getAttendanceAuditSnapshot(record) {
+  if (!record) return null;
+
+  const data = record.toObject ? record.toObject() : record;
+
+  return {
+    workerId: data.workerId ? String(data.workerId) : null,
+    workerName: data.workerName,
+    role: data.role,
+    attendanceDate: data.attendanceDate,
+    status: data.status,
+    checkInTime: data.checkInTime,
+    checkOutTime: data.checkOutTime,
+    scheduledStartTime: data.scheduledStartTime,
+    scheduledEndTime: data.scheduledEndTime,
+    isLate: data.isLate,
+    workingHours: data.workingHours,
+    remarks: data.remarks,
+    isDeleted: data.isDeleted,
+    deletedAt: data.deletedAt,
+    deletedByName: data.deletedByName,
+    deletedByRole: data.deletedByRole,
+  };
+}
+
+function getChangedFields(before, after) {
+  return Object.keys(after).filter(
+    (field) =>
+      JSON.stringify(before[field] ?? null) !==
+      JSON.stringify(after[field] ?? null),
+  );
+}
+
+// ============================================================
+// DATE AND TIME HELPERS
+// ============================================================
 
 function getLocalDateString(date = new Date()) {
   const year = date.getFullYear();
@@ -39,6 +81,7 @@ function validDateString(value) {
 
 function calculateWorkingHours(checkIn, checkOut) {
   if (!checkIn || !checkOut) return 0;
+
   if (!TIME_PATTERN.test(checkIn) || !TIME_PATTERN.test(checkOut)) {
     return 0;
   }
@@ -108,8 +151,10 @@ async function resolveWorker(workerId) {
   });
 }
 
+// ============================================================
 // GET ACTIVE ATTENDANCE
-// Superadmin sees active and deleted records inline.
+// ============================================================
+
 exports.getAttendance = async (req, res) => {
   try {
     const filter = req.user?.role === "superadmin" ? {} : { isDeleted: false };
@@ -118,13 +163,16 @@ exports.getAttendance = async (req, res) => {
       .sort({ attendanceDate: -1, createdAt: -1 })
       .populate("deletedBy", "role name");
 
-    res.json(attendance);
+    return res.json(attendance);
   } catch (error) {
-    res.status(500).json({ error: error.message });
+    return res.status(500).json({ error: error.message });
   }
 };
 
+// ============================================================
 // ACTIVE WORKERS FOR ATTENDANCE
+// ============================================================
+
 exports.getAttendanceWorkers = async (req, res) => {
   try {
     const workers = await Worker.find({ status: "Active" })
@@ -134,18 +182,21 @@ exports.getAttendanceWorkers = async (req, res) => {
       .sort({ firstName: 1, lastName: 1 })
       .lean();
 
-    res.json(
+    return res.json(
       workers.map((worker) => ({
         ...worker,
         workerName: `${worker.firstName} ${worker.lastName}`.trim(),
       })),
     );
   } catch (error) {
-    res.status(500).json({ error: error.message });
+    return res.status(500).json({ error: error.message });
   }
 };
 
+// ============================================================
 // CREATE ATTENDANCE
+// ============================================================
+
 exports.createAttendance = async (req, res) => {
   try {
     const {
@@ -167,10 +218,13 @@ exports.createAttendance = async (req, res) => {
     }
 
     if (!ALLOWED_STATUSES.includes(status)) {
-      return res.status(400).json({ message: "Invalid attendance status." });
+      return res.status(400).json({
+        message: "Invalid attendance status.",
+      });
     }
 
     const timeError = validateTimeFields({ checkInTime, checkOutTime });
+
     if (timeError) {
       return res.status(400).json({ message: timeError });
     }
@@ -236,7 +290,22 @@ exports.createAttendance = async (req, res) => {
     applyCalculatedFields(attendance);
     await attendance.save();
 
-    res.status(201).json(attendance);
+    await logAudit(req, {
+      action: "CREATE",
+      module: "Attendance",
+      description: `Attendance recorded for ${attendance.workerName}`,
+      entityId: attendance._id,
+      entityName: attendance.workerName,
+      after: getAttendanceAuditSnapshot(attendance),
+      metadata: {
+        attendanceDate: attendance.attendanceDate,
+        status: attendance.status,
+        workingHours: attendance.workingHours,
+        isLate: attendance.isLate,
+      },
+    });
+
+    return res.status(201).json(attendance);
   } catch (error) {
     if (error.code === 11000) {
       return res.status(409).json({
@@ -245,11 +314,14 @@ exports.createAttendance = async (req, res) => {
       });
     }
 
-    res.status(500).json({ error: error.message });
+    return res.status(500).json({ error: error.message });
   }
 };
 
+// ============================================================
 // UPDATE ATTENDANCE / CHECK-IN / CHECK-OUT
+// ============================================================
+
 exports.updateAttendance = async (req, res) => {
   try {
     const attendance = await Attendance.findOne({
@@ -263,6 +335,8 @@ exports.updateAttendance = async (req, res) => {
       });
     }
 
+    const before = getAttendanceAuditSnapshot(attendance);
+
     const allowedFields = ["status", "checkInTime", "checkOutTime", "remarks"];
 
     for (const field of allowedFields) {
@@ -272,10 +346,13 @@ exports.updateAttendance = async (req, res) => {
     }
 
     if (!ALLOWED_STATUSES.includes(attendance.status)) {
-      return res.status(400).json({ message: "Invalid attendance status." });
+      return res.status(400).json({
+        message: "Invalid attendance status.",
+      });
     }
 
     const timeError = validateTimeFields(attendance);
+
     if (timeError) {
       return res.status(400).json({ message: timeError });
     }
@@ -283,16 +360,42 @@ exports.updateAttendance = async (req, res) => {
     applyCalculatedFields(attendance);
     await attendance.save();
 
-    res.json({
+    const after = getAttendanceAuditSnapshot(attendance);
+    const changedFields = getChangedFields(before, after);
+
+    if (changedFields.length > 0) {
+      await logAudit(req, {
+        action: "UPDATE",
+        module: "Attendance",
+        description: `Attendance updated for ${attendance.workerName}`,
+        entityId: attendance._id,
+        entityName: attendance.workerName,
+        before,
+        after,
+        metadata: {
+          changedFields,
+          attendanceDate: attendance.attendanceDate,
+          status: attendance.status,
+          workingHours: attendance.workingHours,
+          isLate: attendance.isLate,
+        },
+      });
+    }
+
+    return res.json({
       message: "Attendance updated successfully.",
       attendance,
     });
   } catch (error) {
-    res.status(500).json({ error: error.message });
+    return res.status(500).json({ error: error.message });
   }
 };
 
-// SOFT DELETE — manager/superadmin route restriction
+// ============================================================
+// SOFT DELETE ATTENDANCE
+// ============================================================
+
+// Manager/superadmin route restriction remains in the routes file.
 exports.deleteAttendance = async (req, res) => {
   try {
     const attendance = await Attendance.findOne({
@@ -306,6 +409,8 @@ exports.deleteAttendance = async (req, res) => {
       });
     }
 
+    const before = getAttendanceAuditSnapshot(attendance);
+
     attendance.isDeleted = true;
     attendance.deletedAt = new Date();
     attendance.deletedBy = req.user?.id || req.user?._id || null;
@@ -314,26 +419,50 @@ exports.deleteAttendance = async (req, res) => {
 
     await attendance.save({ validateBeforeSave: false });
 
-    res.json({ message: "Attendance record deleted successfully." });
+    const after = getAttendanceAuditSnapshot(attendance);
+
+    await logAudit(req, {
+      action: "DELETE",
+      module: "Attendance",
+      description: `Attendance deleted for ${attendance.workerName}`,
+      entityId: attendance._id,
+      entityName: attendance.workerName,
+      before,
+      after,
+      metadata: {
+        attendanceDate: attendance.attendanceDate,
+        status: attendance.status,
+        deletedByName: attendance.deletedByName,
+      },
+    });
+
+    return res.json({
+      message: "Attendance record deleted successfully.",
+    });
   } catch (error) {
-    res.status(500).json({ error: error.message });
+    return res.status(500).json({ error: error.message });
   }
 };
 
-// SUPERADMIN-ONLY DELETED RECORDS
+// ============================================================
+// GET DELETED ATTENDANCE
+// ============================================================
+
 exports.getDeletedAttendance = async (req, res) => {
   try {
     const attendance = await Attendance.find({ isDeleted: true })
       .sort({ deletedAt: -1 })
       .populate("deletedBy", "role name");
 
-    res.json(attendance);
+    return res.json(attendance);
   } catch (error) {
-    res.status(500).json({ error: error.message });
+    return res.status(500).json({ error: error.message });
   }
 };
 
-// SUPERADMIN-ONLY RESTORE
+// ============================================================
+// RESTORE ATTENDANCE
+// ============================================================
 
 exports.restoreAttendance = async (req, res) => {
   try {
@@ -366,6 +495,8 @@ exports.restoreAttendance = async (req, res) => {
       }
     }
 
+    const before = getAttendanceAuditSnapshot(attendance);
+
     attendance.isDeleted = false;
     attendance.deletedAt = null;
     attendance.deletedBy = null;
@@ -373,6 +504,23 @@ exports.restoreAttendance = async (req, res) => {
     attendance.deletedByRole = null;
 
     await attendance.save({ validateBeforeSave: false });
+
+    const after = getAttendanceAuditSnapshot(attendance);
+
+    await logAudit(req, {
+      action: "RESTORE",
+      module: "Attendance",
+      description: `Attendance restored for ${attendance.workerName}`,
+      entityId: attendance._id,
+      entityName: attendance.workerName,
+      before,
+      after,
+      metadata: {
+        attendanceDate: attendance.attendanceDate,
+        status: attendance.status,
+        workingHours: attendance.workingHours,
+      },
+    });
 
     return res.json({
       message: "Attendance record restored successfully.",

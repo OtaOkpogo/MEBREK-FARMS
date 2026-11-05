@@ -7,6 +7,8 @@ const {
   syncLinkedBirdHealth,
 } = require("../services/healthSyncService");
 
+const { logAudit } = require("../utils/auditLogger");
+
 const BROODING_HOUSE = "Brooding House";
 
 const DAY_MS = 24 * 60 * 60 * 1000;
@@ -263,6 +265,40 @@ const recalculatePenFromDate = async (pen, fromDate) => {
 };
 
 // ------------------------------------------------------------
+// AUDIT SNAPSHOT
+// ------------------------------------------------------------
+
+// Keep audit records limited to relevant production information.
+// Do not store the entire Mongoose document.
+const getProductionAuditSnapshot = (production) => {
+  if (!production) return null;
+
+  return {
+    date: production.date,
+    pen: production.pen,
+    flock: production.flock?._id || production.flock || null,
+    flockId: production.flockId,
+    flockAgeWeeks: production.flockAgeWeeks,
+    days: production.days,
+    openingStock: production.openingStock,
+    transferIn: production.transferIn,
+    transferOut: production.transferOut,
+    mortality: production.mortality,
+    closingStock: production.closingStock,
+    sick: production.sick,
+    feed: production.feed,
+    water: production.water,
+    cratesProduced: production.cratesProduced,
+    extraEggPieces: production.extraEggPieces,
+    totalEggs: production.totalEggs,
+    productionPercentage: production.productionPercentage,
+    miscarriage: production.miscarriage,
+    cracked: production.cracked,
+    isDeleted: production.isDeleted,
+  };
+};
+
+// ------------------------------------------------------------
 // MORTALITY AND BIRD HEALTH SYNCHRONISATION
 // ------------------------------------------------------------
 
@@ -462,6 +498,20 @@ exports.createProduction = async (req, res) => {
       console.error("Production → Mortality sync error:", syncError);
     }
 
+    // AUDIT: Record successful production creation.
+    await logAudit(req, {
+      action: "CREATE",
+      module: "Production",
+      description: `Created production record for ${production.pen}`,
+      entityId: production._id,
+      entityName: `${production.pen} - ${production.date.toISOString().slice(0, 10)}`,
+      before: null,
+      after: getProductionAuditSnapshot(production),
+      metadata: {
+        flockId: production.flockId || null,
+      },
+    });
+
     const result = await populateProduction(
       Production.findById(production._id),
     );
@@ -502,6 +552,9 @@ exports.updateProduction = async (req, res) => {
 
     const oldPen = production.pen;
     const oldDate = new Date(production.date);
+
+    // AUDIT: Capture original values before making changes.
+    const beforeAudit = getProductionAuditSnapshot(production);
 
     const protectedFields = [
       "_id",
@@ -591,6 +644,21 @@ exports.updateProduction = async (req, res) => {
       production.closingStock,
     );
 
+    // AUDIT: Record the update after successful stock recalculations.
+    await logAudit(req, {
+      action: "UPDATE",
+      module: "Production",
+      description: `Updated production record for ${production.pen}`,
+      entityId: production._id,
+      entityName: `${production.pen} - ${production.date.toISOString().slice(0, 10)}`,
+      before: beforeAudit,
+      after: getProductionAuditSnapshot(production),
+      metadata: {
+        previousPen: oldPen,
+        currentPen: production.pen,
+      },
+    });
+
     const result = await populateProduction(
       Production.findById(production._id),
     );
@@ -626,6 +694,9 @@ exports.deleteProduction = async (req, res) => {
     const affectedPen = production.pen;
     const affectedDate = new Date(production.date);
 
+    // AUDIT: Capture original values before deletion.
+    const beforeAudit = getProductionAuditSnapshot(production);
+
     try {
       await removeLinkedMortality(production, req);
     } catch (syncError) {
@@ -637,7 +708,9 @@ exports.deleteProduction = async (req, res) => {
       });
     }
 
-    if (req.user.role === "superadmin") {
+    const permanentlyDeleted = req.user.role === "superadmin";
+
+    if (permanentlyDeleted) {
       await Production.findByIdAndDelete(production._id);
     } else {
       production.isDeleted = true;
@@ -653,6 +726,27 @@ exports.deleteProduction = async (req, res) => {
 
     // The deleted record must no longer be used as a stock source.
     await recalculatePenFromDate(affectedPen, affectedDate);
+
+    // AUDIT: Record successful deletion.
+    await logAudit(req, {
+      action: "DELETE",
+      module: "Production",
+      description: permanentlyDeleted
+        ? `Permanently deleted production record for ${affectedPen}`
+        : `Soft-deleted production record for ${affectedPen}`,
+      entityId: production._id,
+      entityName: `${affectedPen} - ${affectedDate.toISOString().slice(0, 10)}`,
+      before: beforeAudit,
+      after: permanentlyDeleted
+        ? null
+        : {
+            ...beforeAudit,
+            isDeleted: true,
+          },
+      metadata: {
+        deletionType: permanentlyDeleted ? "permanent" : "soft",
+      },
+    });
 
     res.json({ message: "Production deleted successfully" });
   } catch (err) {

@@ -1,18 +1,62 @@
 const ManureSale = require("../models/ManureSale");
 const { MANURE_CATEGORY_PRICES } = require("../models/ManureSale");
 const SaleAccessRequest = require("../models/SaleAccessRequest");
+const { logAudit } = require("../utils/auditLogger");
+
 const ACCESS_WINDOW_MS = 24 * 60 * 60 * 1000;
 
+// =====================================================
+// AUDIT HELPERS
+// =====================================================
+
+const getManureSaleAuditSnapshot = (sale) => {
+  if (!sale) return null;
+
+  return {
+    invoiceNumber: sale.invoiceNumber,
+    customer: sale.customer,
+    phone: sale.phone,
+    date: sale.date,
+    lineItems: sale.lineItems,
+    discount: sale.discount,
+    transportCharge: sale.transportCharge,
+    totalAmount: sale.totalAmount,
+    payments: sale.payments,
+    amountPaid: sale.amountPaid,
+    balance: sale.balance,
+    paymentMethod: sale.paymentMethod,
+    status: sale.status,
+    remarks: sale.remarks,
+    isDeleted: sale.isDeleted,
+    deletedAt: sale.deletedAt,
+  };
+};
+
+const getManureSaleAuditName = (sale) => {
+  if (!sale) return "Manure Sale";
+
+  return [sale.invoiceNumber, sale.customer].filter(Boolean).join(" - ");
+};
+
+// =====================================================
+// ACCESS HELPERS
+// =====================================================
+
 const getRequesterId = (req) => req.user?.id || req.user?._id || null;
+
 const isWithinRecentWindow = (sale) =>
   !!sale?.createdAt &&
   new Date(sale.createdAt).getTime() >= Date.now() - ACCESS_WINDOW_MS;
 
 async function hasTemporarySaleAccess(req, saleType, sale) {
   if (req.user?.role === "superadmin") return true;
+
   const requesterId = getRequesterId(req);
+
   if (!requesterId || !sale || sale.isDeleted) return false;
+
   if (isWithinRecentWindow(sale)) return true;
+
   return !!(await SaleAccessRequest.exists({
     saleType,
     saleId: sale._id,
@@ -24,8 +68,11 @@ async function hasTemporarySaleAccess(req, saleType, sale) {
 
 async function getGrantedSaleIds(req, saleType) {
   if (req.user?.role === "superadmin") return null;
+
   const requesterId = getRequesterId(req);
+
   if (!requesterId) return [];
+
   const rows = await SaleAccessRequest.find({
     saleType,
     requesterId,
@@ -34,6 +81,7 @@ async function getGrantedSaleIds(req, saleType) {
   })
     .select("saleId")
     .lean();
+
   return rows.map((row) => row.saleId);
 }
 
@@ -131,17 +179,21 @@ exports.getSales = async (req, res) => {
   try {
     const isSuperadmin = req.user?.role === "superadmin";
     let filter = {};
+
     if (!isSuperadmin) {
       const cutoff = new Date(Date.now() - ACCESS_WINDOW_MS);
       const grantedIds = await getGrantedSaleIds(req, "manure");
+
       filter = {
         isDeleted: false,
         $or: [{ createdAt: { $gte: cutoff } }, { _id: { $in: grantedIds } }],
       };
     }
+
     const sales = await ManureSale.find(filter)
       .sort({ createdAt: -1 })
       .populate("deletedBy", "role name");
+
     res.json(sales);
   } catch (err) {
     res.status(500).json({ message: err.message });
@@ -159,14 +211,14 @@ exports.getSale = async (req, res) => {
     if (!sale || (req.user?.role !== "superadmin" && sale.isDeleted)) {
       return res.status(404).json({ message: "Sale not found" });
     }
+
     if (!(await hasTemporarySaleAccess(req, "manure", sale))) {
-      return res
-        .status(403)
-        .json({
-          message:
-            "This sale is older than 24 hours. Request temporary access from a superadmin.",
-        });
+      return res.status(403).json({
+        message:
+          "This sale is older than 24 hours. Request temporary access from a superadmin.",
+      });
     }
+
     res.json(sale);
   } catch (err) {
     res.status(500).json({ message: err.message });
@@ -251,7 +303,6 @@ const calculateTotals = (
   );
 
   const transport = toValidAmount(transportCharge, "Transport charge");
-
   const discountAmount = toValidAmount(discount, "Discount");
 
   const totalAmount = itemsTotal + transport - discountAmount;
@@ -313,16 +364,15 @@ exports.createSale = async (req, res) => {
     }
 
     const { balance, status } = resolveStatus(totalAmount, totalPaid);
-
     const resolvedPaymentMethod = getPaymentMethod(normalizedPayments);
 
     const year = new Date().getFullYear();
 
-    let sale;
+    let sale = null;
     let attempts = 0;
     const maxAttempts = 5;
 
-    while (!sale) {
+    while (!sale && attempts < maxAttempts) {
       attempts += 1;
 
       const invoiceNumber = await generateInvoiceNumber(year);
@@ -354,6 +404,20 @@ exports.createSale = async (req, res) => {
       }
     }
 
+    if (!sale) {
+      throw new Error("Unable to generate a unique manure invoice number.");
+    }
+
+    // AUDIT: MANURE SALE CREATED
+    await logAudit(req, {
+      action: "CREATE",
+      module: "Manure Sales",
+      description: `Created manure sale ${sale.invoiceNumber} for ${sale.customer}.`,
+      entityId: sale._id,
+      entityName: getManureSaleAuditName(sale),
+      after: getManureSaleAuditSnapshot(sale),
+    });
+
     return res.status(201).json(sale);
   } catch (err) {
     return res.status(400).json({
@@ -373,14 +437,17 @@ exports.updateSale = async (req, res) => {
     if (!sale || (req.user?.role !== "superadmin" && sale.isDeleted)) {
       return res.status(404).json({ message: "Sale not found" });
     }
+
     if (!(await hasTemporarySaleAccess(req, "manure", sale))) {
-      return res
-        .status(403)
-        .json({
-          message:
-            "This sale is older than 24 hours. Request temporary access from a superadmin.",
-        });
+      return res.status(403).json({
+        message:
+          "This sale is older than 24 hours. Request temporary access from a superadmin.",
+      });
     }
+
+    // Capture the original sale before making changes.
+    const beforeSnapshot = getManureSaleAuditSnapshot(sale);
+    const auditName = getManureSaleAuditName(sale);
 
     const {
       customer,
@@ -482,6 +549,17 @@ exports.updateSale = async (req, res) => {
       validateBeforeSave: !skipValidation,
     });
 
+    // AUDIT: MANURE SALE UPDATED
+    await logAudit(req, {
+      action: "UPDATE",
+      module: "Manure Sales",
+      description: `Updated manure sale ${sale.invoiceNumber} for ${sale.customer}.`,
+      entityId: sale._id,
+      entityName: auditName,
+      before: beforeSnapshot,
+      after: getManureSaleAuditSnapshot(sale),
+    });
+
     return res.json(sale);
   } catch (err) {
     return res.status(400).json({
@@ -504,20 +582,36 @@ exports.deleteSale = async (req, res) => {
     if (!sale) {
       return res.status(404).json({ message: "Sale not found" });
     }
+
     if (req.user?.role !== "superadmin" && !isWithinRecentWindow(sale)) {
-      return res
-        .status(403)
-        .json({
-          message:
-            "Temporary access does not grant permission to delete older sales.",
-        });
+      return res.status(403).json({
+        message:
+          "Temporary access does not grant permission to delete older sales.",
+      });
     }
+
+    const beforeSnapshot = getManureSaleAuditSnapshot(sale);
+    const auditName = getManureSaleAuditName(sale);
 
     sale.isDeleted = true;
     sale.deletedAt = new Date();
     sale.deletedBy = req.user?.id;
 
     await sale.save({ validateBeforeSave: false });
+
+    // AUDIT: MANURE SALE SOFT-DELETED
+    await logAudit(req, {
+      action: "DELETE",
+      module: "Manure Sales",
+      description: `Soft-deleted manure sale ${sale.invoiceNumber} for ${sale.customer}.`,
+      entityId: sale._id,
+      entityName: auditName,
+      before: beforeSnapshot,
+      after: getManureSaleAuditSnapshot(sale),
+      metadata: {
+        deletionType: "soft",
+      },
+    });
 
     return res.json({
       message: "Sale deleted successfully",
@@ -566,11 +660,25 @@ exports.restoreSale = async (req, res) => {
       });
     }
 
+    const beforeSnapshot = getManureSaleAuditSnapshot(sale);
+    const auditName = getManureSaleAuditName(sale);
+
     sale.isDeleted = false;
     sale.deletedAt = null;
     sale.deletedBy = null;
 
     await sale.save({ validateBeforeSave: false });
+
+    // AUDIT: MANURE SALE RESTORED
+    await logAudit(req, {
+      action: "RESTORE",
+      module: "Manure Sales",
+      description: `Restored manure sale ${sale.invoiceNumber} for ${sale.customer}.`,
+      entityId: sale._id,
+      entityName: auditName,
+      before: beforeSnapshot,
+      after: getManureSaleAuditSnapshot(sale),
+    });
 
     return res.json(sale);
   } catch (err) {

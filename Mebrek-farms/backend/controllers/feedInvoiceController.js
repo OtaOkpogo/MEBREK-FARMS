@@ -1,9 +1,62 @@
 const FeedInvoice = require("../models/FeedInvoice");
 const { addStock, removeStock } = require("../utils/feedInventoryHelper");
+const { logAudit } = require("../utils/auditLogger");
+
+// ======================================
+// AUDIT SNAPSHOT HELPER
+// ======================================
+
+const getInvoiceAuditSnapshot = (invoice) => {
+  if (!invoice) return null;
+
+  return {
+    id: invoice._id,
+    invoiceNumber: invoice.invoiceNumber,
+
+    supplier: invoice.supplier,
+    feedName: invoice.feedName,
+
+    quantity: invoice.quantity,
+    unit: invoice.unit,
+    unitPrice: invoice.unitPrice,
+    totalCost: invoice.totalCost,
+
+    purchaseDate: invoice.purchaseDate,
+    receivedDate: invoice.receivedDate,
+
+    paymentStatus: invoice.paymentStatus,
+    paymentMethod: invoice.paymentMethod,
+    amountPaid: invoice.amountPaid,
+    balance: invoice.balance,
+
+    transportCost: invoice.transportCost,
+
+    vehicleNumber: invoice.vehicleNumber,
+    driverName: invoice.driverName,
+    receivedBy: invoice.receivedBy,
+    warehouseLocation: invoice.warehouseLocation,
+    remarks: invoice.remarks,
+
+    createdBy: invoice.createdBy,
+    createdByRole: invoice.createdByRole,
+    updatedBy: invoice.updatedBy,
+    updatedByRole: invoice.updatedByRole,
+
+    isDeleted: invoice.isDeleted,
+    deletedAt: invoice.deletedAt,
+    deletedBy: invoice.deletedBy,
+    deletedByRole: invoice.deletedByRole,
+
+    restoredAt: invoice.restoredAt,
+    restoredBy: invoice.restoredBy,
+    restoredByRole: invoice.restoredByRole,
+  };
+};
 
 // ======================================
 // Generate Invoice Number
 // ======================================
+
 const generateInvoiceNumber = () => {
   const now = new Date();
 
@@ -20,6 +73,7 @@ const generateInvoiceNumber = () => {
 // ======================================
 // CREATE INVOICE
 // ======================================
+
 exports.createInvoice = async (req, res) => {
   try {
     const {
@@ -83,6 +137,7 @@ exports.createInvoice = async (req, res) => {
       createdByRole: req.user?.role || "System",
     });
 
+    // Add purchased feed to inventory.
     await addStock({
       feedName,
       quantity: qty,
@@ -91,9 +146,30 @@ exports.createInvoice = async (req, res) => {
       supplier,
     });
 
+    // AUDIT LOG: CREATE INVOICE
+    await logAudit(req, {
+      action: "CREATE",
+      module: "Feed Invoices",
+      description: `Created feed purchase invoice ${invoice.invoiceNumber} for ${invoice.feedName}`,
+      entityId: invoice._id,
+      entityName: invoice.invoiceNumber,
+      after: getInvoiceAuditSnapshot(invoice),
+      metadata: {
+        operation: "CREATE_INVOICE",
+        supplier: invoice.supplier,
+        feedName: invoice.feedName,
+        quantityReceived: invoice.quantity,
+        unit: invoice.unit,
+        totalCost: invoice.totalCost,
+        amountPaid: invoice.amountPaid,
+        balance: invoice.balance,
+        stockEffect: "ADDED",
+      },
+    });
+
     res.status(201).json(invoice);
   } catch (err) {
-    console.error(err);
+    console.error("CREATE FEED INVOICE ERROR:", err);
 
     res.status(500).json({
       error: err.message,
@@ -104,6 +180,7 @@ exports.createInvoice = async (req, res) => {
 // ======================================
 // UPDATE INVOICE
 // ======================================
+
 exports.updateInvoice = async (req, res) => {
   try {
     const invoice = await FeedInvoice.findById(req.params.id);
@@ -120,13 +197,16 @@ exports.updateInvoice = async (req, res) => {
       });
     }
 
-    // Remove the old stock first
+    // Capture original invoice before making changes.
+    const before = getInvoiceAuditSnapshot(invoice);
+
+    // Remove the old stock first.
     await removeStock({
       feedName: invoice.feedName,
       quantity: invoice.quantity,
     });
 
-    // Update editable fields
+    // Update editable fields.
     invoice.supplier = req.body.supplier;
     invoice.feedName = req.body.feedName;
 
@@ -151,7 +231,7 @@ exports.updateInvoice = async (req, res) => {
     invoice.warehouseLocation = req.body.warehouseLocation;
     invoice.remarks = req.body.remarks;
 
-    // Recalculate totals
+    // Recalculate totals.
     invoice.totalCost = invoice.quantity * invoice.unitPrice;
 
     invoice.balance = Math.max(0, invoice.totalCost - invoice.amountPaid);
@@ -159,7 +239,7 @@ exports.updateInvoice = async (req, res) => {
     invoice.updatedBy = req.user?.name || "System";
     invoice.updatedByRole = req.user?.role || "System";
 
-    // Add the new stock back
+    // Add the updated stock back.
     await addStock({
       feedName: invoice.feedName,
       quantity: invoice.quantity,
@@ -170,9 +250,43 @@ exports.updateInvoice = async (req, res) => {
 
     await invoice.save();
 
+    // AUDIT LOG: UPDATE INVOICE
+    await logAudit(req, {
+      action: "UPDATE",
+      module: "Feed Invoices",
+      description: `Updated feed purchase invoice ${invoice.invoiceNumber}`,
+      entityId: invoice._id,
+      entityName: invoice.invoiceNumber,
+      before,
+      after: getInvoiceAuditSnapshot(invoice),
+      metadata: {
+        operation: "UPDATE_INVOICE",
+
+        previousFeedName: before.feedName,
+        newFeedName: invoice.feedName,
+
+        previousQuantity: before.quantity,
+        newQuantity: invoice.quantity,
+
+        previousTotalCost: before.totalCost,
+        newTotalCost: invoice.totalCost,
+
+        previousAmountPaid: before.amountPaid,
+        newAmountPaid: invoice.amountPaid,
+
+        previousBalance: before.balance,
+        newBalance: invoice.balance,
+
+        previousPaymentStatus: before.paymentStatus,
+        newPaymentStatus: invoice.paymentStatus,
+
+        stockEffect: "ADJUSTED",
+      },
+    });
+
     res.json(invoice);
   } catch (err) {
-    console.error(err);
+    console.error("UPDATE FEED INVOICE ERROR:", err);
 
     res.status(500).json({
       error: err.message,
@@ -183,6 +297,7 @@ exports.updateInvoice = async (req, res) => {
 // ======================================
 // GET ALL INVOICES
 // ======================================
+
 exports.getInvoices = async (req, res) => {
   try {
     const filter = req.user.role === "superadmin" ? {} : { isDeleted: false };
@@ -194,7 +309,7 @@ exports.getInvoices = async (req, res) => {
 
     res.json(invoices);
   } catch (err) {
-    console.error(err);
+    console.error("GET FEED INVOICES ERROR:", err);
 
     res.status(500).json({
       error: err.message,
@@ -205,6 +320,7 @@ exports.getInvoices = async (req, res) => {
 // ======================================
 // DELETE INVOICE (SOFT DELETE)
 // ======================================
+
 exports.deleteInvoice = async (req, res) => {
   try {
     const invoice = await FeedInvoice.findById(req.params.id);
@@ -221,7 +337,10 @@ exports.deleteInvoice = async (req, res) => {
       });
     }
 
-    // Remove inventory
+    // Capture original invoice before deletion.
+    const before = getInvoiceAuditSnapshot(invoice);
+
+    // Remove inventory.
     await removeStock({
       feedName: invoice.feedName,
       quantity: invoice.quantity,
@@ -237,11 +356,31 @@ exports.deleteInvoice = async (req, res) => {
 
     await invoice.save();
 
+    // AUDIT LOG: DELETE INVOICE
+    await logAudit(req, {
+      action: "DELETE",
+      module: "Feed Invoices",
+      description: `Deleted feed purchase invoice ${invoice.invoiceNumber}`,
+      entityId: invoice._id,
+      entityName: invoice.invoiceNumber,
+      before,
+      after: getInvoiceAuditSnapshot(invoice),
+      metadata: {
+        operation: "SOFT_DELETE",
+        deletionType: "soft",
+        feedName: invoice.feedName,
+        quantityRemoved: invoice.quantity,
+        unit: invoice.unit,
+        totalCost: invoice.totalCost,
+        stockEffect: "REMOVED",
+      },
+    });
+
     res.json({
       message: "Invoice deleted successfully",
     });
   } catch (err) {
-    console.error(err);
+    console.error("DELETE FEED INVOICE ERROR:", err);
 
     res.status(500).json({
       error: err.message,
@@ -252,6 +391,7 @@ exports.deleteInvoice = async (req, res) => {
 // ======================================
 // RESTORE INVOICE
 // ======================================
+
 exports.restoreInvoice = async (req, res) => {
   try {
     const invoice = await FeedInvoice.findById(req.params.id);
@@ -268,6 +408,9 @@ exports.restoreInvoice = async (req, res) => {
       });
     }
 
+    // Capture deleted state before restoration.
+    const before = getInvoiceAuditSnapshot(invoice);
+
     invoice.isDeleted = false;
 
     invoice.deletedAt = null;
@@ -280,6 +423,7 @@ exports.restoreInvoice = async (req, res) => {
 
     invoice.restoredByRole = req.user?.role || "System";
 
+    // Restore inventory.
     await addStock({
       feedName: invoice.feedName,
       quantity: invoice.quantity,
@@ -290,11 +434,30 @@ exports.restoreInvoice = async (req, res) => {
 
     await invoice.save();
 
+    // AUDIT LOG: RESTORE INVOICE
+    await logAudit(req, {
+      action: "RESTORE",
+      module: "Feed Invoices",
+      description: `Restored feed purchase invoice ${invoice.invoiceNumber}`,
+      entityId: invoice._id,
+      entityName: invoice.invoiceNumber,
+      before,
+      after: getInvoiceAuditSnapshot(invoice),
+      metadata: {
+        operation: "RESTORE_INVOICE",
+        feedName: invoice.feedName,
+        quantityRestored: invoice.quantity,
+        unit: invoice.unit,
+        totalCost: invoice.totalCost,
+        stockEffect: "RESTORED",
+      },
+    });
+
     res.json({
       message: "Invoice restored successfully",
     });
   } catch (err) {
-    console.error(err);
+    console.error("RESTORE FEED INVOICE ERROR:", err);
 
     res.status(500).json({
       error: err.message,
@@ -305,6 +468,7 @@ exports.restoreInvoice = async (req, res) => {
 // ======================================
 // GET DELETED INVOICES
 // ======================================
+
 exports.getDeletedInvoices = async (req, res) => {
   try {
     if (req.user.role !== "superadmin") {
@@ -321,7 +485,7 @@ exports.getDeletedInvoices = async (req, res) => {
 
     res.json(invoices);
   } catch (err) {
-    console.error(err);
+    console.error("GET DELETED FEED INVOICES ERROR:", err);
 
     res.status(500).json({
       error: err.message,
