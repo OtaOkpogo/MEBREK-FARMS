@@ -1,11 +1,10 @@
+const mongoose = require("mongoose");
 const Expense = require("../models/Expense");
 const Counter = require("../models/Counter");
+const Worker = require("../models/Worker");
+const WorkerMonthlySalary = require("../models/WorkerMonthlySalary");
 
-// ============================================================
-// CONSTANTS
-// ============================================================
-
-const ALLOWED_EXPENSE_CATEGORIES = [
+const ALLOWED_CATEGORIES = [
   "Feed",
   "Drugs",
   "Labour",
@@ -19,34 +18,170 @@ const ALLOWED_EXPENSE_CATEGORIES = [
 
 const ALLOWED_PAYMENT_METHODS = ["Cash", "Transfer", "POS"];
 
-// ============================================================
-// HELPERS
-// ============================================================
+const ALLOWED_EXPENSE_TYPES = ["General", "Salary"];
+
+const isValidObjectId = (value) => mongoose.Types.ObjectId.isValid(value);
+
+const roundMoney = (value) =>
+  Math.round((Number(value) + Number.EPSILON) * 100) / 100;
+
+const isValidSalaryPeriod = (period) =>
+  typeof period === "string" && /^\d{4}-(0[1-9]|1[0-2])$/.test(period);
 
 const getAdminInfo = (req) => {
   const admin = req.admin || req.user || {};
 
   return {
-    id: admin._id || admin.id || null,
-    name:
+    adminId: admin._id || admin.id || null,
+    adminName:
       admin.name ||
-      admin.fullName ||
       admin.adminName ||
+      admin.fullName ||
       admin.email ||
-      "Unknown Admin",
+      "Administrator",
   };
 };
 
-// ============================================================
-// ATOMIC EXPENSE NUMBER GENERATOR
-// ============================================================
+const getWorkerName = (worker) =>
+  `${worker.firstName || ""} ${worker.lastName || ""}`.trim() ||
+  worker.name ||
+  "Unknown Worker";
+
+const getEmployeeId = (worker) => worker.employeeId || worker.staffId || "";
+
+const escapeRegex = (value) =>
+  String(value).replace(/[.*+?^${}()|[\]\\]/g, "\\$&");
+
+const isValidDate = (value) => {
+  const date = new Date(value);
+  return !Number.isNaN(date.getTime());
+};
+
+const validatePaymentDate = (value) => {
+  if (value === undefined || value === null || value === "") {
+    return new Date();
+  }
+
+  const date = new Date(value);
+
+  if (Number.isNaN(date.getTime())) {
+    throw new Error("Please provide a valid payment date.");
+  }
+
+  return date;
+};
+
+const validatePaymentMethod = (paymentMethod) => {
+  if (!ALLOWED_PAYMENT_METHODS.includes(paymentMethod)) {
+    throw new Error(
+      `Payment method must be one of: ${ALLOWED_PAYMENT_METHODS.join(", ")}.`,
+    );
+  }
+};
+
+const validatePositiveAmount = (value, label = "Amount") => {
+  const amount = Number(value);
+
+  if (!Number.isFinite(amount) || amount <= 0) {
+    throw new Error(`${label} must be greater than zero.`);
+  }
+
+  return roundMoney(amount);
+};
+
+const validateNonNegativeAmount = (value, label = "Amount") => {
+  const amount = Number(value);
+
+  if (!Number.isFinite(amount) || amount < 0) {
+    throw new Error(`${label} cannot be negative.`);
+  }
+
+  return roundMoney(amount);
+};
+
+const getActiveExpenseQuery = () => ({ isDeleted: { $ne: true } });
+
+const getExpenseDateFilter = (query = {}) => {
+  const filter = {};
+
+  if (query.startDate || query.from) {
+    const start = new Date(query.startDate || query.from);
+
+    if (!Number.isNaN(start.getTime())) {
+      start.setHours(0, 0, 0, 0);
+      filter.$gte = start;
+    }
+  }
+
+  if (query.endDate || query.to) {
+    const end = new Date(query.endDate || query.to);
+
+    if (!Number.isNaN(end.getTime())) {
+      end.setHours(23, 59, 59, 999);
+      filter.$lte = end;
+    }
+  }
+
+  return Object.keys(filter).length ? filter : null;
+};
+
+const buildExpenseFilter = (query = {}, includeDeleted = false) => {
+  const filter = {};
+
+  if (includeDeleted) {
+    filter.isDeleted = true;
+  } else {
+    filter.isDeleted = { $ne: true };
+  }
+
+  const dateFilter = getExpenseDateFilter(query);
+
+  if (dateFilter) {
+    filter.date = dateFilter;
+  }
+
+  if (query.category && query.category !== "All") {
+    filter.category = query.category;
+  }
+
+  if (query.expenseType && query.expenseType !== "All") {
+    filter.expenseType = query.expenseType;
+  }
+
+  if (query.paymentMethod && query.paymentMethod !== "All") {
+    filter.paymentMethod = query.paymentMethod;
+  }
+
+  if (query.workerId && isValidObjectId(query.workerId)) {
+    filter.worker = query.workerId;
+  }
+
+  if (query.salaryPeriod && isValidSalaryPeriod(query.salaryPeriod)) {
+    filter.salaryPeriod = query.salaryPeriod;
+  }
+
+  if (query.search) {
+    const search = new RegExp(escapeRegex(query.search.trim()), "i");
+
+    filter.$or = [
+      { expenseNumber: search },
+      { description: search },
+      { category: search },
+      { supplier: search },
+      { remarks: search },
+      { workerName: search },
+      { employeeId: search },
+    ];
+  }
+
+  return filter;
+};
 
 const generateExpenseNumber = async () => {
   const year = new Date().getFullYear();
-  const counterKey = `expense-${year}`;
 
   const counter = await Counter.findOneAndUpdate(
-    { _id: counterKey },
+    { _id: `expense-${year}` },
     { $inc: { seq: 1 } },
     {
       new: true,
@@ -58,130 +193,139 @@ const generateExpenseNumber = async () => {
   return `EXP-${year}-${String(counter.seq).padStart(6, "0")}`;
 };
 
-// ============================================================
-// VALIDATION
-// ============================================================
+const getActiveWorker = async (workerId) => {
+  if (!workerId || !isValidObjectId(workerId)) {
+    throw new Error("Please select a valid worker.");
+  }
 
-const validateExpenseData = ({
+  const worker = await Worker.findOne({
+    _id: workerId,
+    status: "Active",
+  });
+
+  if (!worker) {
+    throw new Error("Worker not found or is not active.");
+  }
+
+  return worker;
+};
+
+const getSalaryRecord = async (workerId, salaryPeriod) =>
+  WorkerMonthlySalary.findOne({
+    worker: workerId,
+    salaryPeriod,
+  });
+
+const getPaidToDate = async (
+  workerId,
+  salaryPeriod,
+  excludeExpenseId = null,
+) => {
+  const match = {
+    worker: new mongoose.Types.ObjectId(String(workerId)),
+    salaryPeriod,
+    expenseType: "Salary",
+    isDeleted: { $ne: true },
+  };
+
+  if (excludeExpenseId && isValidObjectId(excludeExpenseId)) {
+    match._id = { $ne: new mongoose.Types.ObjectId(String(excludeExpenseId)) };
+  }
+
+  const result = await Expense.aggregate([
+    { $match: match },
+    {
+      $group: {
+        _id: null,
+        total: { $sum: "$amount" },
+      },
+    },
+  ]);
+
+  return roundMoney(result[0]?.total || 0);
+};
+
+const createSalaryPaymentRecord = async ({
+  workerId,
+  salaryPeriod,
+  amount,
   date,
-  category,
-  description,
-  quantity,
-  unitCost,
   paymentMethod,
+  remarks,
+  payrollBatchId,
+  adminId,
+  adminName,
 }) => {
-  const errors = [];
-
-  // DATE
-  if (!date) {
-    errors.push("Expense date is required.");
-  } else {
-    const parsedDate = new Date(date);
-
-    if (Number.isNaN(parsedDate.getTime())) {
-      errors.push("Expense date is invalid.");
-    }
+  if (!isValidSalaryPeriod(salaryPeriod)) {
+    throw new Error("Select a valid salary month in YYYY-MM format.");
   }
 
-  // CATEGORY
-  if (!category) {
-    errors.push("Expense category is required.");
-  } else if (!ALLOWED_EXPENSE_CATEGORIES.includes(category)) {
-    errors.push("Invalid expense category.");
+  const paymentAmount = validatePositiveAmount(amount, "Payment amount");
+
+  validatePaymentMethod(paymentMethod);
+
+  const paymentDate = validatePaymentDate(date);
+  const worker = await getActiveWorker(workerId);
+
+  const salaryRecord = await getSalaryRecord(worker._id, salaryPeriod);
+
+  if (!salaryRecord) {
+    throw new Error(
+      `Set the agreed monthly salary for ${getWorkerName(worker)} for ${salaryPeriod} before recording a payment.`,
+    );
   }
 
-  // DESCRIPTION
-  if (!description || !String(description).trim()) {
-    errors.push("Expense description is required.");
-  } else if (String(description).trim().length < 2) {
-    errors.push("Expense description must contain at least 2 characters.");
-  } else if (String(description).trim().length > 500) {
-    errors.push("Expense description cannot exceed 500 characters.");
+  const agreedSalary = roundMoney(salaryRecord.salaryAmount);
+  const paidToDate = await getPaidToDate(worker._id, salaryPeriod);
+  const outstanding = roundMoney(Math.max(0, agreedSalary - paidToDate));
+
+  if (outstanding <= 0) {
+    throw new Error(
+      `${getWorkerName(worker)} has already been fully paid for ${salaryPeriod}.`,
+    );
   }
 
-  // QUANTITY
-  const parsedQuantity = Number(quantity);
-
-  if (!Number.isFinite(parsedQuantity)) {
-    errors.push("Quantity must be a valid number.");
-  } else if (parsedQuantity < 0) {
-    errors.push("Quantity cannot be negative.");
+  if (paymentAmount > outstanding) {
+    throw new Error(
+      `Payment exceeds the outstanding balance of ₦${outstanding.toLocaleString(
+        "en-NG",
+        {
+          minimumFractionDigits: 2,
+          maximumFractionDigits: 2,
+        },
+      )}.`,
+    );
   }
 
-  // UNIT COST
-  const parsedUnitCost = Number(unitCost);
+  const expenseNumber = await generateExpenseNumber();
 
-  if (!Number.isFinite(parsedUnitCost)) {
-    errors.push("Unit cost must be a valid number.");
-  } else if (parsedUnitCost < 0) {
-    errors.push("Unit cost cannot be negative.");
-  }
+  const expense = await Expense.create({
+    expenseNumber,
+    expenseType: "Salary",
+    date: paymentDate,
+    category: "Salaries",
+    description: `Monthly salary payment - ${getWorkerName(worker)} (${salaryPeriod})`,
+    quantity: 1,
+    unitCost: paymentAmount,
+    amount: paymentAmount,
+    supplier: getWorkerName(worker),
+    paymentMethod,
+    remarks: remarks || "",
+    worker: worker._id,
+    workerName: getWorkerName(worker),
+    employeeId: getEmployeeId(worker),
+    salaryPeriod,
+    salaryAmount: agreedSalary,
+    payrollBatchId: payrollBatchId || undefined,
+    createdBy: adminId || undefined,
+    createdByName: adminName || "Administrator",
+  });
 
-  // PAYMENT METHOD
-  if (paymentMethod && !ALLOWED_PAYMENT_METHODS.includes(paymentMethod)) {
-    errors.push("Invalid payment method.");
-  }
-
-  return errors;
+  return expense;
 };
 
 // ============================================================
-// DATE FILTER HELPER
-// ============================================================
-
-const applyDateFilter = (query, startDate, endDate) => {
-  if (!startDate && !endDate) return;
-
-  query.date = {};
-
-  if (startDate) {
-    const parsedStartDate = new Date(`${startDate}T00:00:00.000Z`);
-
-    if (!Number.isNaN(parsedStartDate.getTime())) {
-      query.date.$gte = parsedStartDate;
-    }
-  }
-
-  if (endDate) {
-    const parsedEndDate = new Date(`${endDate}T23:59:59.999Z`);
-
-    if (!Number.isNaN(parsedEndDate.getTime())) {
-      query.date.$lte = parsedEndDate;
-    }
-  }
-
-  if (Object.keys(query.date).length === 0) {
-    delete query.date;
-  }
-};
-
-// ============================================================
-// SEARCH FILTER HELPER
-// ============================================================
-
-const applySearchFilter = (query, search) => {
-  if (!search || !String(search).trim()) return;
-
-  const searchRegex = new RegExp(
-    String(search)
-      .trim()
-      .replace(/[.*+?^${}()|[\]\\]/g, "\\$&"),
-    "i",
-  );
-
-  query.$or = [
-    { expenseNumber: searchRegex },
-    { description: searchRegex },
-    { supplier: searchRegex },
-    { category: searchRegex },
-    { paymentMethod: searchRegex },
-    { remarks: searchRegex },
-    { createdByName: searchRegex },
-  ];
-};
-
-// ============================================================
-// CREATE EXPENSE
+// CREATE GENERAL EXPENSE
 // ============================================================
 
 exports.createExpense = async (req, res) => {
@@ -190,55 +334,92 @@ exports.createExpense = async (req, res) => {
       date,
       category,
       description,
-      quantity = 1,
-      unitCost = 0,
-      supplier = "",
-      paymentMethod = "Cash",
-      remarks = "",
-    } = req.body;
-
-    const validationErrors = validateExpenseData({
-      date,
-      category,
-      description,
       quantity,
       unitCost,
+      amount,
+      supplier,
       paymentMethod,
-    });
+      remarks,
+    } = req.body;
 
-    if (validationErrors.length > 0) {
+    if (!date || !isValidDate(date)) {
       return res.status(400).json({
-        message: validationErrors[0],
-        errors: validationErrors,
+        message: "Please provide a valid expense date.",
       });
     }
 
-    const parsedQuantity = Number(quantity);
-    const parsedUnitCost = Number(unitCost);
-    const amount = parsedQuantity * parsedUnitCost;
+    if (!ALLOWED_CATEGORIES.includes(category)) {
+      return res.status(400).json({
+        message: `Category must be one of: ${ALLOWED_CATEGORIES.join(", ")}.`,
+      });
+    }
 
-    const { id: adminId, name: adminName } = getAdminInfo(req);
+    if (!description || !String(description).trim()) {
+      return res.status(400).json({
+        message: "Expense description is required.",
+      });
+    }
+
+    if (!ALLOWED_PAYMENT_METHODS.includes(paymentMethod)) {
+      return res.status(400).json({
+        message: `Payment method must be one of: ${ALLOWED_PAYMENT_METHODS.join(", ")}.`,
+      });
+    }
+
+    const safeQuantity =
+      quantity === undefined || quantity === null || quantity === ""
+        ? 1
+        : Number(quantity);
+
+    const safeUnitCost =
+      unitCost === undefined || unitCost === null || unitCost === ""
+        ? null
+        : Number(unitCost);
+
+    let finalAmount;
+
+    if (amount !== undefined && amount !== null && amount !== "") {
+      finalAmount = validateNonNegativeAmount(amount);
+    } else if (
+      Number.isFinite(safeQuantity) &&
+      safeQuantity >= 0 &&
+      Number.isFinite(safeUnitCost) &&
+      safeUnitCost >= 0
+    ) {
+      finalAmount = roundMoney(safeQuantity * safeUnitCost);
+    } else {
+      return res.status(400).json({
+        message:
+          "Provide a valid expense amount or valid quantity and unit cost.",
+      });
+    }
+
+    if (!Number.isFinite(safeQuantity) || safeQuantity < 0) {
+      return res.status(400).json({
+        message: "Quantity cannot be negative.",
+      });
+    }
+
+    const admin = getAdminInfo(req);
     const expenseNumber = await generateExpenseNumber();
 
     const expense = await Expense.create({
       expenseNumber,
-      date,
+      expenseType: "General",
+      date: new Date(date),
       category,
       description: String(description).trim(),
-      quantity: parsedQuantity,
-      unitCost: parsedUnitCost,
-      amount,
-      supplier: String(supplier || "").trim(),
+      quantity: safeQuantity,
+      unitCost:
+        Number.isFinite(safeUnitCost) && safeUnitCost >= 0
+          ? safeUnitCost
+          : finalAmount,
+      amount: finalAmount,
+      supplier: supplier || "",
       paymentMethod,
-      remarks: String(remarks || "").trim(),
-      createdBy: adminId,
-      createdByName: adminName,
-      updatedBy: null,
-      updatedByName: "",
-      isDeleted: false,
-      deletedAt: null,
-      deletedBy: null,
-      deletedByName: "",
+      remarks: remarks || "",
+      createdBy: admin.adminId || undefined,
+      createdByName: admin.adminName,
     });
 
     return res.status(201).json({
@@ -246,142 +427,51 @@ exports.createExpense = async (req, res) => {
       expense,
     });
   } catch (error) {
-    console.error("CREATE EXPENSE ERROR:", error);
+    console.error("Create expense error:", error);
 
-    if (error.code === 11000) {
-      if (error.keyPattern?.expenseNumber) {
-        return res.status(409).json({
-          message: "Expense reference number already exists. Please try again.",
-        });
-      }
-
-      return res.status(409).json({
-        message: "A duplicate expense record was detected.",
-      });
-    }
-
-    if (error.name === "ValidationError") {
-      const errors = Object.values(error.errors).map((item) => item.message);
-
-      return res.status(400).json({
-        message: errors[0] || "Expense validation failed.",
-        errors,
-      });
-    }
-
-    return res.status(500).json({
-      message: "Failed to create expense.",
-      error: process.env.NODE_ENV === "development" ? error.message : undefined,
+    return res.status(400).json({
+      message: error.message || "Failed to create expense.",
     });
   }
 };
 
 // ============================================================
-// GET ACTIVE EXPENSES
-// SERVER-SIDE PAGINATION + FILTERING
+// GET EXPENSES
 // ============================================================
 
 exports.getExpenses = async (req, res) => {
   try {
-    const {
-      page = 1,
-      limit = 10,
-      search = "",
-      category = "All",
-      paymentMethod = "All",
-      startDate = "",
-      endDate = "",
-    } = req.query;
+    const filter = buildExpenseFilter(req.query, false);
 
-    let parsedPage = Number.parseInt(page, 10);
-    let parsedLimit = Number.parseInt(limit, 10);
+    const page = Math.max(1, parseInt(req.query.page, 10) || 1);
+    const limit = Math.min(
+      200,
+      Math.max(1, parseInt(req.query.limit, 10) || 10),
+    );
+    const skip = (page - 1) * limit;
 
-    if (!Number.isFinite(parsedPage) || parsedPage < 1) {
-      parsedPage = 1;
-    }
-
-    if (!Number.isFinite(parsedLimit) || parsedLimit < 1) {
-      parsedLimit = 10;
-    }
-
-    if (parsedLimit > 100) parsedLimit = 100;
-
-    const query = {
-      $or: [{ isDeleted: false }, { isDeleted: { $exists: false } }],
-    };
-
-    // CATEGORY FILTER — INCLUDES SALARIES
-    if (category && category !== "All") {
-      if (!ALLOWED_EXPENSE_CATEGORIES.includes(category)) {
-        return res.status(400).json({
-          message: "Invalid expense category.",
-        });
-      }
-
-      query.category = category;
-    }
-
-    // PAYMENT METHOD FILTER
-    if (paymentMethod && paymentMethod !== "All") {
-      if (!ALLOWED_PAYMENT_METHODS.includes(paymentMethod)) {
-        return res.status(400).json({
-          message: "Invalid payment method.",
-        });
-      }
-
-      query.paymentMethod = paymentMethod;
-    }
-
-    applySearchFilter(query, search);
-    applyDateFilter(query, startDate, endDate);
-
-    const totalRecords = await Expense.countDocuments(query);
-
-    const totalPages =
-      totalRecords === 0 ? 0 : Math.ceil(totalRecords / parsedLimit);
-
-    if (totalPages > 0 && parsedPage > totalPages) {
-      parsedPage = totalPages;
-    }
-
-    const skip = (parsedPage - 1) * parsedLimit;
-
-    const expenses = await Expense.find(query)
-      .populate("createdBy", "name email role")
-      .populate("updatedBy", "name email role")
-      .sort({
-        date: -1,
-        createdAt: -1,
-        _id: -1,
-      })
-      .skip(skip)
-      .limit(parsedLimit)
-      .lean();
+    const [expenses, total] = await Promise.all([
+      Expense.find(filter)
+        .sort({ date: -1, createdAt: -1 })
+        .skip(skip)
+        .limit(limit)
+        .populate("worker", "firstName lastName employeeId status")
+        .lean(),
+      Expense.countDocuments(filter),
+    ]);
 
     return res.status(200).json({
       expenses,
-      pagination: {
-        page: parsedPage,
-        limit: parsedLimit,
-        totalRecords,
-        totalPages,
-        hasNextPage: parsedPage < totalPages,
-        hasPreviousPage: parsedPage > 1 && totalPages > 0,
-      },
-      filters: {
-        search,
-        category,
-        paymentMethod,
-        startDate,
-        endDate,
-      },
+      total,
+      page,
+      limit,
+      totalPages: Math.ceil(total / limit),
     });
   } catch (error) {
-    console.error("GET EXPENSES ERROR:", error);
+    console.error("Get expenses error:", error);
 
     return res.status(500).json({
       message: "Failed to fetch expenses.",
-      error: process.env.NODE_ENV === "development" ? error.message : undefined,
     });
   }
 };
@@ -392,125 +482,177 @@ exports.getExpenses = async (req, res) => {
 
 exports.getDeletedExpenses = async (req, res) => {
   try {
-    const expenses = await Expense.find({
-      isDeleted: true,
-    })
-      .populate("createdBy", "name email role")
-      .populate("updatedBy", "name email role")
-      .populate("deletedBy", "name email role")
-      .sort({
-        deletedAt: -1,
-        updatedAt: -1,
-      })
-      .lean();
+    const filter = buildExpenseFilter(req.query, true);
 
-    return res.status(200).json({ expenses });
+    const page = Math.max(1, parseInt(req.query.page, 10) || 1);
+    const limit = Math.min(
+      200,
+      Math.max(1, parseInt(req.query.limit, 10) || 10),
+    );
+    const skip = (page - 1) * limit;
+
+    const [expenses, total] = await Promise.all([
+      Expense.find(filter)
+        .sort({ deletedAt: -1, date: -1 })
+        .skip(skip)
+        .limit(limit)
+        .populate("worker", "firstName lastName employeeId status")
+        .lean(),
+      Expense.countDocuments(filter),
+    ]);
+
+    return res.status(200).json({
+      expenses,
+      total,
+      page,
+      limit,
+      totalPages: Math.ceil(total / limit),
+    });
   } catch (error) {
-    console.error("GET DELETED EXPENSES ERROR:", error);
+    console.error("Get deleted expenses error:", error);
 
     return res.status(500).json({
       message: "Failed to fetch deleted expenses.",
-      error: process.env.NODE_ENV === "development" ? error.message : undefined,
     });
   }
 };
 
 // ============================================================
-// UPDATE EXPENSE
+// UPDATE GENERAL EXPENSE
 // ============================================================
 
 exports.updateExpense = async (req, res) => {
   try {
     const { id } = req.params;
 
-    const {
-      date,
-      category,
-      description,
-      quantity = 1,
-      unitCost = 0,
-      supplier = "",
-      paymentMethod = "Cash",
-      remarks = "",
-    } = req.body;
-
-    const validationErrors = validateExpenseData({
-      date,
-      category,
-      description,
-      quantity,
-      unitCost,
-      paymentMethod,
-    });
-
-    if (validationErrors.length > 0) {
-      return res.status(400).json({
-        message: validationErrors[0],
-        errors: validationErrors,
-      });
-    }
-
-    const parsedQuantity = Number(quantity);
-    const parsedUnitCost = Number(unitCost);
-    const amount = parsedQuantity * parsedUnitCost;
-
-    const { id: adminId, name: adminName } = getAdminInfo(req);
-
-    const expense = await Expense.findOne({
-      _id: id,
-      $or: [{ isDeleted: false }, { isDeleted: { $exists: false } }],
-    });
-
-    if (!expense) {
-      return res.status(404).json({
-        message: "Active expense not found.",
-      });
-    }
-
-    expense.date = date;
-    expense.category = category;
-    expense.description = String(description).trim();
-    expense.quantity = parsedQuantity;
-    expense.unitCost = parsedUnitCost;
-    expense.amount = amount;
-    expense.supplier = String(supplier || "").trim();
-    expense.paymentMethod = paymentMethod;
-    expense.remarks = String(remarks || "").trim();
-    expense.updatedBy = adminId;
-    expense.updatedByName = adminName;
-
-    await expense.save();
-
-    const populatedExpense = await Expense.findById(expense._id)
-      .populate("createdBy", "name email role")
-      .populate("updatedBy", "name email role")
-      .lean();
-
-    return res.status(200).json({
-      message: "Expense updated successfully.",
-      expense: populatedExpense || expense,
-    });
-  } catch (error) {
-    console.error("UPDATE EXPENSE ERROR:", error);
-
-    if (error.name === "CastError") {
+    if (!isValidObjectId(id)) {
       return res.status(400).json({
         message: "Invalid expense ID.",
       });
     }
 
-    if (error.name === "ValidationError") {
-      const errors = Object.values(error.errors).map((item) => item.message);
+    const expense = await Expense.findOne({
+      _id: id,
+      isDeleted: { $ne: true },
+    });
 
-      return res.status(400).json({
-        message: errors[0] || "Expense validation failed.",
-        errors,
+    if (!expense) {
+      return res.status(404).json({
+        message: "Expense not found.",
       });
     }
 
-    return res.status(500).json({
-      message: "Failed to update expense.",
-      error: process.env.NODE_ENV === "development" ? error.message : undefined,
+    if (expense.expenseType === "Salary") {
+      return res.status(400).json({
+        message:
+          "Payroll payment records cannot be edited as general expenses. Record a separate payment or use the appropriate payroll workflow.",
+      });
+    }
+
+    const {
+      date,
+      category,
+      description,
+      quantity,
+      unitCost,
+      amount,
+      supplier,
+      paymentMethod,
+      remarks,
+    } = req.body;
+
+    if (date !== undefined) {
+      if (!isValidDate(date)) {
+        return res.status(400).json({
+          message: "Please provide a valid expense date.",
+        });
+      }
+      expense.date = new Date(date);
+    }
+
+    if (category !== undefined) {
+      if (!ALLOWED_CATEGORIES.includes(category)) {
+        return res.status(400).json({
+          message: `Category must be one of: ${ALLOWED_CATEGORIES.join(", ")}.`,
+        });
+      }
+      expense.category = category;
+    }
+
+    if (description !== undefined) {
+      if (!String(description).trim()) {
+        return res.status(400).json({
+          message: "Expense description is required.",
+        });
+      }
+      expense.description = String(description).trim();
+    }
+
+    if (quantity !== undefined) {
+      const parsedQuantity = Number(quantity);
+
+      if (!Number.isFinite(parsedQuantity) || parsedQuantity < 0) {
+        return res.status(400).json({
+          message: "Quantity cannot be negative.",
+        });
+      }
+
+      expense.quantity = parsedQuantity;
+    }
+
+    if (unitCost !== undefined) {
+      const parsedUnitCost = Number(unitCost);
+
+      if (!Number.isFinite(parsedUnitCost) || parsedUnitCost < 0) {
+        return res.status(400).json({
+          message: "Unit cost cannot be negative.",
+        });
+      }
+
+      expense.unitCost = roundMoney(parsedUnitCost);
+    }
+
+    if (amount !== undefined) {
+      expense.amount = validateNonNegativeAmount(amount);
+    } else if (quantity !== undefined || unitCost !== undefined) {
+      expense.amount = roundMoney(
+        Number(expense.quantity || 0) * Number(expense.unitCost || 0),
+      );
+    }
+
+    if (supplier !== undefined) {
+      expense.supplier = supplier;
+    }
+
+    if (paymentMethod !== undefined) {
+      if (!ALLOWED_PAYMENT_METHODS.includes(paymentMethod)) {
+        return res.status(400).json({
+          message: `Payment method must be one of: ${ALLOWED_PAYMENT_METHODS.join(", ")}.`,
+        });
+      }
+      expense.paymentMethod = paymentMethod;
+    }
+
+    if (remarks !== undefined) {
+      expense.remarks = remarks;
+    }
+
+    const admin = getAdminInfo(req);
+
+    expense.updatedBy = admin.adminId || undefined;
+    expense.updatedByName = admin.adminName;
+
+    await expense.save();
+
+    return res.status(200).json({
+      message: "Expense updated successfully.",
+      expense,
+    });
+  } catch (error) {
+    console.error("Update expense error:", error);
+
+    return res.status(400).json({
+      message: error.message || "Failed to update expense.",
     });
   }
 };
@@ -522,53 +664,60 @@ exports.updateExpense = async (req, res) => {
 exports.deleteExpense = async (req, res) => {
   try {
     const { id } = req.params;
-    const { id: adminId, name: adminName } = getAdminInfo(req);
 
-    const expense = await Expense.findOne({
-      _id: id,
-      $or: [{ isDeleted: false }, { isDeleted: { $exists: false } }],
-    });
-
-    if (!expense) {
-      return res.status(404).json({
-        message: "Active expense not found.",
-      });
-    }
-
-    expense.isDeleted = true;
-    expense.deletedAt = new Date();
-    expense.deletedBy = adminId;
-    expense.deletedByName = adminName;
-
-    await expense.save();
-
-    return res.status(200).json({
-      message: "Expense deleted successfully.",
-      expense,
-    });
-  } catch (error) {
-    console.error("DELETE EXPENSE ERROR:", error);
-
-    if (error.name === "CastError") {
+    if (!isValidObjectId(id)) {
       return res.status(400).json({
         message: "Invalid expense ID.",
       });
     }
 
+    const expense = await Expense.findOne({
+      _id: id,
+      isDeleted: { $ne: true },
+    });
+
+    if (!expense) {
+      return res.status(404).json({
+        message: "Expense not found.",
+      });
+    }
+
+    const admin = getAdminInfo(req);
+
+    expense.isDeleted = true;
+    expense.deletedAt = new Date();
+    expense.deletedBy = admin.adminId || undefined;
+    expense.deletedByName = admin.adminName;
+
+    await expense.save();
+
+    return res.status(200).json({
+      message:
+        "Expense deleted successfully. Its amount is excluded from active expense totals.",
+      expense,
+    });
+  } catch (error) {
+    console.error("Delete expense error:", error);
+
     return res.status(500).json({
       message: "Failed to delete expense.",
-      error: process.env.NODE_ENV === "development" ? error.message : undefined,
     });
   }
 };
 
 // ============================================================
-// RESTORE EXPENSE
+// RESTORE SOFT-DELETED EXPENSE
 // ============================================================
 
 exports.restoreExpense = async (req, res) => {
   try {
     const { id } = req.params;
+
+    if (!isValidObjectId(id)) {
+      return res.status(400).json({
+        message: "Invalid expense ID.",
+      });
+    }
 
     const expense = await Expense.findOne({
       _id: id,
@@ -581,298 +730,674 @@ exports.restoreExpense = async (req, res) => {
       });
     }
 
+    if (expense.expenseType === "Salary") {
+      if (!expense.worker || !isValidSalaryPeriod(expense.salaryPeriod)) {
+        return res.status(400).json({
+          message:
+            "This payroll record is missing worker or salary-period information and cannot be restored safely.",
+        });
+      }
+
+      const worker = await Worker.findById(expense.worker);
+
+      if (!worker) {
+        return res.status(400).json({
+          message:
+            "The worker linked to this payment no longer exists. The payroll payment cannot be restored.",
+        });
+      }
+
+      const salaryRecord = await getSalaryRecord(
+        expense.worker,
+        expense.salaryPeriod,
+      );
+
+      const agreedSalary = Number(
+        salaryRecord?.salaryAmount ?? expense.salaryAmount,
+      );
+
+      if (!Number.isFinite(agreedSalary) || agreedSalary <= 0) {
+        return res.status(400).json({
+          message:
+            "The agreed monthly salary could not be verified. Set the monthly salary before restoring this payment.",
+        });
+      }
+
+      const paidToDate = await getPaidToDate(
+        expense.worker,
+        expense.salaryPeriod,
+      );
+
+      const amountToRestore = roundMoney(expense.amount || 0);
+      const outstanding = roundMoney(agreedSalary - paidToDate);
+
+      if (amountToRestore > outstanding) {
+        return res.status(400).json({
+          message:
+            "This payment cannot be restored because it would make total active payroll payments exceed the agreed monthly salary.",
+          agreedSalary,
+          paidToDate,
+          amountToRestore,
+          outstanding: Math.max(0, outstanding),
+        });
+      }
+    }
+
     expense.isDeleted = false;
     expense.deletedAt = null;
     expense.deletedBy = null;
     expense.deletedByName = "";
 
-    await expense.save();
+    const admin = getAdminInfo(req);
+    expense.updatedBy = admin.adminId || undefined;
+    expense.updatedByName = admin.adminName;
 
-    const restoredExpense = await Expense.findById(expense._id)
-      .populate("createdBy", "name email role")
-      .populate("updatedBy", "name email role")
-      .lean();
+    await expense.save();
 
     return res.status(200).json({
       message: "Expense restored successfully.",
-      expense: restoredExpense || expense,
+      expense,
     });
   } catch (error) {
-    console.error("RESTORE EXPENSE ERROR:", error);
+    console.error("Restore expense error:", error);
 
-    if (error.name === "CastError") {
-      return res.status(400).json({
-        message: "Invalid expense ID.",
-      });
-    }
-
-    return res.status(500).json({
-      message: "Failed to restore expense.",
-      error: process.env.NODE_ENV === "development" ? error.message : undefined,
+    return res.status(400).json({
+      message: error.message || "Failed to restore expense.",
     });
   }
 };
 
 // ============================================================
-// BASIC EXPENSE STATS
+// EXPENSE STATISTICS
 // ============================================================
 
 exports.getExpenseStats = async (req, res) => {
   try {
-    const activeFilter = {
-      $or: [{ isDeleted: false }, { isDeleted: { $exists: false } }],
+    const filter = buildExpenseFilter(req.query, false);
+
+    const [summary, categoryBreakdown, paymentMethodBreakdown] =
+      await Promise.all([
+        Expense.aggregate([
+          { $match: filter },
+          {
+            $group: {
+              _id: null,
+              totalExpenses: { $sum: "$amount" },
+              totalRecords: { $sum: 1 },
+              averageExpense: { $avg: "$amount" },
+            },
+          },
+        ]),
+        Expense.aggregate([
+          { $match: filter },
+          {
+            $group: {
+              _id: "$category",
+              total: { $sum: "$amount" },
+              count: { $sum: 1 },
+            },
+          },
+          { $sort: { total: -1 } },
+        ]),
+        Expense.aggregate([
+          { $match: filter },
+          {
+            $group: {
+              _id: "$paymentMethod",
+              total: { $sum: "$amount" },
+              count: { $sum: 1 },
+            },
+          },
+          { $sort: { total: -1 } },
+        ]),
+      ]);
+
+    const totals = summary[0] || {
+      totalExpenses: 0,
+      totalRecords: 0,
+      averageExpense: 0,
     };
 
-    const stats = await Expense.aggregate([
-      { $match: activeFilter },
-      {
-        $facet: {
-          overall: [
-            {
-              $group: {
-                _id: null,
-                totalExpenses: { $sum: 1 },
-                totalAmount: {
-                  $sum: { $ifNull: ["$amount", 0] },
-                },
-              },
-            },
-          ],
-          categoryBreakdown: [
-            {
-              $group: {
-                _id: "$category",
-                count: { $sum: 1 },
-                totalAmount: {
-                  $sum: { $ifNull: ["$amount", 0] },
-                },
-              },
-            },
-            { $sort: { totalAmount: -1 } },
-          ],
+    const [generalExpenses, salaryExpenses] = await Promise.all([
+      Expense.aggregate([
+        {
+          $match: {
+            ...filter,
+            expenseType: { $ne: "Salary" },
+          },
         },
-      },
+        {
+          $group: {
+            _id: null,
+            total: { $sum: "$amount" },
+          },
+        },
+      ]),
+      Expense.aggregate([
+        {
+          $match: {
+            ...filter,
+            expenseType: "Salary",
+          },
+        },
+        {
+          $group: {
+            _id: null,
+            total: { $sum: "$amount" },
+          },
+        },
+      ]),
     ]);
 
-    const result = stats[0] || {};
-
-    const overall = result.overall?.[0] || {
-      totalExpenses: 0,
-      totalAmount: 0,
-    };
-
-    const categoryBreakdown = (result.categoryBreakdown || []).map((item) => ({
-      category: item._id || "Other",
-      count: item.count || 0,
-      totalAmount: item.totalAmount || 0,
-    }));
-
     return res.status(200).json({
-      totalExpenses: overall.totalExpenses || 0,
-      totalAmount: overall.totalAmount || 0,
-      categoryBreakdown,
+      ...totals,
+      totalExpenses: roundMoney(totals.totalExpenses || 0),
+      averageExpense: roundMoney(totals.averageExpense || 0),
+      totalRecords: totals.totalRecords || 0,
+      generalExpenses: roundMoney(generalExpenses[0]?.total || 0),
+      salaryExpenses: roundMoney(salaryExpenses[0]?.total || 0),
+      categoryBreakdown: categoryBreakdown.map((item) => ({
+        category: item._id || "Uncategorised",
+        total: roundMoney(item.total || 0),
+        count: item.count || 0,
+      })),
+      paymentMethodBreakdown: paymentMethodBreakdown.map((item) => ({
+        paymentMethod: item._id || "Unknown",
+        total: roundMoney(item.total || 0),
+        count: item.count || 0,
+      })),
     });
   } catch (error) {
-    console.error("GET EXPENSE STATS ERROR:", error);
+    console.error("Get expense stats error:", error);
 
     return res.status(500).json({
       message: "Failed to fetch expense statistics.",
-      error: process.env.NODE_ENV === "development" ? error.message : undefined,
     });
   }
 };
 
 // ============================================================
-// SERVER-SIDE FINANCIAL REPORT
+// EXPENSE REPORT
 // ============================================================
 
 exports.getExpenseReport = async (req, res) => {
   try {
-    const { startDate, endDate, category, paymentMethod } = req.query;
+    const filter = buildExpenseFilter(req.query, false);
 
-    const match = {
-      $or: [{ isDeleted: false }, { isDeleted: { $exists: false } }],
-    };
-
-    // DATE FILTER
-    if (startDate || endDate) {
-      match.date = {};
-
-      if (startDate) {
-        const parsedStartDate = new Date(`${startDate}T00:00:00.000Z`);
-
-        if (Number.isNaN(parsedStartDate.getTime())) {
-          return res.status(400).json({
-            message: "Invalid startDate.",
-          });
-        }
-
-        match.date.$gte = parsedStartDate;
-      }
-
-      if (endDate) {
-        const parsedEndDate = new Date(`${endDate}T23:59:59.999Z`);
-
-        if (Number.isNaN(parsedEndDate.getTime())) {
-          return res.status(400).json({
-            message: "Invalid endDate.",
-          });
-        }
-
-        match.date.$lte = parsedEndDate;
-      }
-    }
-
-    // CATEGORY FILTER — INCLUDES SALARIES
-    if (category && category !== "All") {
-      if (!ALLOWED_EXPENSE_CATEGORIES.includes(category)) {
-        return res.status(400).json({
-          message: "Invalid expense category.",
-        });
-      }
-
-      match.category = category;
-    }
-
-    // PAYMENT METHOD FILTER
-    if (paymentMethod && paymentMethod !== "All") {
-      if (!ALLOWED_PAYMENT_METHODS.includes(paymentMethod)) {
-        return res.status(400).json({
-          message: "Invalid payment method.",
-        });
-      }
-
-      match.paymentMethod = paymentMethod;
-    }
-
-    // AGGREGATION
-    const report = await Expense.aggregate([
-      { $match: match },
-      {
-        $facet: {
-          summary: [
-            {
-              $group: {
-                _id: null,
-                totalExpenses: { $sum: 1 },
-                totalAmount: {
-                  $sum: { $ifNull: ["$amount", 0] },
-                },
-                averageExpense: {
-                  $avg: { $ifNull: ["$amount", 0] },
-                },
-                largestExpense: {
-                  $max: { $ifNull: ["$amount", 0] },
-                },
+    const [expensesByMonth, expensesByCategory, expensesByType, totals] =
+      await Promise.all([
+        Expense.aggregate([
+          { $match: filter },
+          {
+            $group: {
+              _id: {
+                year: { $year: "$date" },
+                month: { $month: "$date" },
               },
+              total: { $sum: "$amount" },
+              count: { $sum: 1 },
             },
-          ],
-
-          categoryBreakdown: [
-            {
-              $group: {
-                _id: "$category",
-                count: { $sum: 1 },
-                totalAmount: {
-                  $sum: { $ifNull: ["$amount", 0] },
-                },
+          },
+          { $sort: { "_id.year": 1, "_id.month": 1 } },
+        ]),
+        Expense.aggregate([
+          { $match: filter },
+          {
+            $group: {
+              _id: "$category",
+              total: { $sum: "$amount" },
+              count: { $sum: 1 },
+            },
+          },
+          { $sort: { total: -1 } },
+        ]),
+        Expense.aggregate([
+          { $match: filter },
+          {
+            $group: {
+              _id: {
+                $ifNull: ["$expenseType", "General"],
               },
+              total: { $sum: "$amount" },
+              count: { $sum: 1 },
             },
-            { $sort: { totalAmount: -1 } },
-          ],
-
-          paymentMethodBreakdown: [
-            {
-              $group: {
-                _id: "$paymentMethod",
-                count: { $sum: 1 },
-                totalAmount: {
-                  $sum: { $ifNull: ["$amount", 0] },
-                },
-              },
+          },
+        ]),
+        Expense.aggregate([
+          { $match: filter },
+          {
+            $group: {
+              _id: null,
+              totalExpenses: { $sum: "$amount" },
+              totalRecords: { $sum: 1 },
             },
-            { $sort: { totalAmount: -1 } },
-          ],
-
-          monthlyTrend: [
-            {
-              $group: {
-                _id: {
-                  year: { $year: "$date" },
-                  month: { $month: "$date" },
-                },
-                totalAmount: {
-                  $sum: { $ifNull: ["$amount", 0] },
-                },
-                count: { $sum: 1 },
-              },
-            },
-            {
-              $sort: {
-                "_id.year": 1,
-                "_id.month": 1,
-              },
-            },
-          ],
-        },
-      },
-    ]);
-
-    const result = report[0] || {};
-
-    const summary = result.summary?.[0] || {
-      totalExpenses: 0,
-      totalAmount: 0,
-      averageExpense: 0,
-      largestExpense: 0,
-    };
-
-    const categoryResults = (result.categoryBreakdown || []).map((item) => ({
-      category: item._id || "Other",
-      count: item.count || 0,
-      totalAmount: item.totalAmount || 0,
-    }));
-
-    const paymentResults = (result.paymentMethodBreakdown || []).map(
-      (item) => ({
-        paymentMethod: item._id || "Cash",
-        count: item.count || 0,
-        totalAmount: item.totalAmount || 0,
-      }),
-    );
-
-    const monthlyResults = (result.monthlyTrend || []).map((item) => ({
-      year: item._id.year,
-      month: item._id.month,
-      count: item.count || 0,
-      totalAmount: item.totalAmount || 0,
-    }));
+          },
+        ]),
+      ]);
 
     return res.status(200).json({
-      filters: {
-        startDate: startDate || null,
-        endDate: endDate || null,
-        category: category || "All",
-        paymentMethod: paymentMethod || "All",
+      totals: {
+        totalExpenses: roundMoney(totals[0]?.totalExpenses || 0),
+        totalRecords: totals[0]?.totalRecords || 0,
       },
-
-      summary: {
-        totalExpenses: summary.totalExpenses || 0,
-        totalAmount: summary.totalAmount || 0,
-        averageExpense: summary.averageExpense || 0,
-        largestExpense: summary.largestExpense || 0,
-      },
-
-      categoryBreakdown: categoryResults,
-      paymentMethodBreakdown: paymentResults,
-      monthlyTrend: monthlyResults,
+      monthly: expensesByMonth.map((item) => ({
+        year: item._id.year,
+        month: item._id.month,
+        total: roundMoney(item.total || 0),
+        count: item.count || 0,
+      })),
+      categories: expensesByCategory.map((item) => ({
+        category: item._id || "Uncategorised",
+        total: roundMoney(item.total || 0),
+        count: item.count || 0,
+      })),
+      expenseTypes: expensesByType.map((item) => ({
+        expenseType: item._id,
+        total: roundMoney(item.total || 0),
+        count: item.count || 0,
+      })),
     });
   } catch (error) {
-    console.error("GET EXPENSE REPORT ERROR:", error);
+    console.error("Get expense report error:", error);
 
     return res.status(500).json({
       message: "Failed to generate expense report.",
-      error: process.env.NODE_ENV === "development" ? error.message : undefined,
     });
   }
+};
+
+// ============================================================
+// GET WORKERS FOR MONTHLY PAYROLL
+// ============================================================
+
+exports.getPayrollWorkers = async (req, res) => {
+  try {
+    const salaryPeriod = req.query.salaryPeriod;
+
+    if (!isValidSalaryPeriod(salaryPeriod)) {
+      return res.status(400).json({
+        message: "Provide a valid salaryPeriod in YYYY-MM format.",
+      });
+    }
+
+    const workers = await Worker.find({
+      status: "Active",
+    })
+      .select(
+        "firstName lastName employeeId staffId role department salary paymentFrequency status",
+      )
+      .sort({ firstName: 1, lastName: 1 })
+      .lean();
+
+    const workerIds = workers.map((worker) => worker._id);
+
+    const [salaryRecords, paymentTotals, paymentHistory] = await Promise.all([
+      WorkerMonthlySalary.find({
+        worker: { $in: workerIds },
+        salaryPeriod,
+      }).lean(),
+
+      Expense.aggregate([
+        {
+          $match: {
+            worker: { $in: workerIds },
+            salaryPeriod,
+            expenseType: "Salary",
+            isDeleted: { $ne: true },
+          },
+        },
+        {
+          $group: {
+            _id: "$worker",
+            paidToDate: { $sum: "$amount" },
+            paymentCount: { $sum: 1 },
+          },
+        },
+      ]),
+
+      Expense.find({
+        worker: { $in: workerIds },
+        salaryPeriod,
+        expenseType: "Salary",
+        isDeleted: { $ne: true },
+      })
+        .select(
+          "expenseNumber worker workerName employeeId salaryPeriod salaryAmount amount date paymentMethod remarks createdAt createdByName",
+        )
+        .sort({ date: -1, createdAt: -1 })
+        .lean(),
+    ]);
+
+    const salaryByWorker = new Map(
+      salaryRecords.map((record) => [String(record.worker), record]),
+    );
+
+    const totalsByWorker = new Map(
+      paymentTotals.map((record) => [String(record._id), record]),
+    );
+
+    const historyByWorker = new Map();
+
+    for (const payment of paymentHistory) {
+      const key = String(payment.worker);
+
+      if (!historyByWorker.has(key)) {
+        historyByWorker.set(key, []);
+      }
+
+      historyByWorker.get(key).push(payment);
+    }
+
+    const payrollWorkers = workers.map((worker) => {
+      const key = String(worker._id);
+      const salaryRecord = salaryByWorker.get(key);
+      const totals = totalsByWorker.get(key);
+
+      const agreedSalary = roundMoney(salaryRecord?.salaryAmount || 0);
+      const paidToDate = roundMoney(totals?.paidToDate || 0);
+      const outstanding = roundMoney(Math.max(0, agreedSalary - paidToDate));
+
+      return {
+        _id: worker._id,
+        workerId: worker._id,
+        workerName: getWorkerName(worker),
+        firstName: worker.firstName || "",
+        lastName: worker.lastName || "",
+        employeeId: getEmployeeId(worker),
+        role: worker.role || "",
+        department: worker.department || "",
+        status: worker.status,
+
+        // The agreed salary must be set separately for each month.
+        salaryAmount: agreedSalary,
+        agreedSalary,
+        salarySet: Boolean(salaryRecord),
+        salarySetAt: salaryRecord?.updatedAt || salaryRecord?.createdAt || null,
+        salarySetByName:
+          salaryRecord?.updatedByName || salaryRecord?.setByName || "",
+
+        // Existing Worker.salary is returned only as a suggestion.
+        // It is never treated as the agreed monthly salary.
+        suggestedSalary: Number(worker.salary) || 0,
+        paymentFrequency: worker.paymentFrequency || "",
+
+        paidToDate,
+        outstanding,
+        balance: outstanding,
+        paymentCount: totals?.paymentCount || 0,
+        payments: historyByWorker.get(key) || [],
+        salaryPeriod,
+      };
+    });
+
+    return res.status(200).json({
+      salaryPeriod,
+      workers: payrollWorkers,
+      totalWorkers: payrollWorkers.length,
+      totalAgreedSalary: roundMoney(
+        payrollWorkers.reduce(
+          (total, worker) => total + worker.agreedSalary,
+          0,
+        ),
+      ),
+      totalPaid: roundMoney(
+        payrollWorkers.reduce((total, worker) => total + worker.paidToDate, 0),
+      ),
+      totalOutstanding: roundMoney(
+        payrollWorkers.reduce((total, worker) => total + worker.outstanding, 0),
+      ),
+    });
+  } catch (error) {
+    console.error("Get payroll workers error:", error);
+
+    return res.status(500).json({
+      message: "Failed to fetch payroll workers.",
+    });
+  }
+};
+
+// ============================================================
+// SET AGREED MONTHLY SALARY FOR ONE WORKER
+// POST /api/expenses/payroll/salary
+// ============================================================
+
+exports.setPayrollSalary = async (req, res) => {
+  try {
+    const { workerId, salaryPeriod, salaryAmount } = req.body;
+
+    if (!workerId || !isValidObjectId(workerId)) {
+      return res.status(400).json({
+        message: "Select a valid worker.",
+      });
+    }
+
+    if (!isValidSalaryPeriod(salaryPeriod)) {
+      return res.status(400).json({
+        message: "Select a valid salary month in YYYY-MM format.",
+      });
+    }
+
+    const agreedSalary = validatePositiveAmount(
+      salaryAmount,
+      "Agreed monthly salary",
+    );
+
+    const worker = await getActiveWorker(workerId);
+
+    const paidToDate = await getPaidToDate(worker._id, salaryPeriod);
+
+    if (agreedSalary < paidToDate) {
+      return res.status(400).json({
+        message:
+          "The agreed monthly salary cannot be lower than the payments already recorded for this month.",
+        paidToDate,
+        salaryAmount: agreedSalary,
+      });
+    }
+
+    const admin = getAdminInfo(req);
+
+    const salaryRecord = await WorkerMonthlySalary.findOneAndUpdate(
+      {
+        worker: worker._id,
+        salaryPeriod,
+      },
+      {
+        $set: {
+          salaryAmount: agreedSalary,
+          workerName: getWorkerName(worker),
+          employeeId: getEmployeeId(worker),
+          updatedBy: admin.adminId || null,
+          updatedByName: admin.adminName,
+        },
+        $setOnInsert: {
+          worker: worker._id,
+          salaryPeriod,
+          setBy: admin.adminId || null,
+          setByName: admin.adminName,
+        },
+      },
+      {
+        new: true,
+        upsert: true,
+        runValidators: true,
+        setDefaultsOnInsert: true,
+      },
+    );
+
+    return res.status(200).json({
+      message: "Agreed monthly salary saved successfully.",
+      salary: salaryRecord,
+      worker: {
+        _id: worker._id,
+        workerName: getWorkerName(worker),
+        employeeId: getEmployeeId(worker),
+      },
+      salaryPeriod,
+      salaryAmount: agreedSalary,
+      paidToDate,
+      outstanding: roundMoney(agreedSalary - paidToDate),
+    });
+  } catch (error) {
+    console.error("Set payroll salary error:", error);
+
+    return res.status(400).json({
+      message: error.message || "Failed to save the agreed monthly salary.",
+    });
+  }
+};
+
+// ============================================================
+// CREATE ONE SALARY PAYMENT
+// POST /api/expenses/payroll/payment
+// ============================================================
+
+exports.createSalaryPayment = async (req, res) => {
+  try {
+    const { workerId, salaryPeriod, amount, paymentMethod, date, remarks } =
+      req.body;
+
+    const admin = getAdminInfo(req);
+
+    const expense = await createSalaryPaymentRecord({
+      workerId,
+      salaryPeriod,
+      amount,
+      paymentMethod,
+      date,
+      remarks,
+      adminId: admin.adminId,
+      adminName: admin.adminName,
+    });
+
+    const paidToDate = await getPaidToDate(
+      expense.worker,
+      expense.salaryPeriod,
+    );
+
+    const salaryRecord = await getSalaryRecord(
+      expense.worker,
+      expense.salaryPeriod,
+    );
+
+    const agreedSalary = Number(
+      salaryRecord?.salaryAmount ?? expense.salaryAmount,
+    );
+
+    return res.status(201).json({
+      message: "Salary payment recorded successfully.",
+      expense,
+      payment: expense,
+      salaryPeriod: expense.salaryPeriod,
+      agreedSalary,
+      paidToDate,
+      outstanding: roundMoney(Math.max(0, agreedSalary - paidToDate)),
+    });
+  } catch (error) {
+    console.error("Create salary payment error:", error);
+
+    return res.status(400).json({
+      message: error.message || "Failed to record salary payment.",
+    });
+  }
+};
+
+// ============================================================
+// CREATE MULTIPLE SALARY PAYMENTS
+// POST /api/expenses/payroll/bulk
+// ============================================================
+
+exports.createBulkSalaryPayments = async (req, res) => {
+  const { salaryPeriod, payments, workers, paymentMethod, date, remarks } =
+    req.body;
+
+  if (!isValidSalaryPeriod(salaryPeriod)) {
+    return res.status(400).json({
+      message: "Select a valid salary month in YYYY-MM format.",
+    });
+  }
+
+  // "workers" is supported for compatibility with older frontend code.
+  const submittedPayments = Array.isArray(payments)
+    ? payments
+    : Array.isArray(workers)
+      ? workers
+      : [];
+
+  if (!submittedPayments.length) {
+    return res.status(400).json({
+      message: "Provide at least one worker payment.",
+    });
+  }
+
+  const admin = getAdminInfo(req);
+  const payrollBatchId = new mongoose.Types.ObjectId().toString();
+
+  const results = [];
+  const errors = [];
+
+  for (let index = 0; index < submittedPayments.length; index += 1) {
+    const item = submittedPayments[index] || {};
+
+    const workerId = item.workerId || item.worker || item._id;
+
+    const paymentAmount =
+      item.amount !== undefined ? item.amount : item.paymentAmount;
+
+    const itemPaymentMethod = item.paymentMethod || paymentMethod;
+
+    const itemDate = item.date || date;
+
+    const itemRemarks = item.remarks !== undefined ? item.remarks : remarks;
+
+    // A zero or empty amount means no payment was submitted for this worker.
+    if (
+      paymentAmount === undefined ||
+      paymentAmount === null ||
+      paymentAmount === "" ||
+      Number(paymentAmount) === 0
+    ) {
+      continue;
+    }
+
+    try {
+      const expense = await createSalaryPaymentRecord({
+        workerId,
+        salaryPeriod,
+        amount: paymentAmount,
+        paymentMethod: itemPaymentMethod,
+        date: itemDate,
+        remarks: itemRemarks,
+        payrollBatchId,
+        adminId: admin.adminId,
+        adminName: admin.adminName,
+      });
+
+      results.push(expense);
+    } catch (error) {
+      errors.push({
+        workerId: workerId || null,
+        message: error.message || "Payment failed.",
+      });
+    }
+  }
+
+  if (!results.length) {
+    return res.status(400).json({
+      message: "No salary payments were recorded.",
+      errors,
+    });
+  }
+
+  return res.status(errors.length ? 207 : 201).json({
+    message: errors.length
+      ? "Some salary payments were recorded, but some failed."
+      : "All salary payments were recorded successfully.",
+    salaryPeriod,
+    payrollBatchId,
+    count: results.length,
+    payments: results,
+    expenses: results,
+    errors,
+  });
 };

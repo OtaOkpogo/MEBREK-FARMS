@@ -12,6 +12,14 @@ const expenseSchema = new mongoose.Schema(
       trim: true,
     },
 
+    // General expense or an individual salary payment
+    expenseType: {
+      type: String,
+      enum: ["General", "Salary"],
+      default: "General",
+      index: true,
+    },
+
     // =========================
     // EXPENSE DETAILS
     // =========================
@@ -58,6 +66,8 @@ const expenseSchema = new mongoose.Schema(
       default: 0,
     },
 
+    // For salary expenses, this is the actual amount paid,
+    // not the full monthly salary unless paid in full.
     amount: {
       type: Number,
       required: true,
@@ -82,6 +92,63 @@ const expenseSchema = new mongoose.Schema(
       trim: true,
       maxlength: [1000, "Remarks cannot exceed 1000 characters"],
       default: "",
+    },
+
+    // =========================
+    // SALARY PAYMENT DETAILS
+    // =========================
+
+    // Worker receiving this particular payment.
+    // Remains null for ordinary expenses.
+    worker: {
+      type: mongoose.Schema.Types.ObjectId,
+      ref: "Worker",
+      default: null,
+      index: true,
+    },
+
+    // Snapshot of the worker's name when payment is recorded.
+    workerName: {
+      type: String,
+      trim: true,
+      default: "",
+    },
+
+    // Snapshot of the worker's employee/staff ID.
+    employeeId: {
+      type: String,
+      trim: true,
+      default: "",
+    },
+
+    // Salary month in YYYY-MM format, e.g. 2026-10.
+    // This is separate from the actual payment date.
+    salaryPeriod: {
+      type: String,
+      trim: true,
+      match: [
+        /^$|^\d{4}-(0[1-9]|1[0-2])$/,
+        "Salary period must use YYYY-MM format",
+      ],
+      default: "",
+      index: true,
+    },
+
+    // Monthly salary copied from the Worker record when
+    // the payment is recorded. Used to calculate balances.
+    salaryAmount: {
+      type: Number,
+      min: [0, "Monthly salary cannot be negative"],
+      default: null,
+    },
+
+    // Groups payments recorded together through bulk payroll.
+    // Each worker still receives an individual expense record.
+    payrollBatchId: {
+      type: String,
+      trim: true,
+      default: "",
+      index: true,
     },
 
     // =========================
@@ -161,6 +228,14 @@ expenseSchema.index({
 
 expenseSchema.index({
   supplier: 1,
+  isDeleted: 1,
+});
+
+// Supports salary balance calculations by worker and month.
+expenseSchema.index({
+  worker: 1,
+  salaryPeriod: 1,
+  expenseType: 1,
   isDeleted: 1,
 });
 

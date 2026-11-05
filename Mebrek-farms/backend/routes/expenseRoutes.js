@@ -11,55 +11,76 @@ const {
   restoreExpense,
   getExpenseStats,
   getExpenseReport,
+  getPayrollWorkers,
+  setPayrollSalary,
+  createSalaryPayment,
+  createBulkSalaryPayments,
 } = require("../controllers/expenseController");
 
 // ============================================================
-// CREATE
+// MONTHLY PAYROLL
+// All payroll endpoints are superadmin-only.
+// Register these routes before any /:id routes.
 // ============================================================
 
+// Load workers, agreed salaries, payments, and outstanding balances.
+router.get(
+  "/payroll/workers",
+  auth,
+  allowRoles("superadmin"),
+  getPayrollWorkers,
+);
+
+// Set or update a worker's agreed salary for a particular month.
+router.post(
+  "/payroll/salary",
+  auth,
+  allowRoles("superadmin"),
+  setPayrollSalary,
+);
+
+// Record an individual salary payment.
+router.post(
+  "/payroll/payment",
+  auth,
+  allowRoles("superadmin"),
+  createSalaryPayment,
+);
+
+// Record payments for multiple selected workers.
+router.post(
+  "/payroll/bulk",
+  auth,
+  allowRoles("superadmin"),
+  createBulkSalaryPayments,
+);
+
+// ============================================================
+// GENERAL EXPENSES
+// ============================================================
+
+// Create an expense.
 router.post("/", auth, allowRoles("superadmin"), createExpense);
 
-// ============================================================
-// ACTIVE EXPENSES
-// ============================================================
-
+// Get active expenses.
 router.get("/", auth, allowRoles("superadmin"), getExpenses);
 
-// ============================================================
-// BASIC STATS
-// ============================================================
-
+// Basic expense statistics.
 router.get("/stats", auth, allowRoles("superadmin"), getExpenseStats);
 
-// ============================================================
-// SERVER-SIDE FINANCIAL REPORT
-// IMPORTANT: Must come before /:id
-// ============================================================
-
+// Financial report.
 router.get("/report", auth, allowRoles("superadmin"), getExpenseReport);
 
-// ============================================================
-// DELETED EXPENSES
-// ============================================================
-
+// Get deleted expenses.
 router.get("/deleted", auth, allowRoles("superadmin"), getDeletedExpenses);
 
-// ============================================================
-// UPDATE
-// ============================================================
-
+// Update an expense.
 router.put("/:id", auth, allowRoles("superadmin"), updateExpense);
 
-// ============================================================
-// SOFT DELETE
-// ============================================================
-
+// Soft-delete an expense.
 router.delete("/:id", auth, allowRoles("superadmin"), deleteExpense);
 
-// ============================================================
-// RESTORE
-// ============================================================
-
+// Restore a deleted expense.
 router.patch("/:id/restore", auth, allowRoles("superadmin"), restoreExpense);
 
 module.exports = router;
