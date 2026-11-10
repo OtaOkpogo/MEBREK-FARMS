@@ -1,6 +1,7 @@
 import { useState } from "react";
 import { useNavigate } from "react-router-dom";
 import axios from "axios";
+import mebrekLogo from "../assets/logo.PNG";
 
 const FARM_IMAGE =
   "https://handsomebrookfarms.com/cdn/shop/files/2025.06.17_-HBF-Nathan-Schlabach-Solar-_01_522ba905-dff0-467f-a63d-aa57ff894d2e.jpg?v=1776354936&width=3000";
@@ -75,23 +76,14 @@ export default function Login() {
         {/* HEADER */}
 
         <header className="px-6 sm:px-10 lg:px-16 py-7 flex items-center justify-between">
+          {/* MEBREK FARMS LOGO AND BRANDING */}
+
           <div className="flex items-center gap-3">
-            <div className="w-12 h-12 rounded-2xl bg-[#d8b76b] flex items-center justify-center shadow-lg">
-              <svg
-                viewBox="0 0 24 24"
-                fill="none"
-                stroke="currentColor"
-                strokeWidth="1.7"
-                className="w-7 h-7 text-[#173c29]"
-              >
-                <path
-                  d="M12 21V11M12 14C7 14 4 11 4 6c5 0 8 3 8 8ZM12 11c0-5 3-8 8-8 0 5-3 8-8 8Z"
-                  strokeLinecap="round"
-                  strokeLinejoin="round"
-                />
-                <path d="M5 21h14" strokeLinecap="round" />
-              </svg>
-            </div>
+            <img
+              src={mebrekLogo}
+              alt="Mebrek Farms Logo"
+              className="w-14 h-14 sm:w-16 sm:h-16 object-contain drop-shadow-lg"
+            />
 
             <div>
               <h1 className="text-white font-bold tracking-[0.18em] text-lg">
@@ -99,7 +91,7 @@ export default function Login() {
               </h1>
 
               <p className="text-[#dfc98f] text-[9px] uppercase tracking-[0.28em] mt-1">
-                Agriculture • Quality • Growth
+                Quality • Care • Farming
               </p>
             </div>
           </div>
@@ -161,6 +153,7 @@ export default function Login() {
                       />
                     </svg>
                   </div>
+
                   <div>
                     <p className="text-sm font-semibold">Better Operations</p>
                     <p className="text-xs text-white/55 mt-1">
@@ -185,6 +178,7 @@ export default function Login() {
                       />
                     </svg>
                   </div>
+
                   <div>
                     <p className="text-sm font-semibold">Better Decisions</p>
                     <p className="text-xs text-white/55 mt-1">
@@ -207,6 +201,7 @@ export default function Login() {
                       <p className="text-[#a38647] text-[10px] uppercase tracking-[0.25em] font-bold">
                         Management Access
                       </p>
+
                       <h3 className="text-2xl font-semibold text-[#1c3c29] mt-2">
                         Sign in
                       </h3>
@@ -417,6 +412,7 @@ export default function Login() {
           <span>
             © {new Date().getFullYear()} Mebrek Farms. All rights reserved.
           </span>
+
           <span>Growing with purpose. Managing with excellence.</span>
         </footer>
       </div>
