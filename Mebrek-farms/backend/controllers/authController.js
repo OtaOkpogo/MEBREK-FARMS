@@ -1,6 +1,8 @@
 const Admin = require("../models/Admin");
+const Worker = require("../models/Worker");
 const bcrypt = require("bcryptjs");
 const jwt = require("jsonwebtoken");
+const mongoose = require("mongoose");
 const LoginActivity = require("../models/LoginActivity");
 
 // ================= LOGIN AUDIT HELPER =================
@@ -13,18 +15,95 @@ const recordLoginActivity = async (req, details) => {
       userAgent: req.get("user-agent") || "Unknown",
     });
   } catch (error) {
-    // Audit logging errors should not interrupt authentication.
     console.error("LOGIN ACTIVITY LOG ERROR:", error);
   }
+};
+
+// ================= WORKER LINK HELPER =================
+
+const validateWorkerLink = async (workerId, currentAdminId = null) => {
+  if (!workerId) {
+    return {
+      valid: true,
+      workerId: null,
+    };
+  }
+
+  if (!mongoose.Types.ObjectId.isValid(workerId)) {
+    return {
+      valid: false,
+      message: "Invalid worker selection",
+    };
+  }
+
+  const worker = await Worker.findById(workerId);
+
+  if (!worker) {
+    return {
+      valid: false,
+      message: "Selected worker does not exist",
+    };
+  }
+
+  if (worker.status !== "Active") {
+    return {
+      valid: false,
+      message: "Only active workers can be linked to accounts",
+    };
+  }
+
+  const existingLink = await Admin.findOne({
+    workerId,
+    ...(currentAdminId ? { _id: { $ne: currentAdminId } } : {}),
+  });
+
+  if (existingLink) {
+    return {
+      valid: false,
+      message: "This worker is already linked to another account",
+    };
+  }
+
+  return {
+    valid: true,
+    workerId: worker._id,
+  };
 };
 
 // ================= REGISTER ADMIN =================
 
 exports.registerAdmin = async (req, res) => {
   try {
-    const { name, email, password, role } = req.body;
+    const { name, email, password, role, workerId } = req.body;
 
-    const existingAdmin = await Admin.findOne({ email });
+    const normalizedEmail = String(email || "")
+      .trim()
+      .toLowerCase();
+
+    if (!name || !normalizedEmail || !password) {
+      return res.status(400).json({
+        message: "Name, email and password are required",
+      });
+    }
+
+    if (password.length < 6) {
+      return res.status(400).json({
+        message: "Password must be at least 6 characters",
+      });
+    }
+
+    const allowedRoles = ["superadmin", "manager", "staff"];
+    const selectedRole = role || "staff";
+
+    if (!allowedRoles.includes(selectedRole)) {
+      return res.status(400).json({
+        message: "Invalid account role",
+      });
+    }
+
+    const existingAdmin = await Admin.findOne({
+      email: normalizedEmail,
+    });
 
     if (existingAdmin) {
       return res.status(400).json({
@@ -32,14 +111,35 @@ exports.registerAdmin = async (req, res) => {
       });
     }
 
+    let linkedWorkerId = null;
+
+    if (selectedRole === "superadmin") {
+      if (workerId) {
+        return res.status(400).json({
+          message: "Superadmin accounts cannot be linked to worker profiles",
+        });
+      }
+    } else if (workerId) {
+      const validation = await validateWorkerLink(workerId);
+
+      if (!validation.valid) {
+        return res.status(400).json({
+          message: validation.message,
+        });
+      }
+
+      linkedWorkerId = validation.workerId;
+    }
+
     const hashedPassword = await bcrypt.hash(password, 10);
 
     const admin = await Admin.create({
-      name,
-      email,
+      name: name.trim(),
+      email: normalizedEmail,
       password: hashedPassword,
-      role: role || "staff",
+      role: selectedRole,
       status: "active",
+      workerId: linkedWorkerId,
     });
 
     res.status(201).json({
@@ -50,11 +150,18 @@ exports.registerAdmin = async (req, res) => {
         email: admin.email,
         role: admin.role,
         status: admin.status,
+        workerId: admin.workerId,
         lastLogin: admin.lastLogin,
       },
     });
   } catch (error) {
     console.error("REGISTER ERROR:", error);
+
+    if (error.code === 11000) {
+      return res.status(400).json({
+        message: "This email or worker profile is already linked to an account",
+      });
+    }
 
     res.status(500).json({
       error: error.message,
@@ -82,7 +189,6 @@ exports.loginAdmin = async (req, res) => {
       email: normalizedEmail,
     });
 
-    // Account does not exist
     if (!admin) {
       await recordLoginActivity(req, {
         name: "Unknown User",
@@ -97,7 +203,6 @@ exports.loginAdmin = async (req, res) => {
       });
     }
 
-    // Account is disabled
     if (admin.status !== "active") {
       await recordLoginActivity(req, {
         adminId: admin._id,
@@ -113,7 +218,6 @@ exports.loginAdmin = async (req, res) => {
       });
     }
 
-    // Verify password
     const isMatch = await bcrypt.compare(password, admin.password);
 
     if (!isMatch) {
@@ -131,11 +235,9 @@ exports.loginAdmin = async (req, res) => {
       });
     }
 
-    // Track last login
     admin.lastLogin = new Date();
     await admin.save();
 
-    // Record successful login
     await recordLoginActivity(req, {
       adminId: admin._id,
       name: admin.name,
@@ -150,6 +252,7 @@ exports.loginAdmin = async (req, res) => {
         id: admin._id,
         name: admin.name,
         role: admin.role,
+        workerId: admin.workerId || null,
       },
       process.env.JWT_SECRET,
       {
@@ -170,6 +273,7 @@ exports.loginAdmin = async (req, res) => {
         email: admin.email,
         role: admin.role,
         status: admin.status,
+        workerId: admin.workerId || null,
         lastLogin: admin.lastLogin,
       },
     });
@@ -186,7 +290,9 @@ exports.loginAdmin = async (req, res) => {
 
 exports.getMe = async (req, res) => {
   try {
-    const admin = await Admin.findById(req.user.id).select("-password");
+    const admin = await Admin.findById(req.user.id)
+      .select("-password")
+      .populate("workerId", "firstName lastName employeeId status");
 
     if (!admin) {
       return res.status(404).json({
@@ -210,6 +316,7 @@ exports.getAdmins = async (req, res) => {
   try {
     const admins = await Admin.find()
       .select("-password")
+      .populate("workerId", "firstName lastName employeeId status")
       .sort({ createdAt: -1 });
 
     res.json(admins);
@@ -226,18 +333,18 @@ exports.getAdmins = async (req, res) => {
 
 exports.updateAdmin = async (req, res) => {
   try {
-    const { name, email } = req.body;
+    const { name, email, workerId } = req.body;
 
-    // Validate required fields
     if (!name || !email) {
       return res.status(400).json({
         message: "Name and email are required",
       });
     }
 
-    // Check whether another account already uses this email
+    const normalizedEmail = email.trim().toLowerCase();
+
     const existingAdmin = await Admin.findOne({
-      email: email.trim().toLowerCase(),
+      email: normalizedEmail,
       _id: { $ne: req.params.id },
     });
 
@@ -247,18 +354,7 @@ exports.updateAdmin = async (req, res) => {
       });
     }
 
-    // Update account details
-    const admin = await Admin.findByIdAndUpdate(
-      req.params.id,
-      {
-        name: name.trim(),
-        email: email.trim().toLowerCase(),
-      },
-      {
-        new: true,
-        runValidators: true,
-      },
-    ).select("-password");
+    const admin = await Admin.findById(req.params.id);
 
     if (!admin) {
       return res.status(404).json({
@@ -266,12 +362,50 @@ exports.updateAdmin = async (req, res) => {
       });
     }
 
+    admin.name = name.trim();
+    admin.email = normalizedEmail;
+
+    // Only change the worker link when workerId is supplied.
+    if (Object.prototype.hasOwnProperty.call(req.body, "workerId")) {
+      if (admin.role === "superadmin" && workerId) {
+        return res.status(400).json({
+          message: "Superadmin accounts cannot be linked to worker profiles",
+        });
+      }
+
+      if (workerId) {
+        const validation = await validateWorkerLink(workerId, admin._id);
+
+        if (!validation.valid) {
+          return res.status(400).json({
+            message: validation.message,
+          });
+        }
+
+        admin.workerId = validation.workerId;
+      } else {
+        admin.workerId = null;
+      }
+    }
+
+    await admin.save();
+
+    const updatedAdmin = await Admin.findById(admin._id)
+      .select("-password")
+      .populate("workerId", "firstName lastName employeeId status");
+
     res.json({
       message: "Account updated successfully",
-      admin,
+      admin: updatedAdmin,
     });
   } catch (error) {
     console.error("UPDATE ADMIN ERROR:", error);
+
+    if (error.code === 11000) {
+      return res.status(400).json({
+        message: "This worker is already linked to another account",
+      });
+    }
 
     res.status(500).json({
       error: error.message,
@@ -293,14 +427,7 @@ exports.updateAdminRole = async (req, res) => {
       });
     }
 
-    const admin = await Admin.findByIdAndUpdate(
-      req.params.id,
-      { role },
-      {
-        new: true,
-        runValidators: true,
-      },
-    ).select("-password");
+    const admin = await Admin.findById(req.params.id);
 
     if (!admin) {
       return res.status(404).json({
@@ -308,9 +435,22 @@ exports.updateAdminRole = async (req, res) => {
       });
     }
 
+    admin.role = role;
+
+    // Superadmin accounts must not retain worker links.
+    if (role === "superadmin") {
+      admin.workerId = null;
+    }
+
+    await admin.save();
+
+    const updatedAdmin = await Admin.findById(admin._id)
+      .select("-password")
+      .populate("workerId", "firstName lastName employeeId status");
+
     res.json({
       message: "Role updated successfully",
-      admin,
+      admin: updatedAdmin,
     });
   } catch (error) {
     console.error("UPDATE ROLE ERROR:", error);
@@ -396,7 +536,7 @@ exports.resetAdminPassword = async (req, res) => {
 
 exports.deleteAdmin = async (req, res) => {
   try {
-    if (req.user.id === req.params.id) {
+    if (String(req.user.id) === String(req.params.id)) {
       return res.status(400).json({
         message: "You cannot delete your own account",
       });

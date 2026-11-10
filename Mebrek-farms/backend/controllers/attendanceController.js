@@ -14,6 +14,61 @@ const ALLOWED_STATUSES = [
 ];
 
 const TIME_PATTERN = /^([01]\d|2[0-3]):[0-5]\d$/;
+const TIMEZONE = "Africa/Lagos";
+
+// ============================================================
+// AUTHORIZATION HELPERS
+// ============================================================
+
+function getUserRole(req) {
+  return req.user?.role || "";
+}
+
+function isAttendanceManager(req) {
+  return ["superadmin", "manager"].includes(getUserRole(req));
+}
+
+function isSuperAdmin(req) {
+  return getUserRole(req) === "superadmin";
+}
+
+function getUserId(req) {
+  return req.user?.id || req.user?._id || null;
+}
+
+function getLinkedWorkerId(req) {
+  const workerId = req.user?.workerId;
+
+  if (workerId && typeof workerId === "object") {
+    return workerId._id || workerId.id || null;
+  }
+
+  return workerId || null;
+}
+
+function requireAttendanceManager(req, res) {
+  if (!isAttendanceManager(req)) {
+    res.status(403).json({
+      message: "You do not have permission to manage attendance.",
+    });
+    return false;
+  }
+
+  return true;
+}
+
+async function getMyWorker(req) {
+  const workerId = getLinkedWorkerId(req);
+
+  if (!workerId || !mongoose.isValidObjectId(workerId)) {
+    return null;
+  }
+
+  return Worker.findOne({
+    _id: workerId,
+    status: "Active",
+  });
+}
 
 // ============================================================
 // AUDIT SNAPSHOT
@@ -56,12 +111,37 @@ function getChangedFields(before, after) {
 // DATE AND TIME HELPERS
 // ============================================================
 
-function getLocalDateString(date = new Date()) {
-  const year = date.getFullYear();
-  const month = String(date.getMonth() + 1).padStart(2, "0");
-  const day = String(date.getDate()).padStart(2, "0");
+function getLagosDateTime(date = new Date()) {
+  const parts = new Intl.DateTimeFormat("en-GB", {
+    timeZone: TIMEZONE,
+    year: "numeric",
+    month: "2-digit",
+    day: "2-digit",
+    hour: "2-digit",
+    minute: "2-digit",
+    hourCycle: "h23",
+  }).formatToParts(date);
 
-  return `${year}-${month}-${day}`;
+  const values = {};
+
+  for (const part of parts) {
+    if (part.type !== "literal") {
+      values[part.type] = part.value;
+    }
+  }
+
+  return {
+    date: `${values.year}-${values.month}-${values.day}`,
+    time: `${values.hour}:${values.minute}`,
+  };
+}
+
+function getLocalDateString(date = new Date()) {
+  return getLagosDateTime(date).date;
+}
+
+function getLocalTimeString(date = new Date()) {
+  return getLagosDateTime(date).time;
 }
 
 function validDateString(value) {
@@ -152,12 +232,15 @@ async function resolveWorker(workerId) {
 }
 
 // ============================================================
-// GET ACTIVE ATTENDANCE
+// GET ATTENDANCE - ADMINISTRATION
+// Superadmin and manager only.
 // ============================================================
 
 exports.getAttendance = async (req, res) => {
   try {
-    const filter = req.user?.role === "superadmin" ? {} : { isDeleted: false };
+    if (!requireAttendanceManager(req, res)) return;
+
+    const filter = isSuperAdmin(req) ? {} : { isDeleted: false };
 
     const attendance = await Attendance.find(filter)
       .sort({ attendanceDate: -1, createdAt: -1 })
@@ -171,10 +254,13 @@ exports.getAttendance = async (req, res) => {
 
 // ============================================================
 // ACTIVE WORKERS FOR ATTENDANCE
+// Superadmin and manager only.
 // ============================================================
 
 exports.getAttendanceWorkers = async (req, res) => {
   try {
+    if (!requireAttendanceManager(req, res)) return;
+
     const workers = await Worker.find({ status: "Active" })
       .select(
         "employeeId firstName lastName role department workShift startTime endTime status",
@@ -194,11 +280,212 @@ exports.getAttendanceWorkers = async (req, res) => {
 };
 
 // ============================================================
-// CREATE ATTENDANCE
+// GET MY ATTENDANCE
+// Manager and staff can view only their own records.
+// ============================================================
+
+exports.getMyAttendance = async (req, res) => {
+  try {
+    const workerId = getLinkedWorkerId(req);
+
+    if (!workerId || !mongoose.isValidObjectId(workerId)) {
+      return res.status(403).json({
+        message:
+          "Your account is not linked to a registered worker. Contact the administrator.",
+      });
+    }
+
+    const attendance = await Attendance.find({
+      workerId,
+      isDeleted: false,
+    }).sort({
+      attendanceDate: -1,
+      createdAt: -1,
+    });
+
+    return res.json(attendance);
+  } catch (error) {
+    return res.status(500).json({ error: error.message });
+  }
+};
+
+// ============================================================
+// SELF CHECK-IN
+// Manager and staff.
+// Worker identity comes from the authenticated account.
+// ============================================================
+
+exports.checkIn = async (req, res) => {
+  try {
+    const worker = await getMyWorker(req);
+
+    if (!worker) {
+      return res.status(403).json({
+        message: "Your account is not linked to an active registered worker.",
+      });
+    }
+
+    const attendanceDate = getLocalDateString();
+    const checkInTime = getLocalTimeString();
+
+    let attendance = await Attendance.findOne({
+      workerId: worker._id,
+      attendanceDate,
+      isDeleted: false,
+    });
+
+    if (attendance?.checkInTime) {
+      return res.status(409).json({
+        message: "You have already checked in today.",
+        attendance,
+      });
+    }
+
+    if (!attendance) {
+      attendance = new Attendance({
+        workerId: worker._id,
+        workerName: `${worker.firstName} ${worker.lastName}`.trim(),
+        role: worker.role || "Staff",
+        attendanceDate,
+        status: "Present",
+        checkInTime,
+        checkOutTime: "",
+        scheduledStartTime:
+          worker.startTime && TIME_PATTERN.test(worker.startTime)
+            ? worker.startTime
+            : "08:00",
+        scheduledEndTime:
+          worker.endTime && TIME_PATTERN.test(worker.endTime)
+            ? worker.endTime
+            : "",
+        remarks: "",
+      });
+    } else {
+      // Allow a worker to check in against an existing manual record
+      // that has not yet received a check-in time.
+      attendance.checkInTime = checkInTime;
+
+      if (["Absent", "Off Day"].includes(attendance.status)) {
+        attendance.status = "Present";
+      }
+    }
+
+    applyCalculatedFields(attendance);
+    await attendance.save();
+
+    await logAudit(req, {
+      action: "CHECK_IN",
+      module: "Attendance",
+      description: `${attendance.workerName} checked in`,
+      entityId: attendance._id,
+      entityName: attendance.workerName,
+      after: getAttendanceAuditSnapshot(attendance),
+      metadata: {
+        attendanceDate,
+        checkInTime,
+        source: "Self",
+      },
+    });
+
+    return res.status(200).json({
+      message: "Check-in successful.",
+      attendance,
+    });
+  } catch (error) {
+    if (error.code === 11000) {
+      return res.status(409).json({
+        message: "An attendance record already exists for today.",
+      });
+    }
+
+    console.error("Attendance check-in error:", error);
+
+    return res.status(500).json({
+      message: "Failed to check in.",
+    });
+  }
+};
+
+// ============================================================
+// SELF CHECK-OUT
+// Manager and staff.
+// Only the authenticated worker's record can be updated.
+// ============================================================
+
+exports.checkOut = async (req, res) => {
+  try {
+    const worker = await getMyWorker(req);
+
+    if (!worker) {
+      return res.status(403).json({
+        message: "Your account is not linked to an active registered worker.",
+      });
+    }
+
+    const attendanceDate = getLocalDateString();
+    const checkOutTime = getLocalTimeString();
+
+    const attendance = await Attendance.findOne({
+      workerId: worker._id,
+      attendanceDate,
+      isDeleted: false,
+    });
+
+    if (!attendance || !attendance.checkInTime) {
+      return res.status(404).json({
+        message: "You must check in before checking out.",
+      });
+    }
+
+    if (attendance.checkOutTime) {
+      return res.status(409).json({
+        message: "You have already checked out today.",
+        attendance,
+      });
+    }
+
+    attendance.checkOutTime = checkOutTime;
+
+    applyCalculatedFields(attendance);
+    await attendance.save();
+
+    await logAudit(req, {
+      action: "CHECK_OUT",
+      module: "Attendance",
+      description: `${attendance.workerName} checked out`,
+      entityId: attendance._id,
+      entityName: attendance.workerName,
+      after: getAttendanceAuditSnapshot(attendance),
+      metadata: {
+        attendanceDate,
+        checkOutTime,
+        workingHours: attendance.workingHours,
+        source: "Self",
+      },
+    });
+
+    return res.json({
+      message: "Check-out successful.",
+      attendance,
+    });
+  } catch (error) {
+    console.error("Attendance check-out error:", error);
+
+    return res.status(500).json({
+      message: "Failed to check out.",
+    });
+  }
+};
+
+// ============================================================
+// CREATE MANUAL ATTENDANCE
+// Superadmin and manager only.
 // ============================================================
 
 exports.createAttendance = async (req, res) => {
   try {
+    if (!requireAttendanceManager(req, res)) return;
+
     const {
       workerId,
       workerName,
@@ -223,7 +510,10 @@ exports.createAttendance = async (req, res) => {
       });
     }
 
-    const timeError = validateTimeFields({ checkInTime, checkOutTime });
+    const timeError = validateTimeFields({
+      checkInTime,
+      checkOutTime,
+    });
 
     if (timeError) {
       return res.status(400).json({ message: timeError });
@@ -247,14 +537,17 @@ exports.createAttendance = async (req, res) => {
 
     const finalRole = role || worker?.role || "";
 
-    if (!finalWorkerName.trim() || !finalRole.trim()) {
+    if (
+      typeof finalWorkerName !== "string" ||
+      !finalWorkerName.trim() ||
+      typeof finalRole !== "string" ||
+      !finalRole.trim()
+    ) {
       return res.status(400).json({
         message: "Select a worker or provide both worker name and role.",
       });
     }
 
-    // Prevent duplicate records for a registered worker and date.
-    // Include soft-deleted records to prevent accidental re-creation.
     if (worker) {
       const duplicate = await Attendance.findOne({
         workerId: worker._id,
@@ -319,11 +612,14 @@ exports.createAttendance = async (req, res) => {
 };
 
 // ============================================================
-// UPDATE ATTENDANCE / CHECK-IN / CHECK-OUT
+// UPDATE ATTENDANCE
+// Superadmin and manager only.
 // ============================================================
 
 exports.updateAttendance = async (req, res) => {
   try {
+    if (!requireAttendanceManager(req, res)) return;
+
     const attendance = await Attendance.findOne({
       _id: req.params.id,
       isDeleted: false,
@@ -393,11 +689,13 @@ exports.updateAttendance = async (req, res) => {
 
 // ============================================================
 // SOFT DELETE ATTENDANCE
+// Superadmin and manager only.
 // ============================================================
 
-// Manager/superadmin route restriction remains in the routes file.
 exports.deleteAttendance = async (req, res) => {
   try {
+    if (!requireAttendanceManager(req, res)) return;
+
     const attendance = await Attendance.findOne({
       _id: req.params.id,
       isDeleted: false,
@@ -413,9 +711,9 @@ exports.deleteAttendance = async (req, res) => {
 
     attendance.isDeleted = true;
     attendance.deletedAt = new Date();
-    attendance.deletedBy = req.user?.id || req.user?._id || null;
+    attendance.deletedBy = getUserId(req);
     attendance.deletedByName = req.user?.name || null;
-    attendance.deletedByRole = req.user?.role || null;
+    attendance.deletedByRole = getUserRole(req);
 
     await attendance.save({ validateBeforeSave: false });
 
@@ -446,10 +744,13 @@ exports.deleteAttendance = async (req, res) => {
 
 // ============================================================
 // GET DELETED ATTENDANCE
+// Superadmin and manager only.
 // ============================================================
 
 exports.getDeletedAttendance = async (req, res) => {
   try {
+    if (!requireAttendanceManager(req, res)) return;
+
     const attendance = await Attendance.find({ isDeleted: true })
       .sort({ deletedAt: -1 })
       .populate("deletedBy", "role name");
@@ -462,10 +763,13 @@ exports.getDeletedAttendance = async (req, res) => {
 
 // ============================================================
 // RESTORE ATTENDANCE
+// Superadmin and manager only.
 // ============================================================
 
 exports.restoreAttendance = async (req, res) => {
   try {
+    if (!requireAttendanceManager(req, res)) return;
+
     const attendance = await Attendance.findOne({
       _id: req.params.id,
       isDeleted: true,
@@ -477,8 +781,6 @@ exports.restoreAttendance = async (req, res) => {
       });
     }
 
-    // Prevent restoring a record when another active record already
-    // exists for the same registered worker and attendance date.
     if (attendance.workerId && attendance.attendanceDate) {
       const existingActiveRecord = await Attendance.findOne({
         _id: { $ne: attendance._id },
@@ -527,8 +829,6 @@ exports.restoreAttendance = async (req, res) => {
       attendance,
     });
   } catch (error) {
-    // Also handle a conflict caused by two requests racing to restore
-    // or create attendance for the same worker and date.
     if (error.code === 11000) {
       return res.status(409).json({
         message:

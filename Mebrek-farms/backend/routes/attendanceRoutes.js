@@ -4,6 +4,9 @@ const router = express.Router();
 const {
   getAttendance,
   getAttendanceWorkers,
+  getMyAttendance,
+  checkIn,
+  checkOut,
   createAttendance,
   updateAttendance,
   deleteAttendance,
@@ -11,45 +14,48 @@ const {
   restoreAttendance,
 } = require("../controllers/attendanceController");
 
-const {
-  protect: authMiddleware,
-  allowRoles,
-} = require("../middleware/authMiddleware");
+const { protect, allowRoles } = require("../middleware/authMiddleware");
 
-// All authenticated roles can view active attendance.
-// Superadmin sees deleted records inline too.
-router.get("/", authMiddleware, getAttendance);
+// All attendance routes require authentication.
+router.use(protect);
 
-// Registered active workers for attendance entry.
-router.get("/workers", authMiddleware, getAttendanceWorkers);
+// ============================================================
+// PERSONAL ATTENDANCE
+// Manager and staff can access only their own records.
+// ============================================================
 
-// All authenticated roles can record attendance.
-router.post("/", authMiddleware, createAttendance);
+router.get("/mine", allowRoles("manager", "staff"), getMyAttendance);
 
-// All authenticated roles can update attendance/check-out.
-router.put("/:id", authMiddleware, updateAttendance);
+router.post("/check-in", allowRoles("manager", "staff"), checkIn);
 
-// Manager and superadmin can soft-delete.
-router.delete(
-  "/:id",
-  authMiddleware,
-  allowRoles("manager", "superadmin"),
-  deleteAttendance,
-);
+router.patch("/check-out", allowRoles("manager", "staff"), checkOut);
 
-// Superadmin-only deleted-record access.
+// ============================================================
+// ATTENDANCE ADMINISTRATION
+// Superadmin and manager only.
+// ============================================================
+
+router.get("/", allowRoles("superadmin", "manager"), getAttendance);
+
 router.get(
-  "/deleted",
-  authMiddleware,
-  allowRoles("superadmin"),
-  getDeletedAttendance,
+  "/workers",
+  allowRoles("superadmin", "manager"),
+  getAttendanceWorkers,
 );
 
-router.put(
-  "/:id/restore",
-  authMiddleware,
-  allowRoles("superadmin"),
-  restoreAttendance,
-);
+router.post("/", allowRoles("superadmin", "manager"), createAttendance);
+
+router.put("/:id", allowRoles("superadmin", "manager"), updateAttendance);
+
+router.delete("/:id", allowRoles("superadmin", "manager"), deleteAttendance);
+
+// ============================================================
+// DELETED ATTENDANCE
+// Superadmin only.
+// ============================================================
+
+router.get("/deleted", allowRoles("superadmin"), getDeletedAttendance);
+
+router.put("/:id/restore", allowRoles("superadmin"), restoreAttendance);
 
 module.exports = router;
