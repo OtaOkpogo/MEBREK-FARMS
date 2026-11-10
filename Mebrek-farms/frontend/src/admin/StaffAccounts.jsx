@@ -2,6 +2,7 @@ import { useEffect, useMemo, useState, useCallback } from "react";
 
 import {
   fetchStaff,
+  fetchWorkers,
   createStaff,
   updateStaff,
   deleteStaff,
@@ -16,6 +17,7 @@ const INITIAL_FORM = {
   password: "",
   role: "staff",
   status: "active",
+  workerId: "",
 };
 
 const ROLES = ["superadmin", "manager", "staff"];
@@ -38,23 +40,59 @@ const extractStaff = (response) => {
   return [];
 };
 
+const extractWorkers = (response) => {
+  if (Array.isArray(response)) return response;
+  if (Array.isArray(response?.workers)) return response.workers;
+  if (Array.isArray(response?.data)) return response.data;
+  if (Array.isArray(response?.data?.workers)) return response.data.workers;
+
+  return [];
+};
+
 const normalizeStatus = (status) => String(status || "active").toLowerCase();
+
+const getWorkerId = (workerId) => {
+  if (!workerId) return "";
+
+  if (typeof workerId === "object") {
+    return String(workerId._id || workerId.id || "");
+  }
+
+  return String(workerId);
+};
+
+const getWorkerName = (worker) =>
+  [worker?.firstName, worker?.lastName].filter(Boolean).join(" ") ||
+  "Unnamed Worker";
+
+const getLinkedWorkerLabel = (worker) => {
+  if (!worker) return "Not linked";
+
+  const name = getWorkerName(worker);
+  const employeeId = worker.employeeId || "No employee ID";
+
+  return `${name} (${employeeId})`;
+};
 
 export default function StaffAccounts() {
   const [staff, setStaff] = useState([]);
+  const [workers, setWorkers] = useState([]);
+
   const [editingId, setEditingId] = useState(null);
 
   const [loading, setLoading] = useState(true);
+  const [workersLoading, setWorkersLoading] = useState(true);
   const [saving, setSaving] = useState(false);
   const [actionId, setActionId] = useState(null);
 
   const [search, setSearch] = useState("");
   const [loadError, setLoadError] = useState("");
+  const [workerLoadError, setWorkerLoadError] = useState("");
 
   const [formData, setFormData] = useState(INITIAL_FORM);
 
   // ============================================================
-  // LOAD STAFF
+  // LOAD STAFF ACCOUNTS
   // ============================================================
 
   const loadStaff = useCallback(async (showLoader = true) => {
@@ -76,9 +114,48 @@ export default function StaffAccounts() {
     }
   }, []);
 
+  // ============================================================
+  // LOAD WORKERS
+  // ============================================================
+
+  const loadWorkers = useCallback(async () => {
+    try {
+      setWorkersLoading(true);
+      setWorkerLoadError("");
+
+      const response = await fetchWorkers();
+      const workerList = extractWorkers(response);
+
+      setWorkers(workerList);
+    } catch (err) {
+      console.error("LOAD WORKERS ERROR:", err);
+
+      setWorkerLoadError(
+        getErrorMessage(err, "Unable to load worker profiles."),
+      );
+    } finally {
+      setWorkersLoading(false);
+    }
+  }, []);
+
+  // ============================================================
+  // INITIAL LOAD
+  // ============================================================
+
   useEffect(() => {
     loadStaff();
-  }, [loadStaff]);
+    loadWorkers();
+  }, [loadStaff, loadWorkers]);
+
+  // ============================================================
+  // ACTIVE WORKERS
+  // ============================================================
+
+  const activeWorkers = useMemo(() => {
+    return workers.filter(
+      (worker) => String(worker.status || "").toLowerCase() === "active",
+    );
+  }, [workers]);
 
   // ============================================================
   // FORM CHANGE
@@ -90,6 +167,9 @@ export default function StaffAccounts() {
     setFormData((prev) => ({
       ...prev,
       [name]: value,
+
+      // Superadmin accounts cannot have worker profiles.
+      ...(name === "role" && value === "superadmin" ? { workerId: "" } : {}),
     }));
   };
 
@@ -103,7 +183,7 @@ export default function StaffAccounts() {
   };
 
   // ============================================================
-  // CREATE / UPDATE STAFF
+  // CREATE / UPDATE ACCOUNT
   // ============================================================
 
   const handleSubmit = async (e) => {
@@ -113,12 +193,21 @@ export default function StaffAccounts() {
     const email = formData.email.trim().toLowerCase();
 
     if (!name || !email) {
-      alert("Please enter the staff name and email address.");
+      alert("Please enter the account name and email address.");
       return;
     }
 
     if (!editingId && formData.password.length < 6) {
       alert("Password must be at least 6 characters.");
+      return;
+    }
+
+    const selectedRole = editingId
+      ? staff.find((user) => user._id === editingId)?.role || "staff"
+      : formData.role;
+
+    if (selectedRole !== "superadmin" && !formData.workerId) {
+      alert("Please link this account to a worker profile.");
       return;
     }
 
@@ -129,9 +218,10 @@ export default function StaffAccounts() {
         await updateStaff(editingId, {
           name,
           email,
+          workerId: selectedRole === "superadmin" ? null : formData.workerId,
         });
 
-        alert("Staff account updated successfully.");
+        alert("Account updated successfully.");
       } else {
         await createStaff({
           name,
@@ -139,24 +229,26 @@ export default function StaffAccounts() {
           password: formData.password,
           role: formData.role,
           status: formData.status,
+          workerId: formData.role === "superadmin" ? null : formData.workerId,
         });
 
-        alert("Staff account created successfully.");
+        alert("Account created successfully.");
       }
 
       resetForm();
-      await loadStaff(false);
-    } catch (err) {
-      console.error("STAFF SAVE ERROR:", err);
 
-      alert(getErrorMessage(err, "Failed to save staff account."));
+      await Promise.all([loadStaff(false), loadWorkers()]);
+    } catch (err) {
+      console.error("ACCOUNT SAVE ERROR:", err);
+
+      alert(getErrorMessage(err, "Failed to save account."));
     } finally {
       setSaving(false);
     }
   };
 
   // ============================================================
-  // EDIT STAFF
+  // EDIT ACCOUNT
   // ============================================================
 
   const handleEdit = (user) => {
@@ -168,6 +260,7 @@ export default function StaffAccounts() {
       password: "",
       role: user.role || "staff",
       status: normalizeStatus(user.status),
+      workerId: getWorkerId(user.workerId),
     });
 
     window.scrollTo({
@@ -177,12 +270,12 @@ export default function StaffAccounts() {
   };
 
   // ============================================================
-  // DELETE STAFF
+  // DELETE ACCOUNT
   // ============================================================
 
   const handleDelete = async (id) => {
     const confirmed = window.confirm(
-      "Are you sure you want to delete this staff account? This action cannot be undone.",
+      "Are you sure you want to delete this account? This action cannot be undone.",
     );
 
     if (!confirmed) return;
@@ -194,13 +287,13 @@ export default function StaffAccounts() {
 
       if (editingId === id) resetForm();
 
-      alert("Staff account deleted successfully.");
+      alert("Account deleted successfully.");
 
       await loadStaff(false);
     } catch (err) {
-      console.error("DELETE STAFF ERROR:", err);
+      console.error("DELETE ACCOUNT ERROR:", err);
 
-      alert(getErrorMessage(err, "Failed to delete staff account."));
+      alert(getErrorMessage(err, "Failed to delete account."));
     } finally {
       setActionId(null);
     }
@@ -228,8 +321,8 @@ export default function StaffAccounts() {
 
       alert(
         currentlyActive
-          ? "Staff account disabled successfully."
-          : "Staff account activated successfully.",
+          ? "Account disabled successfully."
+          : "Account activated successfully.",
       );
 
       await loadStaff(false);
@@ -305,13 +398,17 @@ export default function StaffAccounts() {
 
       await updateRole(user._id, normalizedRole);
 
-      alert("Staff role updated successfully.");
+      alert(
+        normalizedRole === "superadmin"
+          ? "Role updated. The worker profile link has been cleared."
+          : "Role updated successfully.",
+      );
 
       await loadStaff(false);
     } catch (err) {
       console.error("UPDATE ROLE ERROR:", err);
 
-      alert(getErrorMessage(err, "Failed to update staff role."));
+      alert(getErrorMessage(err, "Failed to update account role."));
     } finally {
       setActionId(null);
     }
@@ -327,6 +424,13 @@ export default function StaffAccounts() {
     if (!term) return staff;
 
     return staff.filter((user) => {
+      const worker =
+        user.workerId && typeof user.workerId === "object"
+          ? user.workerId
+          : null;
+
+      const workerName = worker ? getWorkerName(worker) : "";
+
       return (
         String(user.name || "")
           .toLowerCase()
@@ -338,6 +442,10 @@ export default function StaffAccounts() {
           .toLowerCase()
           .includes(term) ||
         String(user.status || "")
+          .toLowerCase()
+          .includes(term) ||
+        workerName.toLowerCase().includes(term) ||
+        String(worker?.employeeId || "")
           .toLowerCase()
           .includes(term)
       );
@@ -355,6 +463,10 @@ export default function StaffAccounts() {
   const disabledCount = staff.length - activeCount;
 
   const managerCount = staff.filter((user) => user.role === "manager").length;
+
+  const linkedCount = staff.filter((user) =>
+    Boolean(getWorkerId(user.workerId)),
+  ).length;
 
   // ============================================================
   // RENDER
@@ -376,23 +488,27 @@ export default function StaffAccounts() {
             </h1>
 
             <p className="mt-1 text-sm text-gray-500">
-              Manage user accounts, access roles and account status.
+              Manage user accounts, worker profiles, access roles and account
+              status.
             </p>
           </div>
 
           <button
             type="button"
-            onClick={() => loadStaff()}
-            disabled={loading}
+            onClick={() => {
+              loadStaff();
+              loadWorkers();
+            }}
+            disabled={loading || workersLoading}
             className="rounded-lg border border-green-200 bg-white px-4 py-2.5 text-sm font-semibold text-green-800 transition hover:bg-green-50 disabled:cursor-not-allowed disabled:opacity-50"
           >
-            {loading ? "Refreshing..." : "↻ Refresh Accounts"}
+            {loading || workersLoading ? "Refreshing..." : "↻ Refresh Accounts"}
           </button>
         </div>
 
         {/* SUMMARY CARDS */}
 
-        <div className="mb-7 grid grid-cols-1 gap-4 sm:grid-cols-2 xl:grid-cols-4">
+        <div className="mb-7 grid grid-cols-1 gap-4 sm:grid-cols-2 xl:grid-cols-5">
           <div className="rounded-xl border border-gray-100 bg-white p-5 shadow-sm">
             <p className="text-sm text-gray-500">Total Accounts</p>
             <p className="mt-2 text-3xl font-bold text-gray-800">
@@ -430,6 +546,16 @@ export default function StaffAccounts() {
               Users with manager access
             </p>
           </div>
+
+          <div className="rounded-xl border border-purple-100 bg-white p-5 shadow-sm">
+            <p className="text-sm text-gray-500">Linked Accounts</p>
+            <p className="mt-2 text-3xl font-bold text-purple-700">
+              {linkedCount}
+            </p>
+            <p className="mt-1 text-xs text-gray-400">
+              Accounts connected to workers
+            </p>
+          </div>
         </div>
 
         {/* CREATE / EDIT FORM */}
@@ -443,8 +569,8 @@ export default function StaffAccounts() {
 
               <p className="mt-1 text-sm text-gray-500">
                 {editingId
-                  ? "Update the selected user's details."
-                  : "Add a new user to the farm management system."}
+                  ? "Update account details and linked worker profile."
+                  : "Create a login account and connect it to a worker profile."}
               </p>
             </div>
 
@@ -462,6 +588,8 @@ export default function StaffAccounts() {
 
           <form onSubmit={handleSubmit}>
             <div className="grid grid-cols-1 gap-4 md:grid-cols-2">
+              {/* NAME */}
+
               <div>
                 <label className="mb-1.5 block text-sm font-medium text-gray-700">
                   Full Name
@@ -478,6 +606,8 @@ export default function StaffAccounts() {
                 />
               </div>
 
+              {/* EMAIL */}
+
               <div>
                 <label className="mb-1.5 block text-sm font-medium text-gray-700">
                   Email Address
@@ -493,6 +623,8 @@ export default function StaffAccounts() {
                   required
                 />
               </div>
+
+              {/* PASSWORD */}
 
               {!editingId && (
                 <div>
@@ -514,6 +646,8 @@ export default function StaffAccounts() {
                 </div>
               )}
 
+              {/* ROLE */}
+
               {!editingId && (
                 <div>
                   <label className="mb-1.5 block text-sm font-medium text-gray-700">
@@ -533,6 +667,8 @@ export default function StaffAccounts() {
                 </div>
               )}
 
+              {/* ACCOUNT STATUS */}
+
               {!editingId && (
                 <div>
                   <label className="mb-1.5 block text-sm font-medium text-gray-700">
@@ -550,6 +686,85 @@ export default function StaffAccounts() {
                   </select>
                 </div>
               )}
+
+              {/* WORKER PROFILE */}
+
+              {formData.role !== "superadmin" && (
+                <div className="md:col-span-2">
+                  <label className="mb-1.5 block text-sm font-medium text-gray-700">
+                    Link Worker Profile
+                    <span className="ml-1 text-red-600">*</span>
+                  </label>
+
+                  <select
+                    name="workerId"
+                    value={formData.workerId}
+                    onChange={handleChange}
+                    disabled={workersLoading || saving}
+                    required
+                    className="w-full rounded-lg border border-gray-300 bg-white px-4 py-3 text-sm outline-none focus:border-green-600 focus:ring-2 focus:ring-green-100 disabled:cursor-not-allowed disabled:bg-gray-100"
+                  >
+                    <option value="">
+                      {workersLoading
+                        ? "Loading worker profiles..."
+                        : "Select an active worker"}
+                    </option>
+
+                    {activeWorkers.map((worker) => (
+                      <option key={worker._id} value={worker._id}>
+                        {getWorkerName(worker)}
+                        {" — "}
+                        {worker.employeeId || "No Employee ID"}
+                      </option>
+                    ))}
+                  </select>
+
+                  {workerLoadError ? (
+                    <div className="mt-2 rounded-lg border border-red-200 bg-red-50 p-3 text-xs text-red-700">
+                      {workerLoadError}
+
+                      <button
+                        type="button"
+                        onClick={loadWorkers}
+                        className="ml-2 font-semibold underline"
+                      >
+                        Retry
+                      </button>
+                    </div>
+                  ) : (
+                    <p className="mt-1.5 text-xs text-gray-500">
+                      Select the worker whose identity this login account will
+                      use. Only active worker profiles are available.
+                    </p>
+                  )}
+
+                  {!workersLoading &&
+                    !workerLoadError &&
+                    activeWorkers.length === 0 && (
+                      <p className="mt-2 text-xs font-medium text-amber-700">
+                        No active worker profiles are available. Create or
+                        activate a worker profile first.
+                      </p>
+                    )}
+                </div>
+              )}
+
+              {/* SUPERADMIN NOTICE */}
+
+              {formData.role === "superadmin" && (
+                <div className="rounded-lg border border-purple-100 bg-purple-50 p-4 md:col-span-2">
+                  <p className="font-semibold text-purple-900">
+                    Superadmin account
+                  </p>
+
+                  <p className="mt-1 text-sm text-purple-700">
+                    Superadmin accounts are not linked to individual worker
+                    profiles.
+                  </p>
+                </div>
+              )}
+
+              {/* EDIT ROLE INFORMATION */}
 
               {editingId && (
                 <div className="rounded-lg border border-blue-100 bg-blue-50 p-4">
@@ -572,14 +787,18 @@ export default function StaffAccounts() {
             <div className="mt-5 flex flex-wrap gap-3">
               <button
                 type="submit"
-                disabled={saving || loading}
+                disabled={
+                  saving ||
+                  (formData.role !== "superadmin" &&
+                    (workersLoading || activeWorkers.length === 0))
+                }
                 className="rounded-lg bg-green-700 px-6 py-3 text-sm font-semibold text-white transition hover:bg-green-800 disabled:cursor-not-allowed disabled:opacity-50"
               >
                 {saving
                   ? "Saving..."
                   : editingId
-                    ? "Update Staff Account"
-                    : "Create Staff Account"}
+                    ? "Update Account"
+                    : "Create Account"}
               </button>
 
               {!editingId && (
@@ -596,7 +815,7 @@ export default function StaffAccounts() {
           </form>
         </div>
 
-        {/* STAFF TABLE */}
+        {/* REGISTERED ACCOUNTS TABLE */}
 
         <div className="overflow-hidden rounded-xl border border-gray-100 bg-white shadow-sm">
           <div className="flex flex-col gap-4 border-b border-gray-100 p-5 md:flex-row md:items-center md:justify-between">
@@ -615,7 +834,7 @@ export default function StaffAccounts() {
                 type="search"
                 value={search}
                 onChange={(e) => setSearch(e.target.value)}
-                placeholder="Search name, email, role or status..."
+                placeholder="Search account, worker, email or role..."
                 className="w-full rounded-lg border border-gray-300 px-4 py-2.5 text-sm outline-none focus:border-green-600 focus:ring-2 focus:ring-green-100"
               />
             </div>
@@ -624,6 +843,7 @@ export default function StaffAccounts() {
           {loadError && (
             <div className="m-5 rounded-lg border border-red-200 bg-red-50 p-4 text-sm text-red-700">
               <p className="font-semibold">Unable to load staff accounts</p>
+
               <p className="mt-1">{loadError}</p>
 
               <button
@@ -637,11 +857,12 @@ export default function StaffAccounts() {
           )}
 
           <div className="overflow-x-auto">
-            <table className="w-full min-w-[850px] text-left">
+            <table className="w-full min-w-[1050px] text-left">
               <thead className="bg-[#f7f9f6]">
                 <tr className="text-xs font-semibold uppercase tracking-wide text-gray-500">
-                  <th className="px-5 py-4">Staff Member</th>
+                  <th className="px-5 py-4">Account</th>
                   <th className="px-5 py-4">Email Address</th>
+                  <th className="px-5 py-4">Linked Worker</th>
                   <th className="px-5 py-4">Role</th>
                   <th className="px-5 py-4">Status</th>
                   <th className="px-5 py-4">Actions</th>
@@ -652,25 +873,25 @@ export default function StaffAccounts() {
                 {loading && staff.length === 0 ? (
                   <tr>
                     <td
-                      colSpan="5"
+                      colSpan="6"
                       className="px-5 py-12 text-center text-sm text-gray-500"
                     >
-                      Loading staff accounts...
+                      Loading accounts...
                     </td>
                   </tr>
                 ) : filteredStaff.length === 0 ? (
                   <tr>
-                    <td colSpan="5" className="px-5 py-12 text-center">
+                    <td colSpan="6" className="px-5 py-12 text-center">
                       <p className="font-medium text-gray-600">
                         {search
-                          ? "No matching staff accounts found."
-                          : "No staff accounts found."}
+                          ? "No matching accounts found."
+                          : "No accounts found."}
                       </p>
 
                       <p className="mt-1 text-sm text-gray-400">
                         {search
                           ? "Try another search term."
-                          : "Create a staff account using the form above."}
+                          : "Create an account using the form above."}
                       </p>
                     </td>
                   </tr>
@@ -680,11 +901,18 @@ export default function StaffAccounts() {
 
                     const isBusy = actionId === user._id;
 
+                    const linkedWorker =
+                      user.workerId && typeof user.workerId === "object"
+                        ? user.workerId
+                        : null;
+
                     return (
                       <tr
                         key={user._id}
                         className="transition hover:bg-gray-50"
                       >
+                        {/* ACCOUNT */}
+
                         <td className="px-5 py-4">
                           <div className="flex items-center gap-3">
                             <div className="flex h-10 w-10 shrink-0 items-center justify-center rounded-full bg-green-100 text-sm font-bold uppercase text-green-800">
@@ -697,15 +925,48 @@ export default function StaffAccounts() {
                               </p>
 
                               <p className="text-xs text-gray-400">
-                                Staff account
+                                Login account
                               </p>
                             </div>
                           </div>
                         </td>
 
+                        {/* EMAIL */}
+
                         <td className="px-5 py-4 text-sm text-gray-600">
                           {user.email || "No email"}
                         </td>
+
+                        {/* LINKED WORKER */}
+
+                        <td className="px-5 py-4">
+                          {linkedWorker ? (
+                            <div>
+                              <p className="text-sm font-semibold text-gray-800">
+                                {getWorkerName(linkedWorker)}
+                              </p>
+
+                              <p className="mt-0.5 text-xs text-gray-500">
+                                ID: {linkedWorker.employeeId || "Not assigned"}
+                              </p>
+
+                              {linkedWorker.status &&
+                                linkedWorker.status !== "Active" && (
+                                  <p className="mt-1 text-xs font-medium text-amber-700">
+                                    Worker is {linkedWorker.status}
+                                  </p>
+                                )}
+                            </div>
+                          ) : (
+                            <span className="text-xs font-medium text-gray-400">
+                              {user.role === "superadmin"
+                                ? "Not applicable"
+                                : "Not linked"}
+                            </span>
+                          )}
+                        </td>
+
+                        {/* ROLE */}
 
                         <td className="px-5 py-4">
                           <span
@@ -721,6 +982,8 @@ export default function StaffAccounts() {
                           </span>
                         </td>
 
+                        {/* STATUS */}
+
                         <td className="px-5 py-4">
                           <span
                             className={`inline-flex items-center gap-1.5 rounded-full px-3 py-1 text-xs font-semibold ${
@@ -734,9 +997,12 @@ export default function StaffAccounts() {
                                 isActive ? "bg-green-600" : "bg-amber-500"
                               }`}
                             />
+
                             {isActive ? "Active" : "Disabled"}
                           </span>
                         </td>
+
+                        {/* ACTIONS */}
 
                         <td className="px-5 py-4">
                           <div className="flex flex-wrap gap-2">
@@ -804,8 +1070,9 @@ export default function StaffAccounts() {
 
           <div className="border-t border-gray-100 bg-gray-50 px-5 py-3">
             <p className="text-xs text-gray-500">
-              Staff account access is controlled by the assigned role and
-              account status.
+              Each manager or staff login should be linked to its corresponding
+              active worker profile. Superadmin accounts do not require a worker
+              profile.
             </p>
           </div>
         </div>

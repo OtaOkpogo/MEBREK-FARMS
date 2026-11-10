@@ -1341,7 +1341,24 @@ export default function AdminLayout() {
         )}
       </nav>
 
-      <div className="mt-8 border-t border-green-700/70 pt-4 text-center">
+      {/* ======================================================
+          BOTTOM LOGOUT BUTTON
+          ====================================================== */}
+
+      <div className="mt-6 border-t border-green-700/70 pt-5">
+        <button
+          type="button"
+          onClick={handleLogout}
+          className="flex min-h-12 w-full items-center justify-center gap-3 rounded-xl border border-red-400/30 bg-red-500/90 px-4 py-3 text-sm font-bold text-white shadow-sm transition-all duration-200 hover:bg-red-600 hover:shadow-md focus:outline-none focus-visible:ring-2 focus-visible:ring-red-300"
+        >
+          <LogOut size={18} />
+          Logout
+        </button>
+      </div>
+
+      {/* SIDEBAR FOOTER */}
+
+      <div className="mt-5 border-t border-green-700/70 pt-4 text-center">
         <p className="text-[11px] text-green-300">
           Mebrek Farms Management System
         </p>

@@ -1,20 +1,27 @@
 import apiClient from "./apiClient";
 
 // ============================================================
-// GET ALL STAFF
+// GET ALL STAFF ACCOUNTS
 // ============================================================
 
 export const fetchStaff = async () => {
   const response = await apiClient.get("/auth/admins");
 
-  console.log("STAFF API RESPONSE:", response.data);
-  console.log("STAFF IS ARRAY:", Array.isArray(response.data));
+  return Array.isArray(response.data) ? response.data : [];
+};
+
+// ============================================================
+// GET WORKERS FOR ACCOUNT LINKING
+// ============================================================
+
+export const fetchWorkers = async () => {
+  const response = await apiClient.get("/workers");
 
   return Array.isArray(response.data) ? response.data : [];
 };
 
 // ============================================================
-// CREATE
+// CREATE STAFF ACCOUNT
 // ============================================================
 
 export const createStaff = async (data) => {
@@ -24,7 +31,7 @@ export const createStaff = async (data) => {
 };
 
 // ============================================================
-// UPDATE NAME / EMAIL
+// UPDATE ACCOUNT DETAILS
 // ============================================================
 
 export const updateStaff = async (id, data) => {
@@ -34,7 +41,7 @@ export const updateStaff = async (id, data) => {
 };
 
 // ============================================================
-// DELETE
+// DELETE ACCOUNT
 // ============================================================
 
 export const deleteStaff = async (id) => {
@@ -56,7 +63,7 @@ export const updateRole = async (id, role) => {
 };
 
 // ============================================================
-// TOGGLE STATUS
+// TOGGLE ACCOUNT STATUS
 // ============================================================
 
 export const toggleStatus = async (id) => {

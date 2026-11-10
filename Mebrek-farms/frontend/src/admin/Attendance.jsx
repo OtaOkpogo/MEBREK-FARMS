@@ -10,6 +10,9 @@ import {
 import {
   fetchAttendance,
   fetchAttendanceWorkers,
+  fetchMyAttendance,
+  checkIn,
+  checkOut,
   createAttendance,
   updateAttendance,
   deleteAttendance,
@@ -49,14 +52,6 @@ const localDate = (date = new Date()) => {
   return `${year}-${month}-${day}`;
 };
 
-const currentTime = () => {
-  const date = new Date();
-
-  return `${String(date.getHours()).padStart(2, "0")}:${String(
-    date.getMinutes(),
-  ).padStart(2, "0")}`;
-};
-
 const currentMonth = () => localDate().slice(0, 7);
 
 const formatDate = (value) => {
@@ -82,7 +77,345 @@ const inputClass =
 const buttonClass =
   "rounded-lg px-4 py-2 text-sm font-semibold transition disabled:cursor-not-allowed disabled:opacity-50";
 
-export default function Attendance() {
+// ============================================================
+// PERSONAL ATTENDANCE PANEL
+// Manager and staff.
+// ============================================================
+
+function PersonalAttendancePanel() {
+  const [records, setRecords] = useState([]);
+  const [loading, setLoading] = useState(true);
+  const [processing, setProcessing] = useState(false);
+  const [error, setError] = useState("");
+  const [notice, setNotice] = useState("");
+
+  const today = localDate();
+
+  const loadMyAttendance = useCallback(async () => {
+    setLoading(true);
+    setError("");
+
+    try {
+      const result = await fetchMyAttendance();
+
+      setRecords(Array.isArray(result) ? result : []);
+    } catch (err) {
+      console.error("LOAD PERSONAL ATTENDANCE ERROR:", err);
+
+      setError(
+        err?.response?.data?.message ||
+          err?.response?.data?.error ||
+          "Unable to load your attendance history.",
+      );
+    } finally {
+      setLoading(false);
+    }
+  }, []);
+
+  useEffect(() => {
+    loadMyAttendance();
+  }, [loadMyAttendance]);
+
+  const todayRecord = records.find(
+    (item) => getRecordDate(item) === today && !item.isDeleted,
+  );
+
+  const hasCheckedIn = Boolean(todayRecord?.checkInTime);
+  const hasCheckedOut = Boolean(todayRecord?.checkOutTime);
+
+  const handleCheckIn = async () => {
+    setProcessing(true);
+    setError("");
+    setNotice("");
+
+    try {
+      const response = await checkIn();
+
+      setNotice(
+        response?.message || "Your check-in was recorded successfully.",
+      );
+
+      await loadMyAttendance();
+    } catch (err) {
+      setError(
+        err?.response?.data?.message ||
+          err?.response?.data?.error ||
+          "Unable to check in. Please try again.",
+      );
+
+      if (err?.response?.status === 409) {
+        await loadMyAttendance();
+      }
+    } finally {
+      setProcessing(false);
+    }
+  };
+
+  const handleCheckOut = async () => {
+    setProcessing(true);
+    setError("");
+    setNotice("");
+
+    try {
+      const response = await checkOut();
+
+      setNotice(
+        response?.message || "Your check-out was recorded successfully.",
+      );
+
+      await loadMyAttendance();
+    } catch (err) {
+      setError(
+        err?.response?.data?.message ||
+          err?.response?.data?.error ||
+          "Unable to check out. Please try again.",
+      );
+
+      if (err?.response?.status === 409) {
+        await loadMyAttendance();
+      }
+    } finally {
+      setProcessing(false);
+    }
+  };
+
+  const sortedRecords = useMemo(
+    () =>
+      [...records].sort((a, b) =>
+        getRecordDate(b).localeCompare(getRecordDate(a)),
+      ),
+    [records],
+  );
+
+  return (
+    <div className="space-y-6">
+      {/* PERSONAL ATTENDANCE OVERVIEW */}
+
+      <section className="rounded-xl border border-gray-200 bg-white p-5 shadow-sm md:p-6">
+        <div className="flex flex-col justify-between gap-3 sm:flex-row sm:items-center">
+          <div>
+            <h2 className="text-xl font-bold text-gray-900">My Attendance</h2>
+
+            <p className="mt-1 text-sm text-gray-500">
+              Record your daily arrival and departure and review your attendance
+              history.
+            </p>
+          </div>
+
+          <button
+            type="button"
+            onClick={loadMyAttendance}
+            disabled={loading || processing}
+            className={`${buttonClass} border border-gray-300 bg-white text-gray-700 hover:bg-gray-50`}
+          >
+            Refresh
+          </button>
+        </div>
+
+        {error && (
+          <div className="mt-4 rounded-lg border border-red-200 bg-red-50 p-3 text-sm text-red-700">
+            {error}
+          </div>
+        )}
+
+        {notice && (
+          <div className="mt-4 rounded-lg border border-green-200 bg-green-50 p-3 text-sm text-green-800">
+            {notice}
+          </div>
+        )}
+
+        <div className="mt-5 grid gap-4 md:grid-cols-3">
+          <div className="rounded-xl bg-gray-50 p-4">
+            <p className="text-sm text-gray-500">Today's Date</p>
+
+            <p className="mt-2 text-lg font-bold text-gray-900">
+              {formatDate(today)}
+            </p>
+          </div>
+
+          <div className="rounded-xl bg-green-50 p-4">
+            <p className="text-sm text-gray-500">Check-in</p>
+
+            <p className="mt-2 text-lg font-bold text-green-800">
+              {todayRecord?.checkInTime || "Not checked in"}
+            </p>
+          </div>
+
+          <div className="rounded-xl bg-blue-50 p-4">
+            <p className="text-sm text-gray-500">Check-out</p>
+
+            <p className="mt-2 text-lg font-bold text-blue-800">
+              {todayRecord?.checkOutTime || "Not checked out"}
+            </p>
+          </div>
+        </div>
+
+        {/* CHECK-IN / CHECK-OUT */}
+
+        <div className="mt-5 rounded-xl border border-gray-200 p-4">
+          <h3 className="font-semibold text-gray-900">
+            Daily Attendance Action
+          </h3>
+
+          <p className="mt-1 text-sm text-gray-500">
+            Check in when you arrive at the farm and check out when you finish
+            work.
+          </p>
+
+          <div className="mt-4 flex flex-wrap gap-3">
+            <button
+              type="button"
+              onClick={handleCheckIn}
+              disabled={loading || processing || hasCheckedIn}
+              className={`${buttonClass} bg-green-700 text-white hover:bg-green-800`}
+            >
+              {processing
+                ? "Processing..."
+                : hasCheckedIn
+                  ? "Already Checked In"
+                  : "Check In"}
+            </button>
+
+            <button
+              type="button"
+              onClick={handleCheckOut}
+              disabled={loading || processing || !hasCheckedIn || hasCheckedOut}
+              className={`${buttonClass} bg-blue-700 text-white hover:bg-blue-800`}
+            >
+              {processing
+                ? "Processing..."
+                : hasCheckedOut
+                  ? "Already Checked Out"
+                  : "Check Out"}
+            </button>
+          </div>
+
+          {todayRecord && (
+            <div className="mt-4 flex flex-wrap gap-3 text-sm">
+              <span
+                className={`rounded-full px-3 py-1 ${
+                  STATUS_COLORS[todayRecord.status] ||
+                  "bg-gray-100 text-gray-700"
+                }`}
+              >
+                {todayRecord.status}
+              </span>
+
+              {todayRecord.isLate && (
+                <span className="rounded-full bg-amber-100 px-3 py-1 text-amber-800">
+                  Late arrival
+                </span>
+              )}
+
+              <span className="rounded-full bg-gray-100 px-3 py-1 text-gray-700">
+                {formatHours(todayRecord.workingHours)} worked
+              </span>
+            </div>
+          )}
+
+          {hasCheckedIn && !hasCheckedOut && (
+            <p className="mt-3 text-sm text-green-700">
+              Your check-in has been recorded. Remember to check out before
+              leaving.
+            </p>
+          )}
+
+          {hasCheckedOut && (
+            <p className="mt-3 text-sm text-blue-700">
+              Your attendance for today is complete.
+            </p>
+          )}
+        </div>
+      </section>
+
+      {/* PERSONAL HISTORY */}
+
+      <section className="rounded-xl border border-gray-200 bg-white p-5 shadow-sm md:p-6">
+        <div className="mb-4 flex flex-wrap items-center justify-between gap-2">
+          <div>
+            <h2 className="text-lg font-bold text-gray-900">
+              My Attendance History
+            </h2>
+
+            <p className="text-sm text-gray-500">
+              Your personal attendance records.
+            </p>
+          </div>
+
+          <span className="rounded-full bg-green-50 px-3 py-1 text-sm font-semibold text-green-800">
+            {records.length} record
+            {records.length === 1 ? "" : "s"}
+          </span>
+        </div>
+
+        {loading ? (
+          <p className="py-8 text-center text-gray-500">
+            Loading your attendance...
+          </p>
+        ) : (
+          <div className="overflow-x-auto">
+            <table className="w-full min-w-[650px] text-left text-sm">
+              <thead className="bg-green-800 text-white">
+                <tr>
+                  <th className="p-3">Date</th>
+                  <th className="p-3">Status</th>
+                  <th className="p-3">Check In</th>
+                  <th className="p-3">Check Out</th>
+                  <th className="p-3">Late</th>
+                  <th className="p-3">Working Hours</th>
+                </tr>
+              </thead>
+
+              <tbody>
+                {sortedRecords.map((item) => (
+                  <tr key={item._id} className="border-b border-gray-100">
+                    <td className="p-3 font-medium text-gray-900">
+                      {formatDate(getRecordDate(item))}
+                    </td>
+
+                    <td className="p-3">
+                      <span
+                        className={`rounded-full px-2 py-1 text-xs ${
+                          STATUS_COLORS[item.status] ||
+                          "bg-gray-100 text-gray-700"
+                        }`}
+                      >
+                        {item.status}
+                      </span>
+                    </td>
+
+                    <td className="p-3">{item.checkInTime || "—"}</td>
+
+                    <td className="p-3">{item.checkOutTime || "—"}</td>
+
+                    <td className="p-3">{item.isLate ? "Yes" : "No"}</td>
+
+                    <td className="p-3">{formatHours(item.workingHours)}</td>
+                  </tr>
+                ))}
+
+                {sortedRecords.length === 0 && (
+                  <tr>
+                    <td colSpan={6} className="p-8 text-center text-gray-500">
+                      You do not have any attendance records yet.
+                    </td>
+                  </tr>
+                )}
+              </tbody>
+            </table>
+          </div>
+        )}
+      </section>
+    </div>
+  );
+}
+
+// ============================================================
+// ADMINISTRATIVE ATTENDANCE DASHBOARD
+// Superadmin and manager.
+// ============================================================
+
+function AttendanceAdministration() {
   const role = localStorage.getItem("role");
 
   const canDelete = role === "manager" || role === "superadmin";
@@ -365,7 +698,7 @@ export default function Attendance() {
   };
 
   // ============================================================
-  // CHECK-IN / CHECK-OUT
+  // ADMIN CHECK-IN / CHECK-OUT
   // ============================================================
 
   const handleTimeAction = async (item, field) => {
@@ -373,14 +706,20 @@ export default function Attendance() {
     setNotice("");
 
     try {
-      const time = currentTime();
+      const date = new Date();
+
+      const time = `${String(date.getHours()).padStart(2, "0")}:${String(
+        date.getMinutes(),
+      ).padStart(2, "0")}`;
 
       await updateAttendance(item._id, {
         [field]: time,
       });
 
       setNotice(
-        `${field === "checkInTime" ? "Check-in" : "Check-out"} recorded for ${item.workerName}.`,
+        `${
+          field === "checkInTime" ? "Check-in" : "Check-out"
+        } recorded for ${item.workerName}.`,
       );
 
       await loadData();
@@ -484,7 +823,7 @@ export default function Attendance() {
   }));
 
   // ============================================================
-  // EXPORT EXCEL - LOAD LIBRARY ONLY WHEN CLICKED
+  // EXPORT EXCEL
   // ============================================================
 
   const exportExcel = async () => {
@@ -526,7 +865,7 @@ export default function Attendance() {
   };
 
   // ============================================================
-  // EXPORT PDF - LOAD LIBRARIES ONLY WHEN CLICKED
+  // EXPORT PDF
   // ============================================================
 
   const exportPDF = async () => {
@@ -599,18 +938,18 @@ export default function Attendance() {
   };
 
   // ============================================================
-  // PAGE UI
+  // ADMINISTRATIVE PAGE UI
   // ============================================================
 
   return (
-    <div className="space-y-6 p-4 md:p-6">
-      {/* PAGE HEADER */}
+    <div className="space-y-6">
+      {/* FACE ATTENDANCE */}
 
       <div className="flex flex-col justify-between gap-3 md:flex-row md:items-center">
         <div>
-          <h1 className="text-2xl font-bold text-gray-900 md:text-3xl">
-            Farm Attendance
-          </h1>
+          <h2 className="text-xl font-bold text-gray-900">
+            Attendance Administration
+          </h2>
 
           <p className="mt-1 text-sm text-gray-500">
             Record attendance, monitor working hours, and review monthly
@@ -983,9 +1322,7 @@ export default function Attendance() {
 
                   {isSuperadmin && <th className="p-3">Deleted By</th>}
 
-                  {(canDelete || isSuperadmin) && (
-                    <th className="p-3">Actions</th>
-                  )}
+                  {canDelete && <th className="p-3">Actions</th>}
                 </tr>
               </thead>
 
@@ -1110,27 +1447,27 @@ export default function Attendance() {
                       </td>
                     )}
 
-                    {(canDelete || isSuperadmin) && (
+                    {canDelete && (
                       <td className="p-3">
-                        {item.isDeleted
-                          ? isSuperadmin && (
-                              <button
-                                type="button"
-                                onClick={() => handleRestore(item._id)}
-                                className={`${buttonClass} bg-green-700 text-white hover:bg-green-800`}
-                              >
-                                Restore
-                              </button>
-                            )
-                          : canDelete && (
-                              <button
-                                type="button"
-                                onClick={() => handleDelete(item._id)}
-                                className={`${buttonClass} bg-red-600 text-white hover:bg-red-700`}
-                              >
-                                Delete
-                              </button>
-                            )}
+                        {item.isDeleted ? (
+                          isSuperadmin && (
+                            <button
+                              type="button"
+                              onClick={() => handleRestore(item._id)}
+                              className={`${buttonClass} bg-green-700 text-white hover:bg-green-800`}
+                            >
+                              Restore
+                            </button>
+                          )
+                        ) : (
+                          <button
+                            type="button"
+                            onClick={() => handleDelete(item._id)}
+                            className={`${buttonClass} bg-red-600 text-white hover:bg-red-700`}
+                          >
+                            Delete
+                          </button>
+                        )}
                       </td>
                     )}
                   </tr>
@@ -1139,7 +1476,7 @@ export default function Attendance() {
                 {filteredRecords.length === 0 && (
                   <tr>
                     <td
-                      colSpan={isSuperadmin ? 10 : canDelete ? 9 : 8}
+                      colSpan={isSuperadmin ? 10 : 9}
                       className="p-10 text-center text-gray-500"
                     >
                       No attendance records found for this filter.
@@ -1151,6 +1488,68 @@ export default function Attendance() {
           </div>
         )}
       </section>
+    </div>
+  );
+}
+
+// ============================================================
+// MAIN ATTENDANCE PAGE
+// ============================================================
+
+export default function Attendance() {
+  const role = localStorage.getItem("role");
+
+  if (role === "staff") {
+    return (
+      <div className="space-y-6 p-4 md:p-6">
+        <div>
+          <h1 className="text-2xl font-bold text-gray-900 md:text-3xl">
+            Farm Attendance
+          </h1>
+
+          <p className="mt-1 text-sm text-gray-500">
+            Manage your personal attendance and view your history.
+          </p>
+        </div>
+
+        <PersonalAttendancePanel />
+      </div>
+    );
+  }
+
+  if (role === "manager") {
+    return (
+      <div className="space-y-6 p-4 md:p-6">
+        <div>
+          <h1 className="text-2xl font-bold text-gray-900 md:text-3xl">
+            Farm Attendance
+          </h1>
+
+          <p className="mt-1 text-sm text-gray-500">
+            Manage your personal attendance and oversee farm attendance.
+          </p>
+        </div>
+
+        <PersonalAttendancePanel />
+
+        <AttendanceAdministration />
+      </div>
+    );
+  }
+
+  return (
+    <div className="space-y-6 p-4 md:p-6">
+      <div>
+        <h1 className="text-2xl font-bold text-gray-900 md:text-3xl">
+          Farm Attendance
+        </h1>
+
+        <p className="mt-1 text-sm text-gray-500">
+          Manage farm attendance, monitor working hours, and review reports.
+        </p>
+      </div>
+
+      <AttendanceAdministration />
     </div>
   );
 }
