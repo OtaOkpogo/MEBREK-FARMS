@@ -1,4 +1,15 @@
 import { Link as RouterLink } from "react-router-dom";
+import {
+  whatsappLink,
+  focusRing,
+  btn,
+  WhatsAppIcon,
+  Wave,
+  SectionHeading,
+  PageHero,
+  FarmStyles,
+  QuickContact,
+} from "./farmShared";
 
 // ============================================================
 // EGG PRODUCTS
@@ -55,42 +66,58 @@ function EggProductCard({ product }) {
   return (
     <article
       data-stagger-card
-      className="product-card group relative overflow-hidden rounded-3xl bg-white shadow-sm ring-1 ring-black/5 transition-all duration-300 hover:-translate-y-2 hover:shadow-2xl"
+      className="product-card group flex flex-col overflow-hidden rounded-3xl bg-white shadow-md ring-1 ring-[#14221B]/10 transition-all duration-300 hover:-translate-y-1.5 hover:shadow-2xl"
     >
-      <div className="relative flex h-52 items-center justify-center overflow-hidden bg-gradient-to-br from-green-50 via-yellow-50 to-white">
-        <div className="absolute -right-10 -top-10 h-32 w-32 rounded-full bg-yellow-200/50 transition-transform duration-500 group-hover:scale-125" />
+      <div className="relative flex h-44 items-center justify-center overflow-hidden bg-gradient-to-br from-[#EEF1E8] via-[#FFF3D6] to-white">
+        <div className="absolute -right-10 -top-10 h-32 w-32 rounded-full bg-[#F6B93B]/30 transition-transform duration-500 group-hover:scale-125" />
+        <div className="absolute -bottom-16 -left-10 h-40 w-40 rounded-full bg-[#0D3B2B]/10 transition-transform duration-500 group-hover:scale-110" />
 
-        <div className="absolute -bottom-16 -left-10 h-40 w-40 rounded-full bg-green-100/60 transition-transform duration-500 group-hover:scale-110" />
-
-        <div className="relative flex h-28 w-28 items-center justify-center rounded-full bg-white text-6xl shadow-lg ring-8 ring-white/60 transition-transform duration-500 group-hover:scale-110">
+        <div
+          aria-hidden="true"
+          className="relative flex h-24 w-24 items-center justify-center rounded-full bg-white text-5xl shadow-lg ring-8 ring-white/60 transition-transform duration-500 group-hover:scale-110"
+        >
           {product.icon}
         </div>
 
-        <span className="absolute left-5 top-5 rounded-full bg-green-900 px-3 py-1.5 text-xs font-bold uppercase tracking-wide text-white">
+        <span className="absolute left-4 top-4 rounded-full bg-[#0D3B2B] px-3 py-1.5 text-xs font-bold text-white">
           {product.badge}
         </span>
       </div>
 
-      <div className="p-6">
+      <div className="flex flex-1 flex-col p-6">
         <div className="flex items-start justify-between gap-4">
-          <h3 className="text-xl font-bold text-gray-900">{product.name}</h3>
+          <h3 className="mf-display text-2xl font-bold">{product.name}</h3>
 
-          <span className="whitespace-nowrap text-lg font-extrabold text-green-800">
-            {product.price}
-          </span>
+          <div className="text-right">
+            <p className="mf-display whitespace-nowrap text-2xl font-extrabold text-[#0D3B2B]">
+              {product.price}
+            </p>
+            <p className="text-xs text-[#14221B]/60">per crate</p>
+          </div>
         </div>
 
-        <p className="mt-3 min-h-[84px] text-sm leading-7 text-gray-600">
+        <p className="mt-3 flex-1 leading-7 text-[#14221B]/75">
           {product.description}
         </p>
 
-        <div className="mt-5 border-t border-gray-100 pt-5">
+        <div className="mt-6 space-y-3">
+          <a
+            href={whatsappLink(
+              `Hello Mebrek Farms, I want to order ${product.name} (${product.price} per crate).`,
+            )}
+            target="_blank"
+            rel="noopener noreferrer"
+            className={`flex min-h-[3.25rem] w-full items-center justify-center gap-2 rounded-full bg-[#128C4A] px-5 py-3 font-bold text-white transition-colors hover:bg-[#0E7440] ${focusRing}`}
+          >
+            <WhatsAppIcon />
+            Order on WhatsApp
+          </a>
+
           <RouterLink
             to="/contact"
-            className="inline-flex items-center gap-2 font-bold text-green-800 transition hover:gap-3 hover:text-green-950"
+            className={`flex min-h-[3.25rem] w-full items-center justify-center rounded-full border-2 border-[#14221B]/20 px-5 py-3 font-semibold transition-colors hover:border-[#0D3B2B] hover:bg-[#0D3B2B]/5 ${focusRing}`}
           >
-            Enquire about this product
-            <span aria-hidden="true">→</span>
+            Ask a question
           </RouterLink>
         </div>
       </div>
@@ -106,21 +133,25 @@ function ServiceCard({ icon, title, description }) {
   return (
     <div
       data-stagger-card
-      className="service-card rounded-3xl bg-white p-7 shadow-sm ring-1 ring-black/5 transition-all duration-300 hover:-translate-y-1 hover:shadow-xl"
+      className="service-card flex flex-col rounded-3xl bg-white p-7 shadow-md ring-1 ring-[#14221B]/10 transition-all duration-300 hover:-translate-y-1.5 hover:shadow-xl"
     >
-      <div className="flex h-14 w-14 items-center justify-center rounded-2xl bg-green-100 text-3xl">
+      <div
+        aria-hidden="true"
+        className="flex h-14 w-14 items-center justify-center rounded-2xl bg-[#F6B93B]/25 text-3xl"
+      >
         {icon}
       </div>
 
-      <h3 className="mt-6 text-xl font-bold text-gray-900">{title}</h3>
+      <h3 className="mf-display mt-5 text-xl font-bold">{title}</h3>
 
-      <p className="mt-3 leading-7 text-gray-600">{description}</p>
+      <p className="mt-2 flex-1 leading-7 text-[#14221B]/75">{description}</p>
 
       <RouterLink
         to="/contact"
-        className="mt-5 inline-flex font-semibold text-green-800 hover:text-green-950"
+        className={`mt-5 inline-flex min-h-[3rem] items-center gap-2 font-bold text-[#0D3B2B] hover:underline ${focusRing}`}
       >
-        Contact us →
+        Contact us
+        <span aria-hidden="true">→</span>
       </RouterLink>
     </div>
   );
@@ -131,100 +162,95 @@ function ServiceCard({ icon, title, description }) {
 // All animations are handled by PageMotion.jsx
 // ============================================================
 
+const WHY_POINTS = [
+  {
+    title: "Quality-focused production",
+    text: "We pay attention to poultry production and flock management.",
+  },
+  {
+    title: "Clear product options",
+    text: "Customers can choose from different egg sizes and enquire about other farm products.",
+  },
+  {
+    title: "Direct enquiries",
+    text: "Contact us directly to confirm availability, pricing and order requirements.",
+  },
+];
+
 export default function Products() {
   return (
-    <main className="min-h-screen bg-stone-50 text-gray-800">
-      {/* =====================================================
-          BACK TO HOME
-      ===================================================== */}
-
-      <div className="site-container pt-6">
-        <RouterLink
-          to="/"
-          className="inline-flex items-center gap-2 rounded-xl border border-stone-200 bg-white px-4 py-2.5 text-sm font-semibold text-stone-700 shadow-sm transition hover:border-green-700 hover:bg-green-50 hover:text-green-800"
-        >
-          <span aria-hidden="true">←</span>
-          Back to Home
-        </RouterLink>
-      </div>
+    <main className="mf-root min-h-screen overflow-x-hidden bg-[#F4EFE4] text-[#14221B]">
+      <FarmStyles />
 
       {/* =====================================================
           HERO
       ===================================================== */}
 
-      <section className="relative overflow-hidden bg-green-950">
-        <div className="absolute inset-0 bg-gradient-to-br from-green-950 via-green-900 to-green-800" />
-
-        <div className="absolute -right-24 -top-24 h-72 w-72 rounded-full bg-yellow-300/10" />
-
-        <div className="absolute -bottom-32 -left-24 h-96 w-96 rounded-full bg-white/5" />
-
-        <div className="relative site-container py-20 sm:py-24 lg:py-28">
-          <div className="max-w-3xl">
-            <span
-              data-hero-badge
-              className="eyebrow bg-green-800 text-green-100"
-            >
-              MEBREK FARMS PRODUCTS
-            </span>
-
-            <h1
-              data-hero-title
-              className="mt-6 text-4xl font-extrabold leading-tight text-white sm:text-5xl lg:text-6xl"
-            >
-              Fresh farm products,
-              <span className="block text-yellow-300">ready for you.</span>
-            </h1>
-
-            <p
-              data-hero-description
-              className="mt-6 max-w-2xl text-base leading-8 text-green-100 sm:text-lg"
-            >
-              Explore our range of poultry and agricultural products. From
-              everyday eggs to specialty poultry products, we make it easy to
-              enquire and place your order.
+      <PageHero
+        badge="Mebrek Farms products"
+        title="Fresh farm products,"
+        accent="ready for you."
+        text="Explore our range of poultry and agricultural products. From everyday eggs to specialty poultry products, we make it easy to enquire and place your order."
+        waveColor="#E9E0D0"
+        aside={
+          <div
+            data-hero-buttons
+            className="rounded-3xl bg-white p-6 text-[#14221B] shadow-2xl sm:p-8"
+          >
+            <p className="mf-display text-xl font-bold">
+              Egg prices at a glance
             </p>
+            <p className="text-sm text-[#14221B]/60">Per crate</p>
 
-            <div
-              data-hero-buttons
-              className="mt-8 flex flex-col gap-3 sm:flex-row"
-            >
-              <a href="#eggs" className="btn btn-secondary">
-                Shop Eggs
-              </a>
+            <ul className="mt-4 divide-y divide-[#14221B]/10">
+              {eggProducts.map((product) => (
+                <li
+                  key={product.name}
+                  className="flex items-center justify-between gap-4 py-3"
+                >
+                  <span className="font-medium">
+                    <span aria-hidden="true">{product.icon}</span>{" "}
+                    {product.name}
+                  </span>
+                  <span className="mf-display text-lg font-extrabold text-[#0D3B2B]">
+                    {product.price}
+                  </span>
+                </li>
+              ))}
+            </ul>
 
-              <RouterLink
-                to="/contact"
-                className="btn border-2 border-white/30 bg-white/10 text-white backdrop-blur hover:bg-white hover:text-green-900"
-              >
-                Make an Enquiry
-              </RouterLink>
-            </div>
+            <p className="mt-4 text-xs leading-5 text-[#14221B]/60">
+              Prices may change. Please confirm availability before ordering.
+            </p>
           </div>
-        </div>
-      </section>
+        }
+      >
+        <a href="#eggs" className={btn.yellow}>
+          Shop eggs
+        </a>
+
+        <RouterLink to="/contact" className={btn.ghost}>
+          Make an enquiry
+        </RouterLink>
+      </PageHero>
 
       {/* =====================================================
           EGG PRODUCTS
       ===================================================== */}
 
-      <section id="eggs" className="section bg-white">
+      <section
+        id="eggs"
+        className="mf-bg-products relative scroll-mt-4 py-16 sm:py-24"
+      >
         <div className="site-container">
-          <div
+          <SectionHeading
             data-reveal
-            className="products-section-heading mx-auto max-w-3xl text-center"
-          >
-            <span className="eyebrow">Egg Products</span>
-
-            <h2 className="section-title mt-5">
-              Choose the egg size that suits you
-            </h2>
-
-            <p className="section-subtitle">
-              Our egg range gives customers different options depending on their
-              household, retail or food-service needs.
-            </p>
-          </div>
+            className="products-section-heading"
+            center
+            eyebrow="Egg products"
+            title="Choose the egg size that suits you"
+            text="Our egg range gives customers different options depending on their household, retail or food-service needs."
+          />
 
           <div
             data-stagger-group
@@ -237,12 +263,12 @@ export default function Products() {
 
           <div
             data-reveal
-            className="products-feature mt-10 rounded-2xl border border-yellow-200 bg-yellow-50 p-5 text-center"
+            className="products-feature mt-10 rounded-2xl bg-white/80 p-5 text-center shadow-sm ring-1 ring-[#F6B93B]/60"
           >
-            <p className="text-sm leading-6 text-gray-700">
-              <strong className="text-green-900">Please note:</strong> Prices
-              shown are per crate and may be subject to change. Contact MEBREK
-              FARMS to confirm current availability and pricing before placing
+            <p className="leading-7 text-[#14221B]/80">
+              <strong className="text-[#0D3B2B]">Please note:</strong> Prices
+              shown are per crate and may be subject to change. Contact Mebrek
+              Farms to confirm current availability and pricing before placing
               an order.
             </p>
           </div>
@@ -253,21 +279,16 @@ export default function Products() {
           OTHER FARM PRODUCTS
       ===================================================== */}
 
-      <section className="section bg-stone-50">
+      <section className="mf-bg-why relative py-16 sm:py-24">
         <div className="site-container">
-          <div
+          <SectionHeading
             data-reveal
-            className="products-section-heading mx-auto max-w-3xl text-center"
-          >
-            <span className="eyebrow">More From The Farm</span>
-
-            <h2 className="section-title mt-5">More than eggs</h2>
-
-            <p className="section-subtitle">
-              MEBREK FARMS also operates across other areas of poultry and
-              agricultural production.
-            </p>
-          </div>
+            className="products-section-heading"
+            center
+            eyebrow="More from the farm"
+            title="More than eggs"
+            text="Mebrek Farms also operates across other areas of poultry and agricultural production."
+          />
 
           <div data-stagger-group className="mt-14 grid gap-6 md:grid-cols-3">
             <ServiceCard
@@ -295,99 +316,63 @@ export default function Products() {
           WHY BUY FROM US
       ===================================================== */}
 
-      <section className="section bg-white">
+      <section className="mf-bg-hero relative py-16 sm:py-24">
         <div className="site-container">
           <div className="grid gap-12 lg:grid-cols-2 lg:items-center lg:gap-20">
             <div data-reveal className="products-feature">
-              <span className="eyebrow">Why Choose Us</span>
+              <SectionHeading
+                eyebrow="Why choose us"
+                title="Farm products with a focus on quality"
+                text="We understand that customers want farm products they can confidently order and use. That is why our operations place emphasis on poultry health, production management and organized farm processes."
+              />
 
-              <h2 className="section-title mt-5">
-                Farm products with a focus on quality
-              </h2>
+              <ul className="mt-8 space-y-5">
+                {WHY_POINTS.map((point) => (
+                  <li key={point.title} className="flex gap-4">
+                    <span
+                      aria-hidden="true"
+                      className="flex h-10 w-10 shrink-0 items-center justify-center rounded-full bg-[#0D3B2B] font-bold text-white"
+                    >
+                      ✓
+                    </span>
 
-              <p className="mt-6 text-base leading-8 text-gray-600 sm:text-lg">
-                We understand that customers want farm products they can
-                confidently order and use. That is why our operations place
-                emphasis on poultry health, production management and organized
-                farm processes.
-              </p>
-
-              <div className="mt-8 space-y-5">
-                <div className="flex gap-4">
-                  <div className="flex h-10 w-10 shrink-0 items-center justify-center rounded-full bg-green-100 text-green-800">
-                    ✓
-                  </div>
-
-                  <div>
-                    <h3 className="font-bold text-gray-900">
-                      Quality-focused production
-                    </h3>
-
-                    <p className="mt-1 text-sm leading-6 text-gray-600">
-                      We pay attention to poultry production and flock
-                      management.
-                    </p>
-                  </div>
-                </div>
-
-                <div className="flex gap-4">
-                  <div className="flex h-10 w-10 shrink-0 items-center justify-center rounded-full bg-green-100 text-green-800">
-                    ✓
-                  </div>
-
-                  <div>
-                    <h3 className="font-bold text-gray-900">
-                      Clear product options
-                    </h3>
-
-                    <p className="mt-1 text-sm leading-6 text-gray-600">
-                      Customers can choose from different egg sizes and enquire
-                      about other farm products.
-                    </p>
-                  </div>
-                </div>
-
-                <div className="flex gap-4">
-                  <div className="flex h-10 w-10 shrink-0 items-center justify-center rounded-full bg-green-100 text-green-800">
-                    ✓
-                  </div>
-
-                  <div>
-                    <h3 className="font-bold text-gray-900">
-                      Direct enquiries
-                    </h3>
-
-                    <p className="mt-1 text-sm leading-6 text-gray-600">
-                      Contact us directly to confirm availability, pricing and
-                      order requirements.
-                    </p>
-                  </div>
-                </div>
-              </div>
+                    <div>
+                      <h3 className="mf-display text-lg font-bold">
+                        {point.title}
+                      </h3>
+                      <p className="mt-1 leading-7 text-[#14221B]/75">
+                        {point.text}
+                      </p>
+                    </div>
+                  </li>
+                ))}
+              </ul>
             </div>
 
             <div
               data-reveal
-              className="products-feature rounded-3xl bg-green-950 p-8 shadow-2xl sm:p-10"
+              className="products-feature mf-bg-steps rounded-3xl p-8 text-white shadow-2xl sm:p-10"
             >
-              <div className="text-5xl">🥚</div>
+              <div aria-hidden="true" className="text-5xl">
+                🥚
+              </div>
 
-              <h3 className="mt-6 text-2xl font-bold text-white sm:text-3xl">
+              <h3 className="mf-display mt-5 text-3xl font-bold">
                 Looking for eggs?
               </h3>
 
-              <p className="mt-4 leading-8 text-green-100">
+              <p className="mt-4 text-lg leading-8 text-green-50/90">
                 Whether you are buying for your home, a food business or regular
-                supply, get in touch with MEBREK FARMS to discuss your
+                supply, get in touch with Mebrek Farms to discuss your
                 requirements.
               </p>
 
               <div className="mt-8">
                 <RouterLink
                   to="/contact"
-                  className="btn btn-secondary w-full sm:w-auto"
+                  className={`${btn.yellow} w-full sm:w-auto`}
                 >
-                  Enquire Now
+                  Enquire now
                 </RouterLink>
               </div>
             </div>
@@ -399,46 +384,48 @@ export default function Products() {
           ORDER CTA
       ===================================================== */}
 
-      <section className="bg-yellow-300">
-        <div className="site-container py-14 sm:py-16">
+      <section className="mf-bg-steps relative pb-32 pt-24 text-white sm:pb-28 sm:pt-28">
+        <Wave color="#F8F4EA" flip />
+
+        <div className="site-container relative">
           <div
             data-reveal
             className="products-cta-content flex flex-col items-start justify-between gap-8 lg:flex-row lg:items-center"
           >
             <div className="max-w-2xl">
-              <p className="text-sm font-bold uppercase tracking-[0.2em] text-green-900">
-                Place an enquiry
-              </p>
+              <p className="font-semibold text-[#F6B93B]">Place an enquiry</p>
 
-              <h2 className="mt-3 text-3xl font-extrabold tracking-tight text-green-950 sm:text-4xl">
+              <h2 className="mf-display mt-2 text-3xl font-extrabold sm:text-5xl">
                 Need farm products?
               </h2>
 
-              <p className="mt-3 leading-7 text-green-900/80">
-                Contact MEBREK FARMS today and let us know what you need.
+              <p className="mt-3 text-lg leading-8 text-green-50/90">
+                Contact Mebrek Farms today and let us know what you need.
               </p>
             </div>
 
             <div className="flex w-full flex-col gap-3 sm:w-auto sm:flex-row">
-              <RouterLink
-                to="/contact"
-                className="btn bg-green-900 text-white hover:bg-green-800"
-              >
-                Contact Us
+              <RouterLink to="/contact" className={btn.yellow}>
+                Contact us
               </RouterLink>
 
               <a
-                href="https://wa.me/2349033723103?text=Hello%20MEBREK%20FARMS,%20I%20want%20to%20order%20farm%20products"
+                href={whatsappLink(
+                  "Hello Mebrek Farms, I want to order farm products.",
+                )}
                 target="_blank"
                 rel="noopener noreferrer"
-                className="btn border-2 border-green-900 bg-transparent text-green-950 hover:bg-green-900 hover:text-white"
+                className={btn.ghost}
               >
-                WhatsApp Us
+                <WhatsAppIcon />
+                WhatsApp us
               </a>
             </div>
           </div>
         </div>
       </section>
+
+      <QuickContact message="Hello Mebrek Farms, I want to order farm products." />
     </main>
   );
 }

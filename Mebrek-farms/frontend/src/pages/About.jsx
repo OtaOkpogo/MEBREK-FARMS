@@ -1,116 +1,130 @@
 import { Link as RouterLink } from "react-router-dom";
+import {
+  btn,
+  Wave,
+  SectionHeading,
+  PageHero,
+  FarmStyles,
+  QuickContact,
+} from "./farmShared";
 
 // =========================================================
 // ABOUT PAGE
 // Animations are handled centrally by PageMotion.jsx
 // =========================================================
 
+const FOCUS = [
+  {
+    icon: "🐔",
+    tint: "bg-[#0D3B2B]/10",
+    title: "Poultry Production",
+    text: "Careful flock management supports healthy birds and consistent poultry production.",
+  },
+  {
+    icon: "🥚",
+    tint: "bg-[#F6B93B]/25",
+    title: "Quality Eggs",
+    text: "We focus on producing and supplying quality eggs for customers looking for dependable farm products.",
+  },
+  {
+    icon: "❤️",
+    tint: "bg-[#0D3B2B]/10",
+    title: "Bird Health",
+    text: "Monitoring flock health, vaccinations, mortality and medication forms an important part of responsible poultry management.",
+  },
+  {
+    icon: "🌱",
+    tint: "bg-[#F6B93B]/25",
+    title: "Farm Resources",
+    text: "Feed, manure and other farm resources are managed as part of a structured agricultural operation.",
+  },
+];
+
+const STEPS = [
+  {
+    title: "Monitor the flock",
+    text: "Production, health and flock activities are monitored carefully.",
+  },
+  {
+    title: "Manage resources",
+    text: "Feed, medication and other farm resources are managed as part of daily operations.",
+  },
+  {
+    title: "Deliver quality",
+    text: "The goal is to provide customers with reliable, quality farm products.",
+  },
+];
+
+const WHY = [
+  {
+    icon: "🌾",
+    title: "Farm-Focused",
+    text: "Our business is centered around poultry production and agricultural operations.",
+  },
+  {
+    icon: "🤝",
+    title: "Customer Focused",
+    text: "We make it easy for customers to enquire about products, availability and orders.",
+  },
+  {
+    icon: "📋",
+    title: "Organized Operations",
+    text: "Structured farm management helps us keep track of production, flock health, resources and sales.",
+  },
+];
+
 export default function About() {
   return (
-    <main className="min-h-screen bg-stone-50 text-gray-800">
-      {/* =====================================================
-          BACK TO HOME
-      ===================================================== */}
-
-      <div className="site-container pt-6">
-        <RouterLink
-          to="/"
-          className="inline-flex items-center gap-2 rounded-xl border border-stone-200 bg-white px-4 py-2.5 text-sm font-semibold text-stone-700 shadow-sm transition duration-300 hover:-translate-y-0.5 hover:border-green-700 hover:bg-green-50 hover:text-green-800"
-        >
-          <span aria-hidden="true">←</span>
-          Back to Home
-        </RouterLink>
-      </div>
+    <main className="mf-root min-h-screen overflow-x-hidden bg-[#F4EFE4] text-[#14221B]">
+      <FarmStyles />
 
       {/* =====================================================
           HERO
       ===================================================== */}
 
-      <section className="relative isolate overflow-hidden bg-green-950">
-        <div className="absolute inset-0 -z-10 bg-gradient-to-br from-green-950 via-green-900 to-green-800" />
+      <PageHero
+        badge="About Mebrek Farms"
+        title="Farming with care."
+        accent="Producing with purpose."
+        text="Mebrek Farms provides high-quality poultry products through modern, hygienic farming practices tailored to the needs of Nigerian agriculture."
+        waveColor="#F8F4EA"
+      >
+        <RouterLink to="/products" className={btn.yellow}>
+          Explore our products
+        </RouterLink>
 
-        <div className="absolute -right-24 -top-24 -z-10 h-80 w-80 rounded-full bg-green-700/20 blur-3xl" />
-
-        <div className="absolute -bottom-32 -left-20 -z-10 h-96 w-96 rounded-full bg-yellow-400/10 blur-3xl" />
-
-        <div className="relative site-container py-20 sm:py-24 lg:py-32">
-          <div className="max-w-3xl">
-            <span
-              data-hero-badge
-              className="eyebrow bg-green-800 text-green-100"
-            >
-              About MEBREK FARMS
-            </span>
-
-            <h1
-              data-hero-title
-              className="mt-6 text-4xl font-extrabold leading-tight text-white sm:text-5xl lg:text-6xl"
-            >
-              Farming with care.
-              <span className="block text-yellow-300">
-                Producing with purpose.
-              </span>
-            </h1>
-
-            <p
-              data-hero-description
-              className="mt-6 max-w-2xl text-base leading-8 text-green-100 sm:text-lg"
-            >
-              MEBREK FARMS provides high-quality poultry products through
-              modern, hygienic farming practices tailored to the needs of
-              Nigerian agriculture.
-            </p>
-
-            <div
-              data-hero-buttons
-              className="mt-8 flex flex-col gap-3 sm:flex-row"
-            >
-              <RouterLink
-                to="/products"
-                className="btn btn-secondary transition-all duration-300 hover:-translate-y-1"
-              >
-                Explore Our Products
-              </RouterLink>
-
-              <RouterLink
-                to="/contact"
-                className="btn border-2 border-white/30 bg-white/10 text-white backdrop-blur transition-all duration-300 hover:-translate-y-1 hover:bg-white hover:text-green-900"
-              >
-                Talk to Us
-              </RouterLink>
-            </div>
-          </div>
-        </div>
-      </section>
+        <RouterLink to="/contact" className={btn.ghost}>
+          Talk to us
+        </RouterLink>
+      </PageHero>
 
       {/* =====================================================
           INTRODUCTION
       ===================================================== */}
 
-      <section className="section bg-white">
+      <section className="mf-bg-hero relative pb-24 pt-16 sm:pb-32 sm:pt-24">
         <div className="site-container">
           <div className="grid items-center gap-12 lg:grid-cols-2 lg:gap-20">
             <div data-reveal>
-              <span className="eyebrow">Who We Are</span>
+              <SectionHeading
+                eyebrow="Who we are"
+                title="A farm built around quality, care and consistency"
+              />
 
-              <h2 className="section-title mt-5">
-                A farm built around quality, care and consistency
-              </h2>
-
-              <p className="mt-6 text-base leading-8 text-gray-600 sm:text-lg">
-                MEBREK FARMS is a poultry-focused agricultural business
+              <p className="mt-6 text-lg leading-8 text-[#14221B]/75">
+                Mebrek Farms is a poultry-focused agricultural business
                 committed to producing quality farm products while maintaining
                 modern and hygienic farming practices.
               </p>
 
-              <p className="mt-5 text-base leading-8 text-gray-600">
+              <p className="mt-5 leading-8 text-[#14221B]/75">
                 From poultry production and egg production to flock health, feed
                 management and farm operations, our approach is focused on
                 maintaining healthy birds and delivering dependable products to
                 customers.
               </p>
 
-              <p className="mt-5 text-base leading-8 text-gray-600">
+              <p className="mt-5 leading-8 text-[#14221B]/75">
                 We combine practical farming with organized farm management so
                 that important areas of production can be monitored carefully
                 and managed responsibly.
@@ -118,143 +132,87 @@ export default function About() {
             </div>
 
             <div data-reveal className="relative">
-              <div className="relative overflow-hidden rounded-3xl bg-green-900 p-8 shadow-2xl transition-transform duration-500 hover:-translate-y-1 sm:p-10">
-                <div className="absolute -right-10 -top-10 h-32 w-32 rounded-full bg-yellow-300/20" />
+              {/* Offset yellow frame behind the card */}
+              <div
+                aria-hidden="true"
+                className="absolute inset-0 translate-x-3 translate-y-3 rounded-3xl bg-[#F6B93B] sm:translate-x-4 sm:translate-y-4"
+              />
 
-                <div className="absolute -bottom-12 -left-10 h-40 w-40 rounded-full bg-white/5" />
+              <div className="mf-bg-steps relative rounded-3xl p-8 text-white shadow-2xl sm:p-10">
+                <div aria-hidden="true" className="text-6xl">
+                  🐔
+                </div>
 
-                <div className="relative">
-                  <div className="text-6xl transition-transform duration-500 hover:scale-110">
-                    🐔
+                <h3 className="mf-display mt-6 text-3xl font-bold">
+                  Modern Poultry Farming
+                </h3>
+
+                <p className="mt-4 text-lg leading-8 text-green-50/90">
+                  We place attention on poultry health, production, nutrition,
+                  hygiene and responsible farm management.
+                </p>
+
+                <div className="mt-8 grid grid-cols-2 gap-4">
+                  <div className="rounded-2xl bg-white/10 p-4 ring-1 ring-white/15 transition-colors duration-300 hover:bg-white/15">
+                    <div aria-hidden="true" className="text-2xl">
+                      🥚
+                    </div>
+                    <p className="mt-2 font-semibold">Egg Production</p>
                   </div>
 
-                  <h3 className="mt-6 text-2xl font-bold text-white sm:text-3xl">
-                    Modern Poultry Farming
-                  </h3>
-
-                  <p className="mt-4 leading-7 text-green-100">
-                    We place attention on poultry health, production, nutrition,
-                    hygiene and responsible farm management.
-                  </p>
-
-                  <div className="mt-8 grid grid-cols-2 gap-4">
-                    <div className="rounded-2xl bg-white/10 p-4 backdrop-blur transition-all duration-300 hover:-translate-y-1 hover:bg-white/15">
-                      <div className="text-2xl">🥚</div>
-
-                      <p className="mt-2 font-semibold text-white">
-                        Egg Production
-                      </p>
+                  <div className="rounded-2xl bg-white/10 p-4 ring-1 ring-white/15 transition-colors duration-300 hover:bg-white/15">
+                    <div aria-hidden="true" className="text-2xl">
+                      🌱
                     </div>
-
-                    <div className="rounded-2xl bg-white/10 p-4 backdrop-blur transition-all duration-300 hover:-translate-y-1 hover:bg-white/15">
-                      <div className="text-2xl">🌱</div>
-
-                      <p className="mt-2 font-semibold text-white">
-                        Agricultural Services
-                      </p>
-                    </div>
+                    <p className="mt-2 font-semibold">Agricultural Services</p>
                   </div>
                 </div>
               </div>
             </div>
           </div>
         </div>
+
+        <Wave color="#E9E0D0" />
       </section>
 
       {/* =====================================================
           OUR FOCUS
       ===================================================== */}
 
-      <section className="section bg-stone-50">
+      <section className="mf-bg-products relative py-16 sm:py-24">
         <div className="site-container">
-          <div data-reveal className="mx-auto max-w-3xl text-center">
-            <span className="eyebrow">Our Focus</span>
-
-            <h2 className="section-title mt-5">
-              Everything starts with good farm management
-            </h2>
-
-            <p className="section-subtitle">
-              Quality agricultural products depend on the health of the flock,
-              good production practices and careful day-to-day management.
-            </p>
-          </div>
+          <SectionHeading
+            data-reveal
+            center
+            eyebrow="Our focus"
+            title="Everything starts with good farm management"
+            text="Quality agricultural products depend on the health of the flock, good production practices and careful day-to-day management."
+          />
 
           <div
             data-stagger-group
             className="mt-14 grid gap-6 md:grid-cols-2 lg:grid-cols-4"
           >
-            <div
-              data-stagger-card
-              className="card transition-all duration-300 hover:-translate-y-2 hover:shadow-xl"
-            >
-              <div className="flex h-14 w-14 items-center justify-center rounded-2xl bg-green-100 text-3xl transition-transform duration-300 hover:scale-110">
-                🐔
+            {FOCUS.map((item) => (
+              <div
+                key={item.title}
+                data-stagger-card
+                className="rounded-3xl bg-white p-7 shadow-md ring-1 ring-[#14221B]/10 transition-all duration-300 hover:-translate-y-1.5 hover:shadow-xl"
+              >
+                <div
+                  aria-hidden="true"
+                  className={`flex h-14 w-14 items-center justify-center rounded-2xl text-3xl ${item.tint}`}
+                >
+                  {item.icon}
+                </div>
+
+                <h3 className="mf-display mt-5 text-xl font-bold">
+                  {item.title}
+                </h3>
+
+                <p className="mt-2 leading-7 text-[#14221B]/75">{item.text}</p>
               </div>
-
-              <h3 className="mt-6 text-xl font-bold text-gray-900">
-                Poultry Production
-              </h3>
-
-              <p className="mt-3 leading-7 text-gray-600">
-                Careful flock management supports healthy birds and consistent
-                poultry production.
-              </p>
-            </div>
-
-            <div
-              data-stagger-card
-              className="card transition-all duration-300 hover:-translate-y-2 hover:shadow-xl"
-            >
-              <div className="flex h-14 w-14 items-center justify-center rounded-2xl bg-yellow-100 text-3xl transition-transform duration-300 hover:scale-110">
-                🥚
-              </div>
-
-              <h3 className="mt-6 text-xl font-bold text-gray-900">
-                Quality Eggs
-              </h3>
-
-              <p className="mt-3 leading-7 text-gray-600">
-                We focus on producing and supplying quality eggs for customers
-                looking for dependable farm products.
-              </p>
-            </div>
-
-            <div
-              data-stagger-card
-              className="card transition-all duration-300 hover:-translate-y-2 hover:shadow-xl"
-            >
-              <div className="flex h-14 w-14 items-center justify-center rounded-2xl bg-green-100 text-3xl transition-transform duration-300 hover:scale-110">
-                ❤️
-              </div>
-
-              <h3 className="mt-6 text-xl font-bold text-gray-900">
-                Bird Health
-              </h3>
-
-              <p className="mt-3 leading-7 text-gray-600">
-                Monitoring flock health, vaccinations, mortality and medication
-                forms an important part of responsible poultry management.
-              </p>
-            </div>
-
-            <div
-              data-stagger-card
-              className="card transition-all duration-300 hover:-translate-y-2 hover:shadow-xl"
-            >
-              <div className="flex h-14 w-14 items-center justify-center rounded-2xl bg-yellow-100 text-3xl transition-transform duration-300 hover:scale-110">
-                🌱
-              </div>
-
-              <h3 className="mt-6 text-xl font-bold text-gray-900">
-                Farm Resources
-              </h3>
-
-              <p className="mt-3 leading-7 text-gray-600">
-                Feed, manure and other farm resources are managed as part of a
-                structured agricultural operation.
-              </p>
-            </div>
+            ))}
           </div>
         </div>
       </section>
@@ -263,110 +221,84 @@ export default function About() {
           OUR APPROACH
       ===================================================== */}
 
-      <section className="section bg-white">
+      <section className="mf-bg-why relative py-16 sm:py-24">
         <div className="site-container">
           <div className="grid gap-12 lg:grid-cols-2 lg:items-center lg:gap-20">
             <div data-reveal className="order-2 lg:order-1">
-              <div className="rounded-3xl bg-green-950 p-8 shadow-xl sm:p-10">
-                <span className="text-sm font-bold uppercase tracking-[0.2em] text-yellow-300">
-                  Our Approach
-                </span>
+              <div className="mf-bg-steps rounded-3xl p-8 text-white shadow-2xl sm:p-10">
+                <p className="font-semibold text-[#F6B93B]">Our approach</p>
 
-                <h2 className="mt-4 text-3xl font-bold text-white sm:text-4xl">
+                <h2 className="mf-display mt-3 text-3xl font-bold sm:text-4xl">
                   Practical farming backed by organized management
                 </h2>
 
-                <p className="mt-5 leading-8 text-green-100">
+                <p className="mt-5 text-lg leading-8 text-green-50/90">
                   A successful poultry operation requires more than producing
                   eggs. It requires attention to the flock throughout its
                   production cycle.
                 </p>
 
-                <div data-approach-steps className="mt-8 space-y-5">
-                  <div data-approach-step className="flex gap-4">
-                    <div className="flex h-9 w-9 shrink-0 items-center justify-center rounded-full bg-yellow-300 font-bold text-green-950">
-                      1
-                    </div>
+                <ol data-approach-steps className="mt-8 space-y-6">
+                  {STEPS.map((step, index) => (
+                    <li
+                      key={step.title}
+                      data-approach-step
+                      className="flex gap-4"
+                    >
+                      <span
+                        aria-hidden="true"
+                        className="mf-display flex h-10 w-10 shrink-0 items-center justify-center rounded-full bg-[#F6B93B] text-lg font-extrabold text-[#14221B]"
+                      >
+                        {index + 1}
+                      </span>
 
-                    <div>
-                      <h3 className="font-bold text-white">
-                        Monitor the flock
-                      </h3>
-
-                      <p className="mt-1 text-sm leading-6 text-green-100">
-                        Production, health and flock activities are monitored
-                        carefully.
-                      </p>
-                    </div>
-                  </div>
-
-                  <div data-approach-step className="flex gap-4">
-                    <div className="flex h-9 w-9 shrink-0 items-center justify-center rounded-full bg-yellow-300 font-bold text-green-950">
-                      2
-                    </div>
-
-                    <div>
-                      <h3 className="font-bold text-white">Manage resources</h3>
-
-                      <p className="mt-1 text-sm leading-6 text-green-100">
-                        Feed, medication and other farm resources are managed as
-                        part of daily operations.
-                      </p>
-                    </div>
-                  </div>
-
-                  <div data-approach-step className="flex gap-4">
-                    <div className="flex h-9 w-9 shrink-0 items-center justify-center rounded-full bg-yellow-300 font-bold text-green-950">
-                      3
-                    </div>
-
-                    <div>
-                      <h3 className="font-bold text-white">Deliver quality</h3>
-
-                      <p className="mt-1 text-sm leading-6 text-green-100">
-                        The goal is to provide customers with reliable, quality
-                        farm products.
-                      </p>
-                    </div>
-                  </div>
-                </div>
+                      <div>
+                        <h3 className="mf-display text-lg font-bold">
+                          {step.title}
+                        </h3>
+                        <p className="mt-1 leading-7 text-green-50/90">
+                          {step.text}
+                        </p>
+                      </div>
+                    </li>
+                  ))}
+                </ol>
               </div>
             </div>
 
             <div data-reveal className="order-1 lg:order-2">
-              <span className="eyebrow">Responsible Farming</span>
+              <SectionHeading
+                eyebrow="Responsible farming"
+                title="From the farm to the customer"
+              />
 
-              <h2 className="section-title mt-5">
-                From the farm to the customer
-              </h2>
-
-              <p className="mt-6 text-base leading-8 text-gray-600 sm:text-lg">
+              <p className="mt-6 text-lg leading-8 text-[#14221B]/75">
                 Our farm operations bring together production, flock health,
                 feed management, inventory and sales so that the different parts
                 of the business work together.
               </p>
 
-              <p className="mt-5 text-base leading-8 text-gray-600">
+              <p className="mt-5 leading-8 text-[#14221B]/75">
                 This organized approach helps us maintain better visibility over
                 our farming activities while keeping our focus on the products
                 and services our customers need.
               </p>
 
               <div className="mt-8 grid grid-cols-2 gap-4">
-                <div className="rounded-2xl border border-green-100 bg-green-50 p-5 transition-all duration-300 hover:-translate-y-1 hover:shadow-md">
-                  <p className="text-2xl font-extrabold text-green-800">
+                <div className="rounded-2xl bg-white p-5 shadow-sm ring-1 ring-[#14221B]/10 transition-shadow duration-300 hover:shadow-md">
+                  <p className="mf-display text-2xl font-extrabold text-[#0D3B2B]">
                     Quality
                   </p>
-
-                  <p className="mt-1 text-sm text-gray-600">
+                  <p className="mt-1 text-sm text-[#14221B]/70">
                     In products and processes
                   </p>
                 </div>
 
-                <div className="rounded-2xl border border-yellow-100 bg-yellow-50 p-5 transition-all duration-300 hover:-translate-y-1 hover:shadow-md">
-                  <p className="text-2xl font-extrabold text-green-800">Care</p>
-
-                  <p className="mt-1 text-sm text-gray-600">
+                <div className="rounded-2xl bg-white p-5 shadow-sm ring-1 ring-[#14221B]/10 transition-shadow duration-300 hover:shadow-md">
+                  <p className="mf-display text-2xl font-extrabold text-[#0D3B2B]">
+                    Care
+                  </p>
+                  <p className="mt-1 text-sm text-[#14221B]/70">
                     For our flock and customers
                   </p>
                 </div>
@@ -380,70 +312,37 @@ export default function About() {
           WHY CHOOSE US
       ===================================================== */}
 
-      <section className="section bg-stone-50">
+      <section className="mf-bg-order relative py-16 sm:py-24">
         <div className="site-container">
-          <div data-reveal className="mx-auto max-w-3xl text-center">
-            <span className="eyebrow">Why MEBREK FARMS</span>
-
-            <h2 className="section-title mt-5">
-              A dependable agricultural partner
-            </h2>
-
-            <p className="section-subtitle">
-              Whether you are buying eggs, poultry products or agricultural
-              by-products, we aim to make dealing with the farm simple and
-              straightforward.
-            </p>
-          </div>
+          <SectionHeading
+            data-reveal
+            center
+            eyebrow="Why Mebrek Farms"
+            title="A dependable agricultural partner"
+            text="Whether you are buying eggs, poultry products or agricultural by-products, we aim to make dealing with the farm simple and straightforward."
+          />
 
           <div data-stagger-group className="mt-14 grid gap-6 md:grid-cols-3">
-            <div
-              data-stagger-card
-              className="rounded-3xl bg-white p-7 shadow-sm ring-1 ring-black/5 transition-all duration-300 hover:-translate-y-2 hover:shadow-xl"
-            >
-              <div className="text-4xl">🌾</div>
+            {WHY.map((item) => (
+              <div
+                key={item.title}
+                data-stagger-card
+                className="rounded-3xl bg-white p-7 shadow-md ring-1 ring-[#14221B]/10 transition-all duration-300 hover:-translate-y-1.5 hover:shadow-xl"
+              >
+                <div
+                  aria-hidden="true"
+                  className="flex h-14 w-14 items-center justify-center rounded-2xl bg-[#EEF1E8] text-3xl"
+                >
+                  {item.icon}
+                </div>
 
-              <h3 className="mt-5 text-xl font-bold text-gray-900">
-                Farm-Focused
-              </h3>
+                <h3 className="mf-display mt-5 text-xl font-bold">
+                  {item.title}
+                </h3>
 
-              <p className="mt-3 leading-7 text-gray-600">
-                Our business is centered around poultry production and
-                agricultural operations.
-              </p>
-            </div>
-
-            <div
-              data-stagger-card
-              className="rounded-3xl bg-white p-7 shadow-sm ring-1 ring-black/5 transition-all duration-300 hover:-translate-y-2 hover:shadow-xl"
-            >
-              <div className="text-4xl">🤝</div>
-
-              <h3 className="mt-5 text-xl font-bold text-gray-900">
-                Customer Focused
-              </h3>
-
-              <p className="mt-3 leading-7 text-gray-600">
-                We make it easy for customers to enquire about products,
-                availability and orders.
-              </p>
-            </div>
-
-            <div
-              data-stagger-card
-              className="rounded-3xl bg-white p-7 shadow-sm ring-1 ring-black/5 transition-all duration-300 hover:-translate-y-2 hover:shadow-xl"
-            >
-              <div className="text-4xl">📋</div>
-
-              <h3 className="mt-5 text-xl font-bold text-gray-900">
-                Organized Operations
-              </h3>
-
-              <p className="mt-3 leading-7 text-gray-600">
-                Structured farm management helps us keep track of production,
-                flock health, resources and sales.
-              </p>
-            </div>
+                <p className="mt-2 leading-7 text-[#14221B]/75">{item.text}</p>
+              </div>
+            ))}
           </div>
         </div>
       </section>
@@ -452,49 +351,43 @@ export default function About() {
           CTA
       ===================================================== */}
 
-      <section className="relative overflow-hidden bg-yellow-300">
-        <div className="absolute -right-20 -top-20 h-64 w-64 rounded-full bg-yellow-200/50" />
+      <section className="mf-bg-steps relative pb-32 pt-24 text-white sm:pb-28 sm:pt-28">
+        <Wave color="#F0E4CF" flip />
 
-        <div className="absolute -bottom-32 -left-20 h-72 w-72 rounded-full bg-yellow-400/40" />
-
-        <div className="site-container relative py-14 sm:py-16">
+        <div className="site-container relative">
           <div
             data-reveal
             className="flex flex-col items-start justify-between gap-8 lg:flex-row lg:items-center"
           >
             <div className="max-w-2xl">
-              <p className="text-sm font-bold uppercase tracking-[0.2em] text-green-900">
+              <p className="font-semibold text-[#F6B93B]">
                 Ready to do business with us?
               </p>
 
-              <h2 className="mt-3 text-3xl font-extrabold tracking-tight text-green-950 sm:text-4xl">
+              <h2 className="mf-display mt-2 text-3xl font-extrabold sm:text-5xl">
                 Explore our farm products today.
               </h2>
 
-              <p className="mt-3 max-w-xl leading-7 text-green-900/80">
-                Browse our available products or contact MEBREK FARMS directly
+              <p className="mt-3 max-w-xl text-lg leading-8 text-green-50/90">
+                Browse our available products or contact Mebrek Farms directly
                 for enquiries and orders.
               </p>
             </div>
 
             <div className="flex w-full flex-col gap-3 sm:w-auto sm:flex-row">
-              <RouterLink
-                to="/products"
-                className="btn bg-green-900 text-white transition-all duration-300 hover:-translate-y-1 hover:bg-green-800"
-              >
-                View Products
+              <RouterLink to="/products" className={btn.yellow}>
+                View products
               </RouterLink>
 
-              <RouterLink
-                to="/contact"
-                className="btn border-2 border-green-900 bg-transparent text-green-950 transition-all duration-300 hover:-translate-y-1 hover:bg-green-900 hover:text-white"
-              >
-                Contact Us
+              <RouterLink to="/contact" className={btn.ghost}>
+                Contact us
               </RouterLink>
             </div>
           </div>
         </div>
       </section>
+
+      <QuickContact message="Hello Mebrek Farms, I want to ask about your farm products." />
     </main>
   );
 }

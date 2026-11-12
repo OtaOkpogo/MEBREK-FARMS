@@ -1,0 +1,390 @@
+import { useState } from "react";
+
+// =========================================================
+// FARM ILLUSTRATIONS
+// Drawn artwork that stands in for photos until you have your
+// own. FarmPhoto shows your photo when you give it one, and the
+// matching illustration when there is no photo or it fails to load.
+// =========================================================
+
+// ---------- building blocks ----------
+
+function Hen({
+  x,
+  y,
+  s = 1,
+  flip = false,
+  body = "#FFFFFF",
+  shade = "#DCE2D8",
+  comb = "#D64545",
+}) {
+  // A flipped hen faces left and is drawn leftwards from x
+  const tx = flip ? x + 116 * s : x;
+
+  return (
+    <g transform={`translate(${tx} ${y}) scale(${flip ? -s : s} ${s})`}>
+      <ellipse cx="58" cy="107" rx="42" ry="6" fill="#000" opacity="0.14" />
+
+      <g stroke="#E39A2D" strokeWidth="3.5" strokeLinecap="round" fill="none">
+        <path d="M54 88 V103 M54 103 l-9 3 M54 103 l7 4" />
+        <path d="M72 86 V103 M72 103 l-9 3 M72 103 l7 4" />
+      </g>
+
+      <path d="M22 56 C6 46 4 26 14 12 C18 30 28 38 38 46Z" fill={shade} />
+      <path d="M24 60 C10 56 4 44 8 32 C16 44 26 48 36 52Z" fill={body} />
+      <path
+        d="M20 58 C20 38 44 32 66 36 C84 40 94 52 90 68 C86 84 64 92 44 90 C28 88 20 76 20 58Z"
+        fill={body}
+      />
+      <path d="M36 58 C46 48 64 50 72 62 C64 76 46 78 36 68Z" fill={shade} />
+      <ellipse cx="84" cy="46" rx="12" ry="17" fill={body} />
+      <circle cx="90" cy="32" r="13" fill={body} />
+      <path
+        d="M82 22 C79 13 86 10 88 17 C90 9 97 10 96 19 C101 15 105 20 100 25Z"
+        fill={comb}
+      />
+      <path d="M101 32 L113 36 L101 41Z" fill="#F0A22E" />
+      <ellipse cx="98" cy="45" rx="3.2" ry="5.5" fill={comb} />
+      <circle cx="94" cy="31" r="2.1" fill="#1B1B1B" />
+    </g>
+  );
+}
+
+function Egg({ x, y, s = 1, rot = 0, fill = "#F1D9B2", shade = "#DDB985" }) {
+  return (
+    <g transform={`translate(${x} ${y}) rotate(${rot}) scale(${s})`}>
+      <path
+        d="M0 -26 C13 -26 20 -4 20 8 C20 21 11 28 0 28 C-11 28 -20 21 -20 8 C-20 -4 -13 -26 0 -26Z"
+        fill={fill}
+      />
+      <path
+        d="M-4 -20 C-13 -12 -16 0 -15 10"
+        stroke="#fff"
+        strokeWidth="3"
+        strokeLinecap="round"
+        opacity=".55"
+        fill="none"
+      />
+      <path
+        d="M8 24 C14 20 18 12 18 6"
+        stroke={shade}
+        strokeWidth="3"
+        strokeLinecap="round"
+        opacity=".6"
+        fill="none"
+      />
+    </g>
+  );
+}
+
+function Seedling({ x, y, s = 1 }) {
+  return (
+    <g transform={`translate(${x} ${y}) scale(${s})`}>
+      <path
+        d="M0 0 C-2 -18 -2 -34 0 -48"
+        stroke="#4F8A4B"
+        strokeWidth="4"
+        strokeLinecap="round"
+        fill="none"
+      />
+      <path d="M0 -30 C-22 -34 -30 -50 -28 -62 C-10 -60 0 -48 0 -30Z" fill="#6FB06A" />
+      <path d="M0 -40 C20 -46 30 -60 28 -72 C10 -70 0 -58 0 -40Z" fill="#8CC77F" />
+    </g>
+  );
+}
+
+function Tufts({ points }) {
+  return (
+    <g fill="#2F6A3C" opacity=".55">
+      {points.map(([x, y], i) => (
+        <path key={i} d={`M${x} ${y} l-5 -16 l5 8 l4 -14 l3 14 l6 -8 l-4 16Z`} />
+      ))}
+    </g>
+  );
+}
+
+// ---------- scenes ----------
+
+export function HeroArt({ alt, className = "" }) {
+  return (
+    <svg
+      viewBox="0 0 800 640"
+      preserveAspectRatio="xMidYMid slice"
+      role="img"
+      aria-label={alt}
+      className={`block ${className}`}
+    >
+      <defs>
+        <linearGradient id="heroSky" x1="0" y1="0" x2="0" y2="1">
+          <stop offset="0" stopColor="#CFE6DC" />
+          <stop offset="1" stopColor="#F8F4EA" />
+        </linearGradient>
+        <linearGradient id="heroGrass" x1="0" y1="0" x2="0" y2="1">
+          <stop offset="0" stopColor="#6FA86A" />
+          <stop offset="1" stopColor="#2F6A3C" />
+        </linearGradient>
+        <radialGradient id="heroSun">
+          <stop offset="0" stopColor="#F6B93B" stopOpacity=".55" />
+          <stop offset="1" stopColor="#F6B93B" stopOpacity="0" />
+        </radialGradient>
+      </defs>
+
+      <rect width="800" height="640" fill="url(#heroSky)" />
+      <circle cx="610" cy="140" r="130" fill="url(#heroSun)" />
+      <circle cx="610" cy="140" r="56" fill="#F6B93B" />
+
+      <g fill="#fff" opacity=".85">
+        <ellipse cx="150" cy="130" rx="62" ry="20" />
+        <ellipse cx="192" cy="114" rx="40" ry="20" />
+        <ellipse cx="118" cy="120" rx="32" ry="16" />
+        <ellipse cx="400" cy="70" rx="48" ry="14" />
+        <ellipse cx="432" cy="58" rx="28" ry="14" />
+      </g>
+
+      <path d="M0 360 C120 300 240 300 360 350 C480 400 620 320 800 340 V640 H0Z" fill="#A9CBA4" />
+      <path d="M0 410 C160 360 300 380 440 410 C580 440 700 390 800 400 V640 H0Z" fill="#7FB07A" />
+
+      {/* Coop */}
+      <path d="M450 292 L585 208 L720 292Z" fill="#173D2C" />
+      <rect x="470" y="290" width="230" height="130" fill="#F3E2C0" />
+      <g stroke="#E2CC9E" strokeWidth="3">
+        <path d="M470 320 H700 M470 350 H700 M470 380 H700" />
+      </g>
+      <rect x="564" y="338" width="52" height="82" rx="4" fill="#B5763A" />
+      <rect x="502" y="318" width="42" height="36" rx="4" fill="#CFE6DC" stroke="#B5763A" strokeWidth="5" />
+      <rect x="704" y="344" width="40" height="40" fill="#C47A35" />
+      <path d="M698 344 L724 324 L750 344Z" fill="#173D2C" />
+
+      {/* Fence */}
+      <g fill="#B08A5B">
+        {[20, 100, 180, 260, 340, 420].map((x) => (
+          <rect key={x} x={x} y="420" width="10" height="74" rx="2" />
+        ))}
+        <rect x="10" y="438" width="430" height="9" rx="2" />
+        <rect x="10" y="466" width="430" height="9" rx="2" />
+      </g>
+
+      <path d="M0 500 C140 470 260 490 400 500 C540 510 680 480 800 495 V640 H0Z" fill="url(#heroGrass)" />
+      <Tufts points={[[40, 560], [250, 600], [470, 578], [700, 600], [760, 540]]} />
+
+      <g>
+        <circle cx="180" cy="530" r="5" fill="#fff" />
+        <circle cx="520" cy="545" r="5" fill="#F6B93B" />
+        <circle cx="660" cy="520" r="5" fill="#fff" />
+        <circle cx="330" cy="620" r="5" fill="#F6B93B" />
+      </g>
+
+      <Hen x={70} y={418} s={1.7} />
+      <Hen x={400} y={452} s={1.45} flip body="#B8672E" shade="#8F4C1E" />
+      <Hen x={600} y={476} s={1.15} body="#E3B66B" shade="#C48F3F" />
+
+      <Egg x={330} y={604} s={0.8} />
+      <Egg x={366} y={614} s={0.7} rot={14} fill="#E7C089" shade="#C99A5C" />
+    </svg>
+  );
+}
+
+export function EggsArt({ alt, className = "" }) {
+  const pile = [
+    [230, 222, "#F1D9B2"],
+    [300, 214, "#E7C089"],
+    [370, 222, "#F1D9B2"],
+    [265, 186, "#E7C089"],
+    [335, 186, "#F6E6C8"],
+    [300, 152, "#F1D9B2"],
+  ];
+
+  return (
+    <svg
+      viewBox="0 0 600 440"
+      preserveAspectRatio="xMidYMid slice"
+      role="img"
+      aria-label={alt}
+      className={`block ${className}`}
+    >
+      <defs>
+        <linearGradient id="eggsBg" x1="0" y1="0" x2="1" y2="1">
+          <stop offset="0" stopColor="#FFF3D6" />
+          <stop offset="1" stopColor="#E3EEDD" />
+        </linearGradient>
+      </defs>
+
+      <rect width="600" height="440" fill="url(#eggsBg)" />
+      <circle cx="90" cy="80" r="70" fill="#F6B93B" opacity=".22" />
+      <circle cx="520" cy="350" r="90" fill="#173D2C" opacity=".08" />
+
+      <rect y="360" width="600" height="80" fill="#C9A36B" />
+      <rect y="360" width="600" height="8" fill="#B58B52" />
+
+      <ellipse cx="300" cy="396" rx="210" ry="16" fill="#000" opacity=".15" />
+
+      <ellipse cx="300" cy="252" rx="190" ry="34" fill="#8E5222" />
+
+      {pile.map(([x, y, fill], i) => (
+        <Egg key={i} x={x} y={y} s={1.45} fill={fill} rot={(i - 2) * 4} />
+      ))}
+
+      <path
+        d="M110 252 C110 344 170 392 300 392 C430 392 490 344 490 252 C440 286 160 286 110 252Z"
+        fill="#C47A35"
+      />
+      <g stroke="#A5602A" strokeWidth="4" fill="none" strokeLinecap="round">
+        <path d="M122 290 C200 316 400 316 478 290" />
+        <path d="M138 326 C210 348 390 348 462 326" />
+        <path d="M170 362 C230 376 370 376 430 362" />
+        <path d="M200 296 V380 M260 306 V388 M320 308 V390 M380 306 V388 M440 296 V380" />
+      </g>
+      <path
+        d="M110 252 C160 288 440 288 490 252"
+        stroke="#B56A2C"
+        strokeWidth="12"
+        strokeLinecap="round"
+        fill="none"
+      />
+
+      <Egg x={92} y={392} s={1.1} fill="#F6E6C8" />
+      <Egg x={532} y={396} s={1.05} fill="#E7C089" rot={-12} />
+    </svg>
+  );
+}
+
+export function PoultryArt({ alt, className = "" }) {
+  return (
+    <svg
+      viewBox="0 0 600 440"
+      preserveAspectRatio="xMidYMid slice"
+      role="img"
+      aria-label={alt}
+      className={`block ${className}`}
+    >
+      <defs>
+        <linearGradient id="poultrySky" x1="0" y1="0" x2="0" y2="1">
+          <stop offset="0" stopColor="#FCE9B8" />
+          <stop offset="1" stopColor="#EEF1E8" />
+        </linearGradient>
+        <linearGradient id="poultryGrass" x1="0" y1="0" x2="0" y2="1">
+          <stop offset="0" stopColor="#6FA86A" />
+          <stop offset="1" stopColor="#2F6A3C" />
+        </linearGradient>
+      </defs>
+
+      <rect width="600" height="440" fill="url(#poultrySky)" />
+      <circle cx="500" cy="90" r="42" fill="#F6B93B" />
+
+      <path d="M0 250 C120 210 240 220 360 250 C460 276 540 240 600 250 V440 H0Z" fill="#A9CBA4" />
+
+      <path d="M40 232 L110 186 L180 232Z" fill="#173D2C" />
+      <rect x="52" y="230" width="116" height="62" fill="#F3E2C0" />
+      <rect x="96" y="250" width="28" height="42" rx="3" fill="#B5763A" />
+
+      <path d="M0 300 C120 280 240 296 360 304 C460 310 540 292 600 300 V440 H0Z" fill="url(#poultryGrass)" />
+      <Tufts points={[[30, 400], [220, 420], [420, 410], [560, 392]]} />
+
+      <Hen x={30} y={262} s={1.35} body="#B8672E" shade="#8F4C1E" />
+      <Hen x={210} y={280} s={1.5} />
+      <Hen x={470} y={262} s={1.3} flip body="#3A4A41" shade="#26332B" />
+    </svg>
+  );
+}
+
+export function ManureArt({ alt, className = "" }) {
+  const specks = [
+    [140, 380], [190, 340], [250, 300], [310, 330], [360, 290],
+    [420, 340], [470, 380], [220, 390], [330, 380], [400, 395],
+  ];
+
+  return (
+    <svg
+      viewBox="0 0 600 440"
+      preserveAspectRatio="xMidYMid slice"
+      role="img"
+      aria-label={alt}
+      className={`block ${className}`}
+    >
+      <defs>
+        <linearGradient id="manureSky" x1="0" y1="0" x2="0" y2="1">
+          <stop offset="0" stopColor="#D6EBDD" />
+          <stop offset="1" stopColor="#F4EFE4" />
+        </linearGradient>
+      </defs>
+
+      <rect width="600" height="440" fill="url(#manureSky)" />
+      <circle cx="94" cy="86" r="40" fill="#F6B93B" />
+
+      <path d="M0 270 C140 230 260 250 380 276 C480 296 540 270 600 262 V440 H0Z" fill="#A9CBA4" />
+      <path d="M0 330 C160 300 300 322 440 336 C520 344 560 330 600 326 V440 H0Z" fill="#6FA86A" />
+
+      <ellipse cx="300" cy="404" rx="250" ry="18" fill="#000" opacity=".16" />
+
+      {/* Soil mound */}
+      <path d="M50 410 C110 300 210 250 300 250 C400 250 490 310 550 410Z" fill="#5A3A22" />
+      <path d="M110 396 C160 316 230 280 300 278 C230 300 180 340 150 396Z" fill="#6E482B" opacity=".7" />
+      <g fill="#3E2814">
+        {specks.map(([x, y], i) => (
+          <circle key={i} cx={x} cy={y} r={i % 2 ? 5 : 3.5} />
+        ))}
+      </g>
+      <g fill="#7A5232">
+        {specks.map(([x, y], i) => (
+          <circle key={i} cx={x + 14} cy={y - 8} r={i % 3 ? 3 : 4.5} />
+        ))}
+      </g>
+
+      {/* Shovel */}
+      <g transform="rotate(14 392 220)">
+        <rect x="385" y="96" width="14" height="190" rx="7" fill="#B08A5B" />
+        <path
+          d="M370 100 H414 V88 C414 78 370 78 370 88Z"
+          fill="#8F6B3E"
+        />
+        <path
+          d="M362 282 H422 L416 342 C410 360 374 360 368 342Z"
+          fill="#A8B0AC"
+          stroke="#8A938F"
+          strokeWidth="3"
+        />
+      </g>
+
+      <Seedling x={74} y={408} s={1.1} />
+      <Seedling x={528} y={410} s={1.3} />
+    </svg>
+  );
+}
+
+const ART = {
+  hero: HeroArt,
+  eggs: EggsArt,
+  poultry: PoultryArt,
+  manure: ManureArt,
+};
+
+// =========================================================
+// FarmPhoto
+// src  : your real photo (for example "/images/hero.jpg"), or "" for none
+// art  : "hero" | "eggs" | "poultry" | "manure"
+// =========================================================
+
+export function FarmPhoto({
+  src,
+  art = "hero",
+  alt,
+  className = "",
+  loading = "lazy",
+}) {
+  const [failed, setFailed] = useState(false);
+  const Art = ART[art] || HeroArt;
+
+  if (!src || failed) {
+    return <Art alt={alt} className={className} />;
+  }
+
+  return (
+    <img
+      src={src}
+      alt={alt}
+      loading={loading}
+      onError={() => setFailed(true)}
+      className={className}
+    />
+  );
+}
