@@ -58,7 +58,6 @@ const VALID_PAYMENT_METHODS = ["Cash", "Transfer", "POS"];
 
 // =====================================================
 // EGG SALE AUDIT SNAPSHOT
-// Excludes sensitive information.
 // =====================================================
 
 const getEggSaleAuditSnapshot = (sale) => {
@@ -402,7 +401,6 @@ const resolveCustomer = async ({ customerId, customer, phone }) => {
 
 // =====================================================
 // OUTSTANDING CUSTOMER SUMMARY
-// Older unpaid sales remain included here.
 // =====================================================
 
 exports.getOutstandingCustomers = async (req, res) => {
@@ -477,7 +475,6 @@ exports.getOutstandingCustomers = async (req, res) => {
       }
 
       const currentDate = new Date(sale.date || sale.createdAt || 0).getTime();
-
       const previousDate = new Date(existing.lastSale || 0).getTime();
 
       if (currentDate > previousDate) {
@@ -730,6 +727,7 @@ exports.getSalesSummary = async (req, res) => {
 
 // =====================================================
 // GET ALL SALES
+// CORRECTED: MANAGER ACCESS BASED ON createdAt
 // =====================================================
 
 exports.getSales = async (req, res) => {
@@ -739,17 +737,32 @@ exports.getSales = async (req, res) => {
     let filter = {};
 
     if (role === "superadmin") {
+      // Superadmin can see all sales, including deleted sales.
       filter = {};
     } else if (role === "manager") {
-      const now = new Date();
-      const cutoff = new Date(now.getTime() - ACCESS_WINDOW_MS);
+      const cutoff = new Date(Date.now() - ACCESS_WINDOW_MS);
+
+      // Approved and unexpired temporary access grants.
+      const grantedIds = await getGrantedSaleIds(req, "egg");
 
       filter = {
         isDeleted: false,
-        date: {
-          $gte: cutoff,
-          $lte: now,
-        },
+        $or: [
+          // Sales created within the last 24 hours.
+          // This deliberately uses createdAt, not the transaction date.
+          {
+            createdAt: {
+              $gte: cutoff,
+            },
+          },
+
+          // Older sales with approved temporary access.
+          {
+            _id: {
+              $in: grantedIds,
+            },
+          },
+        ],
       };
     } else {
       return res.status(403).json({
@@ -905,7 +918,6 @@ exports.createSale = async (req, res) => {
 
     await sale.populate("soldBy", "role name");
 
-    // AUDIT LOG: CREATE SALE
     await logAudit(req, {
       action: "CREATE",
       module: "Egg Sales",
@@ -952,7 +964,6 @@ exports.updateSale = async (req, res) => {
       });
     }
 
-    // Capture the original state before making changes.
     const before = getEggSaleAuditSnapshot(sale);
 
     const {
@@ -1190,7 +1201,6 @@ exports.updateSale = async (req, res) => {
 
     await sale.populate("soldBy", "role name");
 
-    // AUDIT LOG: UPDATE SALE
     await logAudit(req, {
       action: "UPDATE",
       module: "Egg Sales",
@@ -1245,7 +1255,6 @@ exports.deleteSale = async (req, res) => {
       });
     }
 
-    // Capture original state before soft deletion.
     const before = getEggSaleAuditSnapshot(sale);
 
     sale.isDeleted = true;
@@ -1256,7 +1265,6 @@ exports.deleteSale = async (req, res) => {
       validateBeforeSave: false,
     });
 
-    // AUDIT LOG: DELETE SALE
     await logAudit(req, {
       action: "DELETE",
       module: "Egg Sales",
@@ -1326,7 +1334,6 @@ exports.restoreSale = async (req, res) => {
       });
     }
 
-    // Capture deleted state before restoration.
     const before = getEggSaleAuditSnapshot(sale);
 
     sale.isDeleted = false;
@@ -1344,7 +1351,6 @@ exports.restoreSale = async (req, res) => {
 
     await sale.populate("soldBy", "role name");
 
-    // AUDIT LOG: RESTORE SALE
     await logAudit(req, {
       action: "RESTORE",
       module: "Egg Sales",
