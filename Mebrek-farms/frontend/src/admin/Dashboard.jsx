@@ -660,7 +660,7 @@ export default function Dashboard() {
         </p>
 
         <h1 className="text-2xl sm:text-3xl font-bold text-[#294b36] mt-2">
-          Mebrek Farms Dashboard 🚜
+          Mebrek Farms Dashboard
         </h1>
 
         <p className="text-gray-500 mt-2 text-sm sm:text-base">
@@ -677,7 +677,7 @@ export default function Dashboard() {
           <p className="text-green-100 text-sm font-medium">Welcome back</p>
 
           <h2 className="text-2xl sm:text-3xl font-bold mt-1">
-            {user?.name || user?.adminName || "User"} 👋
+            {user?.name || user?.adminName || "User"}
           </h2>
 
           <p className="text-green-100 text-sm mt-2">
@@ -763,7 +763,7 @@ export default function Dashboard() {
           <div className="flex flex-col sm:flex-row sm:items-end sm:justify-between gap-3 mb-5">
             <div>
               <h2 className="text-xl sm:text-2xl font-bold text-[#294b36]">
-                Farm Profit &amp; Loss 💰
+                Farm Profit &amp; Loss
               </h2>
 
               <p className="text-sm text-gray-500 mt-1">
@@ -1191,7 +1191,7 @@ export default function Dashboard() {
       {perms.feedStock && (
         <div className={`${CHART_STYLE} mb-8`}>
           <h2 className="text-lg sm:text-xl font-bold text-[#294b36] mb-2">
-            Feed Inventory 🌽
+            Feed Inventory
           </h2>
 
           <p className="text-sm text-gray-500 mb-4">

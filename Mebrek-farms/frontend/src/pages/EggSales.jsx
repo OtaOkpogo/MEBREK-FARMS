@@ -1629,13 +1629,13 @@ export default function EggSales() {
                 label: "Sales revenue",
                 value: formatCurrency(periodSummary.revenue),
                 note: "Value of sales recorded",
-                style: "text-emerald-800 bg-emerald-50",
+                style: "text-blue-800 bg-blue-50",
               },
               {
                 label: "Money received",
                 value: formatCurrency(periodSummary.received),
                 note: "Payments recorded",
-                style: "text-blue-800 bg-blue-50",
+                style: "text-green-800 bg-green-50",
               },
               {
                 label: "Outstanding",
@@ -1725,14 +1725,14 @@ export default function EggSales() {
                       <Bar
                         dataKey="revenue"
                         name="Sales revenue"
-                        fill="#43866A"
+                        fill="#2563EB"
                         radius={[5, 5, 0, 0]}
                         maxBarSize={36}
                       />
                       <Bar
                         dataKey="received"
                         name="Received"
-                        fill="#8AAE9B"
+                        fill="#16A34A"
                         radius={[5, 5, 0, 0]}
                         maxBarSize={36}
                       />
@@ -1808,14 +1808,14 @@ export default function EggSales() {
 
         <div className="rounded-xl border bg-white p-4 shadow-sm">
           <p className="text-sm text-gray-500">Sales Revenue</p>
-          <p className="mt-1 text-2xl font-bold text-green-700">
+          <p className="mt-1 text-2xl font-bold text-blue-700">
             {formatCurrency(totalRevenue)}
           </p>
         </div>
 
         <div className="rounded-xl border bg-white p-4 shadow-sm">
           <p className="text-sm text-gray-500">Amount Received</p>
-          <p className="mt-1 text-2xl font-bold text-blue-700">
+          <p className="mt-1 text-2xl font-bold text-green-700">
             {formatCurrency(amountReceived)}
           </p>
         </div>

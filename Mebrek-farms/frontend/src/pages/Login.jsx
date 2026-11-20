@@ -53,22 +53,22 @@ const flyingBirds = [
 
 const features = [
   {
-    icon: "🐔",
+    icon: "",
     title: "Poultry management",
     text: "Bird health, flocks and daily care",
   },
   {
-    icon: "🥚",
+    icon: "",
     title: "Egg production",
     text: "Daily collection and production records",
   },
   {
-    icon: "📊",
+    icon: "",
     title: "Farm analytics",
     text: "Performance insights and reports",
   },
   {
-    icon: "🌿",
+    icon: "",
     title: "Farm operations",
     text: "Inventory, staff and daily activities",
   },

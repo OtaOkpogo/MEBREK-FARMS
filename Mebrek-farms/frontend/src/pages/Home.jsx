@@ -34,7 +34,6 @@ const PAGE_TITLE = "Mebrek Farms | Fresh Eggs, Poultry & Farm Manure in Eket";
 const PAGE_DESCRIPTION =
   "Order fresh eggs, poultry and quality farm manure directly from Mebrek Farms in Eket, Akwa Ibom. Contact us to confirm availability and pricing.";
 
-// Local business details for search engines
 const LOCAL_BUSINESS = {
   "@context": "https://schema.org",
   "@type": "LocalBusiness",
@@ -90,24 +89,52 @@ const STEPS = [
 
 const REASONS = [
   {
-    icon: "🌿",
+    icon: "",
     title: "Clean farm",
     text: "Hygienic, well-managed production.",
   },
   {
-    icon: "🐔",
+    icon: "",
     title: "Healthy birds",
     text: "Bird health always comes first.",
   },
   {
-    icon: "✅",
+    icon: "",
     title: "Consistent quality",
     text: "The same care with every order.",
   },
   {
-    icon: "🤝",
+    icon: "",
     title: "Easy to reach",
     text: "Call, WhatsApp, email or use the form.",
+  },
+];
+
+// =========================================================
+// CUSTOMER FEEDBACK
+// =========================================================
+
+const REVIEWS = [
+  {
+    initials: "MO",
+    name: "Moses Okure",
+    location: "Uyo",
+    message:
+      "Mebrek Farms has earned my trust through its consistent supply of fresh, high-quality eggs. Their products are always well-preserved, neatly handled, and meet the expectations of my customers. Their commitment to quality and reliable service makes them a farm I am always happy to do business with.",
+  },
+  {
+    initials: "DGE",
+    name: "Debbie Global Enterprise",
+    location: "Eket",
+    message:
+      "Buying eggs from Mebrek Farms has been an excellent experience. They are undoubtedly one of the best poultry farms in Eket. I have consistently received positive feedback from my customers, with no complaints about the quality of their eggs. Their eggs are always fresh, clean, and highly marketable. I am proud to be associated with a farm that consistently delivers quality.",
+  },
+  {
+    initials: "AR",
+    name: "Elder Ekanem Ekanem (CEO, ALIEEK RESOURCES)",
+    location: "Eket",
+    message:
+      "I have enjoyed doing business with Mebrek Farms because of their dedication to quality and customer satisfaction. Their eggs are consistently fresh, of good quality, and well worth the value. They have proven to be a reliable supplier, and I look forward to continuing our business relationship.",
   },
 ];
 
@@ -144,7 +171,7 @@ export default function Home() {
     name: "",
     contact: "",
     message: "",
-    website: "", // honeypot: real visitors never see or fill this
+    website: "",
   });
 
   const [contactError, setContactError] = useState("");
@@ -167,7 +194,7 @@ export default function Home() {
   });
 
   // -------------------------------------------------------
-  // REMEMBER RETURNING CUSTOMERS (saved only in this browser)
+  // REMEMBER RETURNING CUSTOMERS
   // -------------------------------------------------------
 
   useEffect(() => {
@@ -183,6 +210,7 @@ export default function Home() {
             name: customer.name || "",
             contact: customer.contact || "",
           }));
+
           setHasSavedDetails(true);
         }
       }
@@ -198,7 +226,12 @@ export default function Home() {
       console.warn("Could not clear saved customer details:", error);
     }
 
-    setForm((previous) => ({ ...previous, name: "", contact: "" }));
+    setForm((previous) => ({
+      ...previous,
+      name: "",
+      contact: "",
+    }));
+
     setContactError("");
     setHasSavedDetails(false);
     nameRef.current?.focus();
@@ -211,12 +244,18 @@ export default function Home() {
   const handleChange = (e) => {
     const { name, value } = e.target;
 
-    setForm((previous) => ({ ...previous, [name]: value }));
+    setForm((previous) => ({
+      ...previous,
+      [name]: value,
+    }));
 
-    if (name === "contact") setContactError("");
+    if (name === "contact") {
+      setContactError("");
+    }
 
-    // Starting a new order hides the previous confirmation
-    if (name === "product") setLastOrder(null);
+    if (name === "product") {
+      setLastOrder(null);
+    }
 
     setStatus({ type: "", text: "" });
   };
@@ -225,12 +264,20 @@ export default function Home() {
     if (!form.contact.trim()) return;
 
     const result = checkContact(form.contact);
+
     setContactError(result.ok ? "" : result.error);
   };
 
-  // "Use the form instead" on a product card
+  // -------------------------------------------------------
+  // SELECT PRODUCT FROM PRODUCT CARD
+  // -------------------------------------------------------
+
   const chooseProduct = (productKey) => {
-    setForm((previous) => ({ ...previous, product: productKey }));
+    setForm((previous) => ({
+      ...previous,
+      product: productKey,
+    }));
+
     setStatus({ type: "", text: "" });
     setLastOrder(null);
 
@@ -249,7 +296,10 @@ export default function Home() {
     );
   };
 
-  // Quick egg quantity buttons
+  // -------------------------------------------------------
+  // QUICK EGG QUANTITY BUTTONS
+  // -------------------------------------------------------
+
   const addQuantity = (quantity) => {
     setForm((previous) => {
       const rest = previous.message
@@ -275,7 +325,7 @@ export default function Home() {
   };
 
   // -------------------------------------------------------
-  // SEND THE FORM ON WHATSAPP INSTEAD
+  // SEND FORM ON WHATSAPP
   // -------------------------------------------------------
 
   const handleWhatsAppOrder = () => {
@@ -310,16 +360,19 @@ export default function Home() {
       await navigator.clipboard.writeText(PHONE_COPY);
       markCopied();
     } catch {
-      // Older browsers: fall back to a hidden text box
       const input = document.createElement("textarea");
+
       input.value = PHONE_COPY;
       input.style.position = "fixed";
       input.style.opacity = "0";
+
       document.body.appendChild(input);
       input.select();
 
       try {
-        if (document.execCommand("copy")) markCopied();
+        if (document.execCommand("copy")) {
+          markCopied();
+        }
       } catch {
         setCopied(false);
       }
@@ -329,18 +382,23 @@ export default function Home() {
   };
 
   // -------------------------------------------------------
-  // SHARE THE PAGE
+  // SHARE PAGE
   // -------------------------------------------------------
 
   const handleShare = async () => {
     const url = window.location.href;
+
     const text =
       "Discover Mebrek Farms in Eket, Akwa Ibom. Fresh eggs, poultry and farm manure.";
 
-    // Phones: use the built-in share sheet. Others: WhatsApp.
     if (navigator.share) {
       try {
-        await navigator.share({ title: "Mebrek Farms", text, url });
+        await navigator.share({
+          title: "Mebrek Farms",
+          text,
+          url,
+        });
+
         return;
       } catch (error) {
         if (error?.name === "AbortError") return;
@@ -363,8 +421,6 @@ export default function Home() {
 
     if (isSubmitting) return;
 
-    // Spam protection: bots fill the hidden field or submit within moments
-    // of loading the page. Nothing is sent, and no confirmation is shown.
     const filledHoneypot = form.website.trim() !== "";
     const tooFast = Date.now() - openedAt.current < 3000;
 
@@ -373,6 +429,7 @@ export default function Home() {
         type: "error",
         text: "Please wait a moment and try submitting your order again.",
       });
+
       return;
     }
 
@@ -381,11 +438,16 @@ export default function Home() {
         type: "error",
         text: "Please select a product before submitting.",
       });
+
       return;
     }
 
     if (!form.name.trim()) {
-      setStatus({ type: "error", text: "Please enter your name." });
+      setStatus({
+        type: "error",
+        text: "Please enter your name.",
+      });
+
       nameRef.current?.focus();
       return;
     }
@@ -424,18 +486,20 @@ export default function Home() {
 
       setLastOrder(submitted);
 
-      // Save name and contact for next time, on this device only
       try {
         localStorage.setItem(
           CUSTOMER_STORAGE_KEY,
-          JSON.stringify({ name: submitted.name, contact: submitted.contact }),
+          JSON.stringify({
+            name: submitted.name,
+            contact: submitted.contact,
+          }),
         );
+
         setHasSavedDetails(true);
       } catch (error) {
         console.warn("Could not save customer details:", error);
       }
 
-      // Keep name and contact for repeat orders
       setForm({
         product: "",
         name: submitted.name,
@@ -457,9 +521,9 @@ export default function Home() {
     }
   };
 
-  // -------------------------------------------------------
+  // =======================================================
   // RENDER
-  // -------------------------------------------------------
+  // =======================================================
 
   return (
     <div
@@ -581,7 +645,9 @@ export default function Home() {
               <h2 className="mf-display text-3xl font-extrabold sm:text-5xl">
                 What would you like to buy?
               </h2>
+
               <Accent />
+
               <p className="mt-3 text-lg leading-8 text-[#14221B]/75">
                 Tap a button to order. Stock changes, so we always confirm
                 availability first.
@@ -675,6 +741,7 @@ export default function Home() {
             >
               How to order
             </h2>
+
             <Accent />
 
             <ol className="mt-10 grid gap-8 md:grid-cols-3">
@@ -695,6 +762,7 @@ export default function Home() {
                     <h3 className="mf-display text-xl font-bold">
                       {step.title}
                     </h3>
+
                     <p className="mt-1 leading-7 text-green-50/90">
                       {step.text}
                     </p>
@@ -716,6 +784,7 @@ export default function Home() {
                 <h2 className="mf-display text-3xl font-extrabold sm:text-5xl">
                   Why customers choose Mebrek Farms
                 </h2>
+
                 <Accent />
 
                 <p className="mt-4 max-w-md text-lg leading-8 text-[#14221B]/75">
@@ -748,6 +817,7 @@ export default function Home() {
                       <h3 className="mf-display text-lg font-bold">
                         {reason.title}
                       </h3>
+
                       <p className="mt-1 leading-7 text-[#14221B]/75">
                         {reason.text}
                       </p>
@@ -755,6 +825,117 @@ export default function Home() {
                   </li>
                 ))}
               </ul>
+            </div>
+          </div>
+        </section>
+
+        {/* =====================================================
+            CUSTOMER FEEDBACK
+        ===================================================== */}
+
+        <section
+          id="customer-feedback"
+          className="relative overflow-hidden bg-[#F4EFE4] py-16 sm:py-24"
+        >
+          <div
+            aria-hidden="true"
+            className="pointer-events-none absolute -right-24 -top-24 h-72 w-72 rounded-full bg-[#F6B93B]/15 blur-3xl"
+          />
+
+          <div
+            aria-hidden="true"
+            className="pointer-events-none absolute -bottom-24 -left-24 h-72 w-72 rounded-full bg-[#128C4A]/10 blur-3xl"
+          />
+
+          <div className="site-container relative">
+            <div data-farm-reveal className="mx-auto max-w-2xl text-center">
+              <span className="inline-flex items-center gap-2 rounded-full bg-[#0D3B2B]/10 px-4 py-2 text-sm font-bold text-[#0D3B2B]">
+                <span aria-hidden="true">💬</span>
+                Customer feedback
+              </span>
+
+              <h2 className="mf-display mt-5 text-3xl font-extrabold sm:text-5xl">
+                What our customers say
+              </h2>
+
+              <Accent />
+
+              <p className="mt-4 text-lg leading-8 text-[#14221B]/75">
+                We value every customer. This section is ready for genuine
+                customer experiences and approved testimonials.
+              </p>
+            </div>
+
+            <div className="mt-12 grid gap-6 md:grid-cols-2 lg:grid-cols-3">
+              {REVIEWS.map((review, index) => (
+                <article
+                  key={`${review.initials}-${index}`}
+                  data-farm-reveal
+                  className="group relative flex flex-col overflow-hidden rounded-3xl border border-[#14221B]/10 bg-white p-6 shadow-md transition-all duration-300 hover:-translate-y-1 hover:shadow-xl sm:p-7"
+                >
+                  <div
+                    aria-hidden="true"
+                    className="absolute right-5 top-3 font-serif text-7xl leading-none text-[#F6B93B]/25"
+                  >
+                    ”
+                  </div>
+
+                  <div
+                    className="relative flex items-center gap-1 text-xl tracking-wider text-[#E5A600]"
+                    aria-label="Five decorative stars"
+                  >
+                    {"★★★★★"}
+                  </div>
+
+                  <blockquote className="relative mt-6 flex-1">
+                    <p className="text-base leading-8 text-[#14221B]/80">
+                      “{review.message}”
+                    </p>
+                  </blockquote>
+
+                  <div className="mt-7 flex items-center gap-3 border-t border-[#14221B]/10 pt-5">
+                    <div className="flex h-12 w-12 shrink-0 items-center justify-center rounded-full bg-[#0D3B2B] text-sm font-extrabold text-white">
+                      {review.initials}
+                    </div>
+
+                    <div className="min-w-0">
+                      <h3 className="font-bold text-[#14221B]">
+                        {review.name}
+                      </h3>
+
+                      <p className="mt-0.5 text-sm text-[#14221B]/55">
+                        {review.location}
+                      </p>
+                    </div>
+                  </div>
+                </article>
+              ))}
+            </div>
+
+            <div
+              data-farm-reveal
+              className="mt-10 rounded-3xl bg-[#0D3B2B] px-6 py-8 text-center text-white shadow-xl sm:px-10"
+            >
+              <h3 className="mf-display text-2xl font-bold sm:text-3xl">
+                Have you purchased from Mebrek Farms?
+              </h3>
+
+              <p className="mx-auto mt-3 max-w-2xl leading-7 text-green-50/85">
+                We would love to hear about your experience. Share your feedback
+                with us through WhatsApp.
+              </p>
+
+              <a
+                href={whatsappLink(
+                  "Hello Mebrek Farms, I would like to share my feedback about my experience with your farm.",
+                )}
+                target="_blank"
+                rel="noopener noreferrer"
+                className={`mt-6 inline-flex min-h-[3.25rem] items-center justify-center gap-2 rounded-full bg-[#F6B93B] px-7 py-3 font-bold text-[#14221B] transition-colors hover:bg-[#F9CA69] ${focusRing}`}
+              >
+                <WhatsAppIcon />
+                Share your feedback
+              </a>
             </div>
           </div>
         </section>
@@ -780,6 +961,7 @@ export default function Home() {
                 <h2 className="mf-display text-3xl font-extrabold sm:text-5xl">
                   Send us your order
                 </h2>
+
                 <Accent />
 
                 <p className="mt-4 max-w-md text-lg leading-8 text-[#14221B]/75">
@@ -804,6 +986,7 @@ export default function Home() {
                           <span className="block text-sm text-[#14221B]/65">
                             Call
                           </span>
+
                           <span className="block font-bold">
                             {PHONE_DISPLAY}
                           </span>
@@ -836,6 +1019,7 @@ export default function Home() {
                         <span className="block text-sm text-[#14221B]/65">
                           WhatsApp
                         </span>
+
                         <span className="block font-bold">
                           Chat with Mebrek Farms
                         </span>
@@ -861,6 +1045,7 @@ export default function Home() {
                         <span className="block text-sm text-[#14221B]/65">
                           Email
                         </span>
+
                         <span className="block break-all font-bold">
                           {EMAIL}
                         </span>
@@ -888,6 +1073,7 @@ export default function Home() {
                         <span className="block text-sm text-[#14221B]/65">
                           Farm location · Open map
                         </span>
+
                         <span className="block font-bold">
                           Eket, Akwa Ibom, Nigeria
                         </span>
@@ -906,8 +1092,6 @@ export default function Home() {
                 <h3 className="mf-display text-2xl font-extrabold">
                   Order form
                 </h3>
-
-                {/* Errors */}
 
                 {status.type === "error" && (
                   <div
@@ -938,6 +1122,7 @@ export default function Home() {
                         <h4 className="font-bold text-green-900">
                           Order request received!
                         </h4>
+
                         <p className="text-sm text-green-800">
                           Thank you for choosing Mebrek Farms.
                         </p>
@@ -948,9 +1133,11 @@ export default function Home() {
                       <p>
                         <strong>Customer:</strong> {lastOrder.name}
                       </p>
+
                       <p>
                         <strong>Contact:</strong> {lastOrder.contact}
                       </p>
+
                       <p>
                         <strong>Product:</strong> {lastOrder.product}
                       </p>
@@ -983,7 +1170,7 @@ export default function Home() {
                 )}
 
                 <form onSubmit={handleSubmit} className="mt-6 space-y-5">
-                  {/* Honeypot: hidden from people and screen readers, bots fill it in */}
+                  {/* Honeypot */}
 
                   <div
                     aria-hidden="true"
