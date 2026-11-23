@@ -19,6 +19,71 @@ const getErrorMessage = (err, fallback) =>
   err?.message ||
   fallback;
 
+// ============================================================
+// ROLE DETECTION
+// ============================================================
+
+const getCurrentRole = () => {
+  if (typeof window === "undefined") return "";
+
+  const normalizeRole = (value) =>
+    typeof value === "string" ? value.trim().toLowerCase() : "";
+
+  const storageKeys = [
+    "role",
+    "user",
+    "admin",
+    "adminUser",
+    "currentUser",
+    "authUser",
+    "userInfo",
+    "adminInfo",
+  ];
+
+  for (const key of storageKeys) {
+    const storedValue = localStorage.getItem(key);
+
+    if (!storedValue) continue;
+
+    const directRole = normalizeRole(storedValue);
+
+    if (
+      directRole === "superadmin" ||
+      directRole === "manager" ||
+      directRole === "staff"
+    ) {
+      return directRole;
+    }
+
+    try {
+      const parsed = JSON.parse(storedValue);
+
+      const possibleRoles = [
+        parsed?.role,
+        parsed?.user?.role,
+        parsed?.admin?.role,
+        parsed?.data?.role,
+        parsed?.data?.user?.role,
+        parsed?.data?.admin?.role,
+      ];
+
+      const role = possibleRoles
+        .map(normalizeRole)
+        .find((value) => ["superadmin", "manager", "staff"].includes(value));
+
+      if (role) return role;
+    } catch {
+      // Ignore storage values that are not JSON.
+    }
+  }
+
+  return "";
+};
+
+// ============================================================
+// GENERAL HELPERS
+// ============================================================
+
 const formatDate = (date) => {
   if (!date) return "—";
 
@@ -100,6 +165,52 @@ const getPagination = (result, page) => {
   };
 };
 
+// ============================================================
+// RESTORE HELPERS
+// ============================================================
+
+const normalizeModule = (module) =>
+  String(module || "")
+    .toLowerCase()
+    .replace(/[^a-z]/g, "");
+
+const getRestorableModule = (activity) => {
+  const module = normalizeModule(activity?.module);
+
+  if (module === "eggsales") return "egg-sales";
+  if (module === "manuresales") return "manure-sales";
+
+  return null;
+};
+
+const getEntityId = (activity) => {
+  const entityId =
+    activity?.entityId ||
+    activity?.entity?._id ||
+    activity?.entity?.id ||
+    activity?.recordId;
+
+  if (entityId && typeof entityId === "object") {
+    return entityId._id || entityId.id || "";
+  }
+
+  return entityId ? String(entityId) : "";
+};
+
+const canRestoreActivity = (activity, isSuperAdmin) => {
+  if (!isSuperAdmin) return false;
+
+  if (String(activity?.action || "").toUpperCase() !== "DELETE") {
+    return false;
+  }
+
+  return Boolean(getRestorableModule(activity) && getEntityId(activity));
+};
+
+// ============================================================
+// MAIN COMPONENT
+// ============================================================
+
 export default function LoginActivity() {
   const [activeTab, setActiveTab] = useState("login");
 
@@ -118,7 +229,13 @@ export default function LoginActivity() {
     totalPages: 0,
   });
 
+  const [restoringId, setRestoringId] = useState("");
+  const [restoreMessage, setRestoreMessage] = useState(null);
+
+  const [currentRole, setCurrentRole] = useState(getCurrentRole);
+
   const isAuditTab = activeTab === "audit";
+  const isSuperAdmin = currentRole === "superadmin";
 
   // ============================================================
   // LOAD ACTIVITY
@@ -150,7 +267,6 @@ export default function LoginActivity() {
         }
 
         const response = await apiClient.get(endpoint, { params });
-
         const result = response.data;
 
         setActivities(
@@ -194,6 +310,69 @@ export default function LoginActivity() {
     loadActivities();
   }, [loadActivities]);
 
+  // Refresh role when the component is opened or tab changes.
+  useEffect(() => {
+    setCurrentRole(getCurrentRole());
+  }, []);
+
+  // ============================================================
+  // RESTORE DELETED SALE
+  // ============================================================
+
+  const restoreSale = async (activity) => {
+    const module = getRestorableModule(activity);
+    const entityId = getEntityId(activity);
+
+    if (!isSuperAdmin) {
+      alert("Only the Super Admin can restore deleted sales.");
+      return;
+    }
+
+    if (!module || !entityId) {
+      alert(
+        "This audit record does not contain the information required to restore the sale.",
+      );
+      return;
+    }
+
+    const saleName =
+      activity.entityName ||
+      (module === "egg-sales" ? "Egg Sale" : "Manure Sale");
+
+    const confirmed = window.confirm(
+      `Are you sure you want to restore "${saleName}"?\n\nThe original deleted record will be restored.`,
+    );
+
+    if (!confirmed) return;
+
+    try {
+      setRestoringId(entityId);
+      setRestoreMessage(null);
+
+      await apiClient.put(`/${module}/${entityId}/restore`);
+
+      setRestoreMessage({
+        type: "success",
+        text: `${saleName} restored successfully.`,
+      });
+
+      // Reload the audit trail to show the new RESTORE event.
+      await loadActivities(false);
+    } catch (err) {
+      console.error("RESTORE SALE ERROR:", err);
+
+      setRestoreMessage({
+        type: "error",
+        text: getErrorMessage(
+          err,
+          `Unable to restore ${saleName}. Please try again.`,
+        ),
+      });
+    } finally {
+      setRestoringId("");
+    }
+  };
+
   // ============================================================
   // TAB CHANGE
   // ============================================================
@@ -206,6 +385,8 @@ export default function LoginActivity() {
     setFilters(INITIAL_FILTERS);
     setActivities([]);
     setLoadError("");
+    setRestoreMessage(null);
+
     setPagination({
       currentPage: 1,
       pageSize: PAGE_SIZE,
@@ -442,6 +623,13 @@ export default function LoginActivity() {
             <p className="mt-1 text-sm text-gray-500">
               Review account access and important administrative changes.
             </p>
+
+            {isAuditTab && isSuperAdmin && (
+              <p className="mt-2 text-xs font-medium text-green-700">
+                Super Admin access: You can restore deleted Egg Sales and Manure
+                Sales records.
+              </p>
+            )}
           </div>
 
           <div className="flex flex-wrap gap-2">
@@ -494,6 +682,25 @@ export default function LoginActivity() {
             Administrative Audit Trail
           </button>
         </div>
+
+        {/* RESTORE FEEDBACK */}
+
+        {restoreMessage && (
+          <div
+            className={`mb-5 rounded-lg border p-4 text-sm ${
+              restoreMessage.type === "success"
+                ? "border-green-200 bg-green-50 text-green-800"
+                : "border-red-200 bg-red-50 text-red-700"
+            }`}
+          >
+            <p className="font-semibold">
+              {restoreMessage.type === "success"
+                ? "Restoration successful"
+                : "Restoration failed"}
+            </p>
+            <p className="mt-1">{restoreMessage.text}</p>
+          </div>
+        )}
 
         {/* SUMMARY CARDS */}
 
@@ -573,8 +780,6 @@ export default function LoginActivity() {
           </div>
 
           <div className="grid grid-cols-1 gap-4 md:grid-cols-2 xl:grid-cols-5">
-            {/* SEARCH */}
-
             <div>
               <label className="mb-1.5 block text-sm font-medium text-gray-700">
                 {isAuditTab ? "Search Activity" : "Search Account"}
@@ -594,8 +799,6 @@ export default function LoginActivity() {
               />
             </div>
 
-            {/* ROLE */}
-
             <div>
               <label className="mb-1.5 block text-sm font-medium text-gray-700">
                 Account Role
@@ -614,8 +817,6 @@ export default function LoginActivity() {
                 <option value="unknown">Unknown</option>
               </select>
             </div>
-
-            {/* TAB-SPECIFIC FILTER */}
 
             {isAuditTab ? (
               <>
@@ -701,8 +902,6 @@ export default function LoginActivity() {
               </div>
             )}
 
-            {/* FROM DATE */}
-
             <div>
               <label className="mb-1.5 block text-sm font-medium text-gray-700">
                 From Date
@@ -717,8 +916,6 @@ export default function LoginActivity() {
                 className="w-full rounded-lg border border-gray-300 px-4 py-3 text-sm outline-none focus:border-green-600"
               />
             </div>
-
-            {/* TO DATE */}
 
             <div>
               <label className="mb-1.5 block text-sm font-medium text-gray-700">
@@ -786,8 +983,6 @@ export default function LoginActivity() {
 
           <div className="overflow-x-auto">
             {!isAuditTab ? (
-              /* LOGIN ACTIVITY TABLE */
-
               <table className="w-full min-w-[1100px] text-left">
                 <thead className="bg-[#f7f9f6]">
                   <tr className="text-xs font-semibold uppercase tracking-wide text-gray-500">
@@ -882,9 +1077,7 @@ export default function LoginActivity() {
                 </tbody>
               </table>
             ) : (
-              /* ADMINISTRATIVE AUDIT TABLE */
-
-              <table className="w-full min-w-[1150px] text-left">
+              <table className="w-full min-w-[1250px] text-left">
                 <thead className="bg-[#f7f9f6]">
                   <tr className="text-xs font-semibold uppercase tracking-wide text-gray-500">
                     <th className="px-5 py-4">Performed By</th>
@@ -893,6 +1086,7 @@ export default function LoginActivity() {
                     <th className="px-5 py-4">Description</th>
                     <th className="px-5 py-4">Date & Time</th>
                     <th className="px-5 py-4">IP Address</th>
+                    {isSuperAdmin && <th className="px-5 py-4">Actions</th>}
                   </tr>
                 </thead>
 
@@ -900,7 +1094,7 @@ export default function LoginActivity() {
                   {loading && activities.length === 0 ? (
                     <tr>
                       <td
-                        colSpan="6"
+                        colSpan={isSuperAdmin ? 7 : 6}
                         className="px-5 py-12 text-center text-sm text-gray-500"
                       >
                         Loading administrative audit records...
@@ -908,74 +1102,110 @@ export default function LoginActivity() {
                     </tr>
                   ) : activities.length === 0 ? (
                     <EmptyRow
-                      colSpan={6}
+                      colSpan={isSuperAdmin ? 7 : 6}
                       message="No administrative audit records found."
                       description="Important changes made to farm records will appear here."
                     />
                   ) : (
-                    activities.map((activity) => (
-                      <tr
-                        key={activity._id}
-                        className="transition hover:bg-gray-50"
-                      >
-                        <td className="px-5 py-4">
-                          <p className="font-semibold text-gray-800">
-                            {activity.actorName || "Unknown User"}
-                          </p>
+                    activities.map((activity) => {
+                      const canRestore = canRestoreActivity(
+                        activity,
+                        isSuperAdmin,
+                      );
 
-                          <p className="mt-1 text-xs text-gray-500">
-                            {activity.actorEmail || "No email"}
-                          </p>
+                      const entityId = getEntityId(activity);
+                      const isRestoring = restoringId === entityId;
 
-                          <span className="mt-2 inline-flex rounded-full bg-gray-100 px-2.5 py-1 text-xs font-semibold text-gray-700">
-                            {formatRole(activity.actorRole)}
-                          </span>
-                        </td>
-
-                        <td className="px-5 py-4">
-                          <span
-                            className={`inline-flex rounded-full px-3 py-1 text-xs font-semibold ${
-                              ACTION_STYLES[activity.action] ||
-                              "bg-gray-100 text-gray-700"
-                            }`}
-                          >
-                            {formatAction(activity.action)}
-                          </span>
-                        </td>
-
-                        <td className="px-5 py-4">
-                          <p className="text-sm font-semibold text-gray-700">
-                            {activity.module || "General"}
-                          </p>
-
-                          {activity.entityName && (
-                            <p className="mt-1 text-xs text-gray-500">
-                              {activity.entityName}
+                      return (
+                        <tr
+                          key={activity._id}
+                          className="transition hover:bg-gray-50"
+                        >
+                          <td className="px-5 py-4">
+                            <p className="font-semibold text-gray-800">
+                              {activity.actorName || "Unknown User"}
                             </p>
+
+                            <p className="mt-1 text-xs text-gray-500">
+                              {activity.actorEmail || "No email"}
+                            </p>
+
+                            <span className="mt-2 inline-flex rounded-full bg-gray-100 px-2.5 py-1 text-xs font-semibold text-gray-700">
+                              {formatRole(activity.actorRole)}
+                            </span>
+                          </td>
+
+                          <td className="px-5 py-4">
+                            <span
+                              className={`inline-flex rounded-full px-3 py-1 text-xs font-semibold ${
+                                ACTION_STYLES[
+                                  String(activity.action || "").toUpperCase()
+                                ] || "bg-gray-100 text-gray-700"
+                              }`}
+                            >
+                              {formatAction(activity.action)}
+                            </span>
+                          </td>
+
+                          <td className="px-5 py-4">
+                            <p className="text-sm font-semibold text-gray-700">
+                              {activity.module || "General"}
+                            </p>
+
+                            {activity.entityName && (
+                              <p className="mt-1 text-xs text-gray-500">
+                                {activity.entityName}
+                              </p>
+                            )}
+                          </td>
+
+                          <td className="max-w-sm px-5 py-4">
+                            <p className="text-sm text-gray-700">
+                              {activity.description ||
+                                "No description provided"}
+                            </p>
+                          </td>
+
+                          <td className="px-5 py-4">
+                            <p className="text-sm font-medium text-gray-700">
+                              {formatDate(activity.createdAt)}
+                            </p>
+
+                            <p className="mt-1 text-xs text-gray-400">
+                              {formatTime(activity.createdAt)}
+                            </p>
+                          </td>
+
+                          <td className="px-5 py-4 text-sm text-gray-600">
+                            {activity.ipAddress || "Unknown"}
+                          </td>
+
+                          {isSuperAdmin && (
+                            <td className="px-5 py-4">
+                              {canRestore ? (
+                                <button
+                                  type="button"
+                                  onClick={() => restoreSale(activity)}
+                                  disabled={Boolean(restoringId)}
+                                  className="whitespace-nowrap rounded-lg bg-green-700 px-3 py-2 text-xs font-semibold text-white transition hover:bg-green-800 disabled:cursor-not-allowed disabled:opacity-50"
+                                >
+                                  {isRestoring ? (
+                                    "Restoring..."
+                                  ) : (
+                                    <>
+                                      <span className="mr-1">↶</span>
+                                      Restore Sale
+                                    </>
+                                  )}
+                                </button>
+                              ) : (
+                                <span className="text-xs text-gray-400">—</span>
+                              )}
+                            </td>
                           )}
-                        </td>
-
-                        <td className="max-w-sm px-5 py-4">
-                          <p className="text-sm text-gray-700">
-                            {activity.description || "No description provided"}
-                          </p>
-                        </td>
-
-                        <td className="px-5 py-4">
-                          <p className="text-sm font-medium text-gray-700">
-                            {formatDate(activity.createdAt)}
-                          </p>
-
-                          <p className="mt-1 text-xs text-gray-400">
-                            {formatTime(activity.createdAt)}
-                          </p>
-                        </td>
-
-                        <td className="px-5 py-4 text-sm text-gray-600">
-                          {activity.ipAddress || "Unknown"}
-                        </td>
-                      </tr>
-                    ))
+                        </tr>
+                      );
+                    })
                   )}
                 </tbody>
               </table>

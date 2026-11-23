@@ -1,82 +1,32 @@
 import { useState } from "react";
-import { useNavigate } from "react-router-dom";
+import { useNavigate, Link } from "react-router-dom";
 import axios from "axios";
 import mebrekLogo from "../assets/logo.PNG";
-import {
-  API_URL,
-  focusRing,
-  btn,
-  Wave,
-  BackHome,
-  FarmStyles,
-  usePageMeta,
-} from "./farmShared";
 
-// ============================================================
-// ANIMATED FLYING BIRD
-// ============================================================
+import { API_URL, focusRing, FarmStyles, usePageMeta } from "./farmShared";
 
-function Bird({ size = 38 }) {
-  return (
-    <svg
-      width={size}
-      height={size * 0.65}
-      viewBox="0 0 100 65"
-      fill="none"
-      xmlns="http://www.w3.org/2000/svg"
-      className="bird-shape"
-    >
-      <path
-        d="M8 39 C20 22 33 20 50 34 C66 18 81 19 94 36 C77 29 66 34 51 49 C35 34 22 30 8 39Z"
-        fill="currentColor"
-      />
-      <path
-        className="bird-wing"
-        d="M50 34 C36 9 21 7 8 39 C26 24 38 28 50 34Z"
-        fill="currentColor"
-      />
-      <path
-        className="bird-wing bird-wing-right"
-        d="M50 34 C64 9 79 7 94 36 C74 23 62 28 50 34Z"
-        fill="currentColor"
-      />
-    </svg>
-  );
-}
-
-const flyingBirds = [
-  { top: "14%", size: 38, duration: "21s", delay: "-4s" },
-  { top: "34%", size: 28, duration: "25s", delay: "-15s" },
-  { top: "56%", size: 44, duration: "19s", delay: "-9s" },
-  { top: "74%", size: 30, duration: "28s", delay: "-20s" },
-];
-
-const features = [
+const farmFeatures = [
   {
-    icon: "",
-    title: "Poultry management",
-    text: "Bird health, flocks and daily care",
+    number: "01",
+    title: "Poultry Management",
+    description: "Monitor flocks, bird health and farm activities.",
   },
   {
-    icon: "",
-    title: "Egg production",
-    text: "Daily collection and production records",
+    number: "02",
+    title: "Egg Production",
+    description: "Record and monitor daily egg production.",
   },
   {
-    icon: "",
-    title: "Farm analytics",
-    text: "Performance insights and reports",
+    number: "03",
+    title: "Inventory Management",
+    description: "Manage feed, medication and farm supplies.",
   },
   {
-    icon: "",
-    title: "Farm operations",
-    text: "Inventory, staff and daily activities",
+    number: "04",
+    title: "Farm Reports",
+    description: "Track performance and review farm operations.",
   },
 ];
-
-// ============================================================
-// LOGIN COMPONENT
-// ============================================================
 
 export default function Login() {
   const navigate = useNavigate();
@@ -90,40 +40,53 @@ export default function Login() {
   const [error, setError] = useState("");
   const [showPassword, setShowPassword] = useState(false);
 
-  // The admin sign-in page should not appear in search results
   usePageMeta({
-    title: "Admin sign in | Mebrek Farms",
-    description: "Sign in to the Mebrek Farms management dashboard.",
+    title: "Admin Login | Mebrek Farms",
+    description: "Access the Mebrek Farms management dashboard.",
     noindex: true,
   });
 
   const handleChange = (e) => {
-    setFormData({
-      ...formData,
-      [e.target.name]: e.target.value,
-    });
+    const { name, value } = e.target;
+
+    setFormData((previous) => ({
+      ...previous,
+      [name]: value,
+    }));
 
     setError("");
   };
 
   const handleSubmit = async (e) => {
     e.preventDefault();
+
+    if (loading) return;
+
     setLoading(true);
     setError("");
 
     try {
       const res = await axios.post(`${API_URL}/api/auth/login`, formData);
 
-      localStorage.setItem("token", res.data.token);
-      localStorage.setItem("role", res.data.admin.role);
-      localStorage.setItem("adminName", res.data.admin.name);
-      localStorage.setItem("user", JSON.stringify(res.data.admin));
+      const { token, admin } = res.data;
+
+      if (!token || !admin) {
+        throw new Error("Invalid login response. Please try again.");
+      }
+
+      localStorage.setItem("token", token);
+      localStorage.setItem("role", admin.role);
+      localStorage.setItem("adminName", admin.name);
+      localStorage.setItem("user", JSON.stringify(admin));
 
       navigate("/admin");
     } catch (err) {
+      console.error("LOGIN ERROR:", err);
+
       setError(
         err.response?.data?.message ||
-          "Unable to sign in. Please check your details and try again.",
+          err.message ||
+          "Unable to sign in. Please check your email and password.",
       );
     } finally {
       setLoading(false);
@@ -131,237 +94,157 @@ export default function Login() {
   };
 
   return (
-    <div className="mf-root min-h-screen overflow-x-hidden bg-[#F8F4EA] text-[#14221B]">
+    <div className="mf-root min-h-screen bg-[#F3F5EF] text-[#183D2C]">
       <FarmStyles />
 
-      {/* Flying birds (only used on this page) */}
-      <style>{`
-        .login-sky { --fly: 62vw; }
+      {/* TOP HEADER */}
+      <header className="border-b border-[#DCE4D9] bg-white">
+        <div className="mx-auto flex max-w-7xl items-center justify-between px-5 py-4 sm:px-8">
+          <Link to="/" className="flex items-center gap-3">
+            <img
+              src={mebrekLogo}
+              alt="Mebrek Farms"
+              className="h-14 w-14 rounded-lg object-contain"
+            />
 
-        @media (max-width: 1023px) {
-          .login-sky { --fly: 112vw; }
-        }
+            <div>
+              <h1 className="text-xl font-black tracking-wide text-[#17482F]">
+                MEBREK FARMS
+              </h1>
+              <p className="text-xs font-semibold tracking-wider text-gray-500">
+                FARM MANAGEMENT PORTAL
+              </p>
+            </div>
+          </Link>
 
-        .bird-flight {
-          position: absolute;
-          left: -80px;
-          color: rgba(255, 255, 255, 0.7);
-          animation: flyAcross linear infinite;
-          will-change: transform;
-          filter: drop-shadow(0 3px 5px rgba(0, 0, 0, 0.25));
-        }
-
-        .bird-shape {
-          overflow: visible;
-          animation: birdBob 1.4s ease-in-out infinite;
-        }
-
-        .bird-wing {
-          transform-box: fill-box;
-          transform-origin: 50% 100%;
-          animation: wingFlap 0.55s ease-in-out infinite alternate;
-        }
-
-        .bird-wing-right { animation-delay: -0.12s; }
-
-        @keyframes flyAcross {
-          0% { transform: translate3d(-10vw, 0, 0) scale(0.75); opacity: 0; }
-          8% { opacity: 0.85; }
-          50% { transform: translate3d(calc(var(--fly) * 0.5), -30px, 0) scale(1); opacity: 0.8; }
-          92% { opacity: 0.85; }
-          100% { transform: translate3d(var(--fly), 16px, 0) scale(0.85); opacity: 0; }
-        }
-
-        @keyframes wingFlap {
-          from { transform: scaleY(1); }
-          to { transform: scaleY(0.18); }
-        }
-
-        @keyframes birdBob {
-          0%, 100% { translate: 0 0; }
-          50% { translate: 0 -5px; }
-        }
-
-        @keyframes login-spin {
-          to { transform: rotate(360deg); }
-        }
-
-        .login-spinner {
-          width: 1.125rem;
-          height: 1.125rem;
-          border: 2px solid rgb(255 255 255 / 0.4);
-          border-top-color: #fff;
-          border-radius: 50%;
-          animation: login-spin 0.7s linear infinite;
-        }
-
-        @media (prefers-reduced-motion: reduce) {
-          .login-sky { display: none; }
-        }
-      `}</style>
-
-      <main className="grid min-h-screen lg:grid-cols-[1.05fr_0.95fr]">
-        {/* =====================================================
-            LEFT: BRAND PANEL
-        ===================================================== */}
-
-        <section className="mf-bg-steps relative overflow-hidden text-white">
-          <div
-            className="login-sky pointer-events-none absolute inset-0"
-            aria-hidden="true"
+          <Link
+            to="/"
+            className={`inline-flex items-center gap-2 rounded-lg border-2 border-[#205B3B] bg-white px-4 py-3 text-sm font-bold text-[#205B3B] hover:bg-[#205B3B] hover:text-white sm:px-6 ${focusRing}`}
           >
-            {flyingBirds.map((bird, index) => (
-              <div
-                key={index}
-                className="bird-flight"
-                style={{
-                  top: bird.top,
-                  animationDuration: bird.duration,
-                  animationDelay: bird.delay,
-                }}
-              >
-                <Bird size={bird.size} />
-              </div>
-            ))}
-          </div>
+            <span aria-hidden="true">←</span>
+            <span>Back to Website</span>
+          </Link>
+        </div>
+      </header>
 
-          <div className="relative z-10 flex h-full flex-col px-5 pb-28 pt-6 sm:px-10 lg:px-14 lg:pb-12 lg:pt-8">
-            {/* Top row */}
-            <div className="flex flex-wrap items-center justify-between gap-3">
-              <div className="flex items-center gap-3 rounded-2xl bg-white/10 py-2 pl-2 pr-5 ring-1 ring-white/20 backdrop-blur">
-                <img
-                  src={mebrekLogo}
-                  alt="Mebrek Farms logo"
-                  className="h-11 w-11 shrink-0 rounded-xl bg-white object-contain p-1"
-                />
-
-                <div>
-                  <p className="mf-display text-base font-bold leading-tight tracking-wide">
-                    MEBREK FARMS
-                  </p>
-                  <p className="text-xs font-semibold text-[#F6B93B]">
-                    Quality • Care • Farming
-                  </p>
-                </div>
-              </div>
-
-              <BackHome />
+      {/* MAIN CONTENT */}
+      <main className="mx-auto grid max-w-7xl gap-8 px-5 py-8 sm:px-8 lg:min-h-[calc(100vh-85px)] lg:grid-cols-[1.1fr_0.9fr] lg:items-center lg:gap-12 lg:py-12">
+        {/* LEFT INFORMATION PANEL */}
+        <section className="overflow-hidden rounded-2xl bg-[#164A32] text-white shadow-xl">
+          <div className="p-7 sm:p-10 lg:p-12">
+            <div className="mb-8 inline-flex items-center gap-2 rounded-full border border-white/30 bg-white/10 px-4 py-2">
+              <span className="h-2.5 w-2.5 rounded-full bg-[#F5C84C]" />
+              <span className="text-xs font-bold uppercase tracking-widest text-white">
+                Integrated Farm Operations
+              </span>
             </div>
 
-            {/* Headline */}
-            <div className="my-auto max-w-xl py-10 lg:py-14">
-              <p className="inline-flex items-center gap-2 rounded-full bg-white/10 px-4 py-2 text-sm font-semibold text-green-50 ring-1 ring-white/20">
-                <span
-                  className="h-2 w-2 rounded-full bg-[#F6B93B]"
-                  aria-hidden="true"
-                />
-                Smart poultry management
-              </p>
+            <h2 className="max-w-xl text-4xl font-black leading-tight sm:text-5xl lg:text-6xl">
+              Smarter Farm
+              <span className="block text-[#F5CE62]">Management.</span>
+              Better Results.
+            </h2>
 
-              <h1 className="mf-display mt-5 text-4xl font-extrabold leading-[1.05] sm:text-5xl xl:text-6xl">
-                Growing better.
-                <span className="block text-[#F6B93B]">Managing smarter.</span>
-              </h1>
+            <p className="mt-6 max-w-xl text-base leading-8 text-green-50 sm:text-lg">
+              Welcome to the Mebrek Farms Management System. Your central
+              platform for managing poultry operations, monitoring production,
+              controlling inventory and keeping farm activities organised.
+            </p>
 
-              <p className="mt-5 hidden max-w-lg text-lg leading-8 text-green-50/90 sm:block">
-                Welcome to the Mebrek Farms management platform. Monitor your
-                poultry operations, manage production, track your inventory and
-                keep your farm growing with confidence.
-              </p>
+            <div className="mt-10 border-t border-white/20 pt-8">
+              <h3 className="mb-6 text-sm font-extrabold uppercase tracking-widest text-[#F5CE62]">
+                Manage Your Farm With Confidence
+              </h3>
 
-              <ul className="mt-8 hidden gap-4 lg:grid xl:grid-cols-2">
-                {features.map((feature) => (
-                  <li
-                    key={feature.title}
-                    className="flex items-center gap-4 rounded-2xl bg-white/10 p-4 ring-1 ring-white/15 backdrop-blur transition-colors duration-300 hover:bg-white/15"
-                  >
-                    <span
-                      aria-hidden="true"
-                      className="flex h-12 w-12 shrink-0 items-center justify-center rounded-xl bg-[#F6B93B]/20 text-2xl"
-                    >
-                      {feature.icon}
-                    </span>
+              <div className="grid gap-5 sm:grid-cols-2">
+                {farmFeatures.map((feature) => (
+                  <div key={feature.number} className="flex gap-4">
+                    <div className="flex h-10 w-10 shrink-0 items-center justify-center rounded-lg bg-[#F5CE62] text-sm font-black text-[#17482F]">
+                      {feature.number}
+                    </div>
 
                     <div>
-                      <p className="mf-display font-bold">{feature.title}</p>
-                      <p className="mt-0.5 text-sm text-green-50/80">
-                        {feature.text}
+                      <h4 className="text-sm font-bold text-white sm:text-base">
+                        {feature.title}
+                      </h4>
+
+                      <p className="mt-1 text-sm leading-6 text-green-100">
+                        {feature.description}
                       </p>
                     </div>
-                  </li>
+                  </div>
                 ))}
-              </ul>
+              </div>
             </div>
-
-            <p className="hidden items-center gap-3 text-sm font-semibold text-green-50/75 lg:flex">
-              <span
-                className="h-1 w-10 rounded-full bg-[#F6B93B]"
-                aria-hidden="true"
-              />
-              Fresh eggs. Quality farming. Better future.
-            </p>
           </div>
 
-          {/* Curved edge into the sign-in area (phones and tablets) */}
-          <div className="lg:hidden">
-            <Wave color="#F8F4EA" />
+          <div className="flex flex-col gap-2 border-t border-white/20 bg-[#103C28] px-7 py-5 sm:flex-row sm:items-center sm:justify-between sm:px-10">
+            <p className="text-sm font-semibold text-white">
+              Fresh Eggs. Quality Poultry Farming.
+            </p>
+
+            <p className="text-xs text-green-100">Mebrek Farms Management</p>
           </div>
         </section>
 
-        {/* =====================================================
-            RIGHT: SIGN-IN CARD
-        ===================================================== */}
+        {/* RIGHT LOGIN PANEL */}
+        <section className="mx-auto w-full max-w-lg">
+          <div className="rounded-2xl border border-[#DCE4D9] bg-white p-7 shadow-xl sm:p-10">
+            {/* FORM HEADING */}
+            <div className="mb-8">
+              <div className="mb-6 flex h-20 w-20 items-center justify-center rounded-xl border border-[#DCE7D9] bg-[#F1F5ED] p-2">
+                <img
+                  src={mebrekLogo}
+                  alt="Mebrek Farms Logo"
+                  className="h-full w-full object-contain"
+                />
+              </div>
 
-        <section className="mf-bg-hero relative z-10 -mt-14 flex items-center justify-center px-5 pb-12 pt-4 sm:px-10 lg:mt-0 lg:py-14">
-          <div className="w-full max-w-md rounded-3xl border-t-8 border-[#F6B93B] bg-white p-6 shadow-2xl ring-1 ring-[#14221B]/10 sm:p-9">
-            <div className="flex h-16 w-16 items-center justify-center overflow-hidden rounded-2xl bg-[#EEF1E8] ring-1 ring-[#14221B]/10">
-              <img
-                src={mebrekLogo}
-                alt=""
-                className="h-full w-full object-contain p-1.5"
-              />
+              <p className="text-sm font-extrabold uppercase tracking-widest text-[#668348]">
+                Administrator Login
+              </p>
+
+              <h2 className="mt-2 text-3xl font-black text-[#183D2C] sm:text-4xl">
+                Welcome Back
+              </h2>
+
+              <p className="mt-3 text-sm leading-7 text-gray-600">
+                Sign in to continue to your farm management dashboard. Enter
+                your registered email and password below.
+              </p>
             </div>
 
-            <p className="mt-5 inline-block rounded-full bg-[#0D3B2B]/10 px-4 py-1.5 text-sm font-semibold text-[#0D3B2B]">
-              Farm management portal
-            </p>
-
-            <h2 className="mf-display mt-3 text-3xl font-extrabold sm:text-4xl">
-              Welcome back!
-            </h2>
-
-            <span
-              aria-hidden="true"
-              className="mt-3 block h-1.5 w-16 rounded-full bg-[#F6B93B]"
-            />
-
-            <p className="mt-4 leading-7 text-[#14221B]/75">
-              Sign in to access your farm management dashboard. Your farm
-              operations are just one step away.
-            </p>
-
-            <form onSubmit={handleSubmit} className="mt-7 space-y-5">
+            {/* LOGIN FORM */}
+            <form onSubmit={handleSubmit} className="space-y-6">
+              {/* EMAIL */}
               <div>
-                <label htmlFor="email" className="mb-2 block font-semibold">
-                  Email address
+                <label
+                  htmlFor="email"
+                  className="mb-2 block text-sm font-bold text-[#263D30]"
+                >
+                  Email Address
                 </label>
 
                 <input
                   id="email"
                   type="email"
                   name="email"
-                  className="mf-field"
-                  placeholder="Enter your email address"
                   value={formData.email}
                   onChange={handleChange}
+                  placeholder="Enter your email address"
                   autoComplete="username"
                   disabled={loading}
                   required
+                  className="w-full rounded-xl border-2 border-[#C8D2C6] bg-[#FAFCF9] px-4 py-4 text-base text-[#183D2C] outline-none placeholder:text-gray-400 focus:border-[#205B3B] focus:ring-4 focus:ring-[#205B3B]/10 disabled:opacity-60"
                 />
               </div>
 
+              {/* PASSWORD */}
               <div>
-                <label htmlFor="password" className="mb-2 block font-semibold">
+                <label
+                  htmlFor="password"
+                  className="mb-2 block text-sm font-bold text-[#263D30]"
+                >
                   Password
                 </label>
 
@@ -370,69 +253,83 @@ export default function Login() {
                     id="password"
                     type={showPassword ? "text" : "password"}
                     name="password"
-                    className="mf-field"
-                    style={{ paddingRight: "5.5rem" }}
-                    placeholder="Enter your password"
                     value={formData.password}
                     onChange={handleChange}
+                    placeholder="Enter your password"
                     autoComplete="current-password"
                     disabled={loading}
                     required
+                    className="w-full rounded-xl border-2 border-[#C8D2C6] bg-[#FAFCF9] px-4 py-4 pr-20 text-base text-[#183D2C] outline-none placeholder:text-gray-400 focus:border-[#205B3B] focus:ring-4 focus:ring-[#205B3B]/10 disabled:opacity-60"
                   />
 
                   <button
                     type="button"
-                    onClick={() => setShowPassword(!showPassword)}
-                    aria-pressed={showPassword}
+                    onClick={() => setShowPassword((previous) => !previous)}
                     aria-label={
                       showPassword ? "Hide password" : "Show password"
                     }
-                    className={`absolute right-2 top-1/2 min-h-[2.5rem] min-w-[4.25rem] -translate-y-1/2 rounded-xl bg-[#EEF1E8] px-3 text-sm font-bold text-[#0D3B2B] transition-colors hover:bg-[#0D3B2B] hover:text-white ${focusRing}`}
+                    className={`absolute right-3 top-1/2 -translate-y-1/2 rounded-lg bg-[#E9F0E5] px-3 py-2 text-sm font-bold text-[#205B3B] hover:bg-[#DCE8D6] ${focusRing}`}
                   >
                     {showPassword ? "Hide" : "Show"}
                   </button>
                 </div>
               </div>
 
+              {/* ERROR */}
               {error && (
                 <div
                   role="alert"
-                  className="flex items-start gap-3 rounded-xl bg-red-50 p-4 font-medium leading-6 text-red-800"
+                  className="rounded-xl border-2 border-red-200 bg-red-50 p-4 text-sm font-medium leading-6 text-red-700"
                 >
-                  <span aria-hidden="true">⚠</span>
-                  <span>{error}</span>
+                  <p className="font-extrabold">Login Failed</p>
+                  <p className="mt-1">{error}</p>
                 </div>
               )}
 
+              {/* LOGIN BUTTON */}
               <button
                 type="submit"
                 disabled={loading}
-                className={`${btn.dark} w-full text-lg disabled:cursor-not-allowed disabled:opacity-60`}
+                className={`w-full rounded-xl bg-[#205B3B] px-5 py-4 text-base font-extrabold text-white shadow-md hover:bg-[#17452E] disabled:cursor-not-allowed disabled:opacity-60 ${focusRing}`}
               >
-                {loading ? (
-                  <>
-                    <span className="login-spinner" aria-hidden="true" />
-                    Signing in…
-                  </>
-                ) : (
-                  <>
-                    Access dashboard
-                    <span aria-hidden="true">→</span>
-                  </>
-                )}
+                {loading ? "Signing In..." : "SIGN IN TO DASHBOARD"}
               </button>
             </form>
 
-            <p className="mt-6 flex items-center justify-center gap-2 text-center text-sm text-[#14221B]/65">
-              <span aria-hidden="true">🔐</span>
-              Secure access to your farm operations
-            </p>
+            {/* SECURITY MESSAGE */}
+            <div className="mt-8 rounded-xl border border-[#DCE7D9] bg-[#F3F7F0] p-4">
+              <div className="flex items-start gap-3">
+                <span className="text-xl" aria-hidden="true">
+                  🔒
+                </span>
 
-            <p className="mt-5 border-t border-[#14221B]/10 pt-5 text-center text-sm text-[#14221B]/60">
-              © {new Date().getFullYear()}{" "}
-              <strong className="text-[#0D3B2B]">Mebrek Farms</strong>. All
-              rights reserved.
-            </p>
+                <div>
+                  <h3 className="text-sm font-extrabold text-[#205B3B]">
+                    Secure Administrator Access
+                  </h3>
+
+                  <p className="mt-1 text-xs leading-6 text-gray-600">
+                    This portal is restricted to authorised Mebrek Farms
+                    personnel. Please keep your login credentials private.
+                  </p>
+                </div>
+              </div>
+            </div>
+
+            {/* BACK TO WEBSITE */}
+            <Link
+              to="/"
+              className={`mt-6 flex w-full items-center justify-center gap-2 rounded-xl border-2 border-[#205B3B] bg-white px-5 py-3.5 text-sm font-extrabold text-[#205B3B] hover:bg-[#EEF4EA] ${focusRing}`}
+            >
+              <span aria-hidden="true">←</span>
+              Return to Mebrek Farms Website
+            </Link>
+
+            <div className="mt-7 border-t border-gray-200 pt-5 text-center">
+              <p className="text-xs font-medium text-gray-500">
+                © {new Date().getFullYear()} Mebrek Farms. All rights reserved.
+              </p>
+            </div>
           </div>
         </section>
       </main>
