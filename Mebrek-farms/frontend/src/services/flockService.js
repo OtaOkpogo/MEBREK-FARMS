@@ -28,31 +28,35 @@ export const fetchFlock = async (id) => {
 
 /*
 |--------------------------------------------------------------------------
-| GET ACTIVE FLOCK BY PEN
+| GET ALL ACTIVE FLOCKS IN A PEN
+|--------------------------------------------------------------------------
+*/
+
+export const fetchActiveFlocksByPen = async (pen) => {
+  if (!pen) return [];
+
+  const encodedPen = encodeURIComponent(pen);
+
+  const response = await apiClient.get(`/flocks/pen/${encodedPen}/active`);
+
+  return response.data.allocations || [];
+};
+
+/*
+|--------------------------------------------------------------------------
+| LEGACY: GET ONE ACTIVE FLOCK BY PEN
+|--------------------------------------------------------------------------
+| Retained temporarily for older components.
+| If multiple flocks occupy the pen, this returns the first one.
 |--------------------------------------------------------------------------
 */
 
 export const fetchActiveFlockByPen = async (pen) => {
-  if (!pen) {
-    return null;
-  }
+  if (!pen) return null;
 
-  try {
-    const encodedPen = encodeURIComponent(pen);
+  const allocations = await fetchActiveFlocksByPen(pen);
 
-    const response = await apiClient.get(`/flocks/pen/${encodedPen}/active`);
-
-    return response.data.flock;
-  } catch (error) {
-    // No active flock in this pen is a normal condition.
-    if (error.response?.status === 404) {
-      return null;
-    }
-
-    console.error("FETCH ACTIVE FLOCK BY PEN ERROR:", error);
-
-    throw error;
-  }
+  return allocations.length ? allocations[0].flock : null;
 };
 
 /*
@@ -61,16 +65,10 @@ export const fetchActiveFlockByPen = async (pen) => {
 |--------------------------------------------------------------------------
 */
 
-export const createFlock = async (flockData) => {
-  try {
-    const response = await apiClient.post("/flocks", flockData);
+export const createFlock = async (data) => {
+  const response = await apiClient.post("/flocks", data);
 
-    return response.data;
-  } catch (error) {
-    console.error("CREATE FLOCK API ERROR:", error.response?.data || error);
-
-    throw error;
-  }
+  return response.data;
 };
 
 /*
@@ -79,28 +77,93 @@ export const createFlock = async (flockData) => {
 |--------------------------------------------------------------------------
 */
 
-export const updateFlock = async (id, flockData) => {
-  try {
-    const response = await apiClient.put(`/flocks/${id}`, flockData);
+export const updateFlock = async (id, data) => {
+  const response = await apiClient.put(`/flocks/${id}`, data);
 
-    return response.data;
-  } catch (error) {
-    console.error("UPDATE FLOCK API ERROR:", error.response?.data || error);
-
-    throw error;
-  }
+  return response.data;
 };
 
 /*
 |--------------------------------------------------------------------------
-| SELL FLOCK
+| GET FLOCK ALLOCATIONS
 |--------------------------------------------------------------------------
 */
 
-export const sellFlock = async (id, saleDate) => {
-  const response = await apiClient.patch(`/flocks/${id}/sell`, {
-    saleDate,
-  });
+export const fetchFlockAllocations = async (id) => {
+  const response = await apiClient.get(`/flocks/${id}/allocations`);
+
+  return response.data;
+};
+
+/*
+|--------------------------------------------------------------------------
+| GET FLOCK TRANSFERS
+|--------------------------------------------------------------------------
+*/
+
+export const fetchFlockTransfers = async (id) => {
+  const response = await apiClient.get(`/flocks/${id}/transfers`);
+
+  return response.data;
+};
+
+/*
+|--------------------------------------------------------------------------
+| CREATE FLOCK TRANSFER
+|--------------------------------------------------------------------------
+*/
+
+export const createFlockTransfer = async (id, data) => {
+  const response = await apiClient.post(`/flocks/${id}/transfers`, data);
+
+  return response.data;
+};
+
+/*
+|--------------------------------------------------------------------------
+| GET FLOCK POPULATION HISTORY
+|--------------------------------------------------------------------------
+*/
+
+export const fetchFlockPopulationHistory = async (id) => {
+  const response = await apiClient.get(`/flocks/${id}/population-history`);
+
+  return response.data;
+};
+
+/*
+|--------------------------------------------------------------------------
+| ADJUST FLOCK POPULATION
+|--------------------------------------------------------------------------
+*/
+
+export const createFlockPopulationAdjustment = async (id, data) => {
+  const response = await apiClient.post(
+    `/flocks/${id}/population-adjustments`,
+    data,
+  );
+
+  return response.data;
+};
+
+/*
+|--------------------------------------------------------------------------
+| SELL FLOCK / RECORD BIRD SALE
+|--------------------------------------------------------------------------
+*/
+
+export const sellFlock = async (id, saleDate, allocationSales) => {
+  const payload = {};
+
+  if (saleDate) {
+    payload.saleDate = saleDate;
+  }
+
+  if (allocationSales) {
+    payload.allocationSales = allocationSales;
+  }
+
+  const response = await apiClient.patch(`/flocks/${id}/sell`, payload);
 
   return response.data;
 };
