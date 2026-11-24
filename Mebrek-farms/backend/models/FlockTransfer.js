@@ -1,4 +1,3 @@
-
 const mongoose = require("mongoose");
 const PENS = require("../constants/pens");
 
@@ -98,14 +97,11 @@ const flockTransferSchema = new mongoose.Schema(
   },
 );
 
-flockTransferSchema.pre("validate", function (next) {
+// Prevent transfers between the same pen.
+flockTransferSchema.pre("validate", function () {
   if (this.fromPen && this.toPen && this.fromPen === this.toPen) {
-    return next(
-      new Error("Source and destination pens must be different."),
-    );
+    throw new Error("Source and destination pens must be different.");
   }
-
-  next();
 });
 
 flockTransferSchema.index({
@@ -123,8 +119,4 @@ flockTransferSchema.index({
   transferDate: -1,
 });
 
-module.exports = mongoose.model(
-  "FlockTransfer",
-  flockTransferSchema,
-);
-
+module.exports = mongoose.model("FlockTransfer", flockTransferSchema);

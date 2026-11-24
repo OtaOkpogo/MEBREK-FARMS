@@ -20,34 +20,50 @@ const flockSchema = new mongoose.Schema(
   {
     flockId: {
       type: String,
-      required: [true, "Flock ID is required"],
+      required: true,
       unique: true,
       trim: true,
       uppercase: true,
     },
 
+    // Legacy field retained for backward compatibility.
+    // Current housing is managed through FlockAllocation.
     pen: {
       type: String,
-      required: [true, "Pen is required"],
-      enum: {
-        values: PENS,
-        message: "Invalid pen selected",
-      },
+      required: true,
+      enum: PENS,
     },
 
     placementDate: {
       type: Date,
-      required: [true, "Placement date is required"],
+      required: true,
     },
 
     startingAgeWeeks: {
       type: Number,
-      required: [true, "Starting age is required"],
-      min: [0, "Starting age cannot be negative"],
-      max: [
-        MAX_LAYING_AGE_WEEKS,
-        `Starting age cannot exceed ${MAX_LAYING_AGE_WEEKS} weeks`,
-      ],
+      required: true,
+      min: 0,
+      max: MAX_LAYING_AGE_WEEKS,
+    },
+
+    // null = population not yet recorded.
+    // 0 = population is confirmed to be zero.
+    initialBirdCount: {
+      type: Number,
+      default: null,
+      min: [0, "Initial bird count cannot be negative"],
+      validate: {
+        validator: (value) =>
+          value === null || (Number.isInteger(value) && value >= 0),
+        message: "Initial bird count must be a non-negative whole number.",
+      },
+    },
+
+    populationTrackingStatus: {
+      type: String,
+      enum: ["NOT_SET", "TRACKED"],
+      default: "NOT_SET",
+      index: true,
     },
 
     status: {
@@ -105,86 +121,52 @@ const flockSchema = new mongoose.Schema(
   },
   {
     timestamps: true,
-    toJSON: {
-      virtuals: true,
-    },
-    toObject: {
-      virtuals: true,
-    },
+    toJSON: { virtuals: true },
+    toObject: { virtuals: true },
   },
 );
 
-/*
-|--------------------------------------------------------------------------
-| INDEXES
-|--------------------------------------------------------------------------
-*/
+// Multiple flocks may occupy the same pen.
+// There is intentionally no unique index on pen.
 
-// Only ONE active, non-deleted flock can occupy a pen.
-flockSchema.index(
-  { pen: 1 },
-  {
-    unique: true,
-    partialFilterExpression: {
-      status: "ACTIVE",
-      isDeleted: false,
-    },
-  },
-);
-
-// Useful for production/history queries.
 flockSchema.index({ placementDate: -1 });
+flockSchema.index({ status: 1, isDeleted: 1 });
 
-/*
-|--------------------------------------------------------------------------
-| VIRTUALS
-|--------------------------------------------------------------------------
-*/
-
-// Current flock age in weeks.
 flockSchema.virtual("currentAgeWeeks").get(function () {
-  if (!this.placementDate) {
-    return this.startingAgeWeeks || 0;
-  }
+  if (!this.placementDate) return null;
 
-  const now = new Date();
-  const placementDate = new Date(this.placementDate);
+  const elapsed = Date.now() - new Date(this.placementDate).getTime();
 
-  const diffMs = now.getTime() - placementDate.getTime();
-  const elapsedWeeks = diffMs / (1000 * 60 * 60 * 24 * 7);
+  const elapsedWeeks = Math.floor(elapsed / (7 * 24 * 60 * 60 * 1000));
 
-  return Math.max(0, Math.floor((this.startingAgeWeeks || 0) + elapsedWeeks));
+  return Math.max(0, Number(this.startingAgeWeeks || 0) + elapsedWeeks);
 });
 
-// Weeks remaining until maximum laying age.
 flockSchema.virtual("weeksRemaining").get(function () {
-  const currentAge = this.currentAgeWeeks || 0;
-
-  return Math.max(0, MAX_LAYING_AGE_WEEKS - currentAge);
+  return Math.max(0, MAX_LAYING_AGE_WEEKS - Number(this.currentAgeWeeks || 0));
 });
 
-// Expected end of lay.
 flockSchema.virtual("expectedEndOfLay").get(function () {
-  if (!this.placementDate) {
-    return null;
-  }
+  if (!this.placementDate) return null;
+
+  const remainingWeeks = Math.max(
+    0,
+    MAX_LAYING_AGE_WEEKS - Number(this.startingAgeWeeks || 0),
+  );
 
   const endDate = new Date(this.placementDate);
 
-  const totalWeeks = MAX_LAYING_AGE_WEEKS - (this.startingAgeWeeks || 0);
-
-  endDate.setDate(endDate.getDate() + totalWeeks * 7);
+  endDate.setDate(endDate.getDate() + remainingWeeks * 7);
 
   return endDate;
 });
 
-// Human-readable lifecycle status.
 flockSchema.virtual("lifecycleStatus").get(function () {
   if (this.status === "SOLD") {
     return "Sold / Depopulated";
   }
 
-  const age = this.currentAgeWeeks || 0;
+  const age = Number(this.currentAgeWeeks || 0);
 
   if (age >= MAX_LAYING_AGE_WEEKS) {
     return "Ready for Sale";
@@ -201,7 +183,8 @@ flockSchema.virtual("lifecycleStatus").get(function () {
   return "Laying";
 });
 
-module.exports = mongoose.model("Flock", flockSchema);
+const Flock = mongoose.model("Flock", flockSchema);
 
+module.exports = Flock;
 module.exports.PENS = PENS;
 module.exports.MAX_LAYING_AGE_WEEKS = MAX_LAYING_AGE_WEEKS;

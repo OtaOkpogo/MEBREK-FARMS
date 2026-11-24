@@ -6,6 +6,11 @@ const {
   getActiveFlockByPen,
   createFlock,
   updateFlock,
+  createFlockTransfer,
+  getFlockAllocations,
+  getFlockTransfers,
+  getFlockPopulationHistory,
+  createFlockPopulationAdjustment,
   sellFlock,
   deleteFlock,
   restoreFlock,
@@ -15,56 +20,57 @@ const { protect } = require("../middleware/authMiddleware");
 
 const router = express.Router();
 
-/*
-|--------------------------------------------------------------------------
-| ALL FLOCK ROUTES REQUIRE AUTHENTICATION
-|--------------------------------------------------------------------------
-*/
-
 router.use(protect);
 
 /*
 |--------------------------------------------------------------------------
-| COLLECTION
+| COLLECTION ROUTES
 |--------------------------------------------------------------------------
 */
 
-// GET /api/flocks
 router.get("/", getFlocks);
-
-// POST /api/flocks
 router.post("/", createFlock);
 
 /*
 |--------------------------------------------------------------------------
-| ACTIVE FLOCK BY PEN
+| PEN ROUTES
+|--------------------------------------------------------------------------
+| Keep this before /:id routes.
 |--------------------------------------------------------------------------
 */
 
-// IMPORTANT:
-// This must appear BEFORE /:id
-// so "pen/..." is not interpreted as an ID.
 router.get("/pen/:pen/active", getActiveFlockByPen);
 
 /*
 |--------------------------------------------------------------------------
-| SINGLE FLOCK
+| FLOCK-SPECIFIC ROUTES
 |--------------------------------------------------------------------------
 */
 
-// GET /api/flocks/:id
+router.get("/:id/allocations", getFlockAllocations);
+
+router.get("/:id/transfers", getFlockTransfers);
+
+router.post("/:id/transfers", createFlockTransfer);
+
+router.get("/:id/population-history", getFlockPopulationHistory);
+
+router.post("/:id/population-adjustments", createFlockPopulationAdjustment);
+
+/*
+|--------------------------------------------------------------------------
+| FLOCK CRUD AND LIFECYCLE
+|--------------------------------------------------------------------------
+*/
+
 router.get("/:id", getFlock);
 
-// PUT /api/flocks/:id
 router.put("/:id", updateFlock);
 
-// PATCH /api/flocks/:id/sell
 router.patch("/:id/sell", sellFlock);
 
-// DELETE /api/flocks/:id
 router.delete("/:id", deleteFlock);
 
-// PATCH /api/flocks/:id/restore
 router.patch("/:id/restore", restoreFlock);
 
 module.exports = router;

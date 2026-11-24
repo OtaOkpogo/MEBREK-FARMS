@@ -1,21 +1,13 @@
 const mongoose = require("mongoose");
+
 const Flock = require("../models/Flock");
+const FlockAllocation = require("../models/FlockAllocation");
+const FlockTransfer = require("../models/FlockTransfer");
+const FlockPopulationHistory = require("../models/FlockPopulationHistory");
+
 const { logAudit } = require("../utils/auditLogger");
 
-const PENS = Flock.PENS || [
-  "Battery Cage Row 1",
-  "Battery Cage Row 2",
-  "Battery Cage Row 3",
-  "Deep Litter Pen 1",
-  "Deep Litter Pen 2",
-  "Deep Litter Pen 3",
-  "Deep Litter Pen 4",
-  "Deep Litter Pen 5",
-  "Sick Bay",
-  "Pen 150",
-  "Brooding House",
-];
-
+const PENS = Flock.PENS || require("../constants/pens");
 const MAX_LAYING_AGE_WEEKS = Flock.MAX_LAYING_AGE_WEEKS || 104;
 
 /*
@@ -24,18 +16,29 @@ const MAX_LAYING_AGE_WEEKS = Flock.MAX_LAYING_AGE_WEEKS || 104;
 |--------------------------------------------------------------------------
 */
 
-const getUserId = (req) => {
-  return req.user?.id || req.user?._id || null;
+const getUserId = (req) => req.user?.id || req.user?._id || null;
+
+const isSuperAdmin = (req) => req.user?.role === "superadmin";
+
+const isValidId = (id) => mongoose.Types.ObjectId.isValid(id);
+
+const isValidPen = (pen) => PENS.includes(pen);
+
+const parseDate = (value) => {
+  const date = new Date(value);
+  return Number.isNaN(date.getTime()) ? null : date;
 };
 
-const isSuperAdmin = (req) => {
-  return req.user?.role === "superadmin";
-};
+const isWholeNumber = (value) =>
+  Number.isInteger(Number(value)) && Number(value) >= 0;
+
+const isPositiveWholeNumber = (value) =>
+  Number.isInteger(Number(value)) && Number(value) > 0;
+
+const isFutureDate = (date) => date.getTime() > Date.now();
 
 const buildFlockResponse = (flock) => {
-  if (!flock) {
-    return null;
-  }
+  if (!flock) return null;
 
   const data =
     typeof flock.toObject === "function"
@@ -52,10 +55,6 @@ const buildFlockResponse = (flock) => {
   };
 };
 
-// ------------------------------------------------------------
-// AUDIT SNAPSHOT
-// ------------------------------------------------------------
-
 const getFlockAuditSnapshot = (flock) => {
   if (!flock) return null;
 
@@ -64,6 +63,8 @@ const getFlockAuditSnapshot = (flock) => {
     pen: flock.pen,
     placementDate: flock.placementDate,
     startingAgeWeeks: flock.startingAgeWeeks,
+    initialBirdCount: flock.initialBirdCount ?? null,
+    populationTrackingStatus: flock.populationTrackingStatus || "NOT_SET",
     remarks: flock.remarks,
     status: flock.status,
     saleDate: flock.saleDate || null,
@@ -72,10 +73,227 @@ const getFlockAuditSnapshot = (flock) => {
   };
 };
 
-const getFlockAuditName = (flock) => {
-  if (!flock) return "Unknown Flock";
+const getFlockAuditName = (flock) =>
+  flock ? `${flock.flockId} - ${flock.pen}` : "Unknown Flock";
 
-  return `${flock.flockId} - ${flock.pen}`;
+const getActiveAllocations = (flockId, session = null) => {
+  let query = FlockAllocation.find({
+    flock: flockId,
+    status: "ACTIVE",
+  });
+
+  if (session) query = query.session(session);
+
+  return query.sort({ allocationDate: 1, createdAt: 1 });
+};
+
+/*
+|--------------------------------------------------------------------------
+| POPULATION SUMMARY
+|--------------------------------------------------------------------------
+*/
+
+const getPopulationSummary = async (flockId, session = null) => {
+  let query = FlockAllocation.find({
+    flock: flockId,
+  });
+
+  if (session) query = query.session(session);
+
+  const allAllocations = await query.sort({
+    allocationDate: 1,
+    createdAt: 1,
+  });
+
+  const activeAllocations = allAllocations.filter(
+    (allocation) => allocation.status === "ACTIVE",
+  );
+
+  // Use active allocations when available.
+  // For a fully closed flock, use its closed allocations to preserve
+  // the confirmed final population.
+  const allocationsToCount = activeAllocations.length
+    ? activeAllocations
+    : allAllocations;
+
+  if (!allocationsToCount.length) {
+    return {
+      totalBirds: null,
+      populationKnown: false,
+      activeAllocationCount: 0,
+      allocations: activeAllocations,
+    };
+  }
+
+  const unknownPopulation = allocationsToCount.some(
+    (allocation) =>
+      allocation.currentBirds === null || allocation.currentBirds === undefined,
+  );
+
+  const totalBirds = unknownPopulation
+    ? null
+    : allocationsToCount.reduce(
+        (sum, allocation) => sum + allocation.currentBirds,
+        0,
+      );
+
+  return {
+    totalBirds,
+    populationKnown: !unknownPopulation,
+    activeAllocationCount: activeAllocations.length,
+    allocations: activeAllocations,
+  };
+};
+
+/*
+|--------------------------------------------------------------------------
+| POPULATION TRACKING STATUS
+|--------------------------------------------------------------------------
+*/
+
+const updatePopulationTrackingStatus = async (flock, session, userId) => {
+  let query = FlockAllocation.find({
+    flock: flock._id,
+  });
+
+  if (session) query = query.session(session);
+
+  const allAllocations = await query;
+
+  const populationKnown =
+    allAllocations.length > 0 &&
+    allAllocations.every(
+      (allocation) =>
+        allocation.currentBirds !== null &&
+        allocation.currentBirds !== undefined,
+    );
+
+  flock.populationTrackingStatus = populationKnown ? "TRACKED" : "NOT_SET";
+  flock.updatedBy = userId;
+
+  await flock.save({ session });
+
+  return populationKnown;
+};
+
+/*
+|--------------------------------------------------------------------------
+| VERIFY FLOCK ACCESS
+|--------------------------------------------------------------------------
+*/
+
+const getAccessibleFlock = async (id, req) => {
+  const flock = await Flock.findById(id);
+
+  if (!flock) return null;
+
+  if (flock.isDeleted && !isSuperAdmin(req)) {
+    return null;
+  }
+
+  return flock;
+};
+
+/*
+|--------------------------------------------------------------------------
+| CHECK POPULATION HISTORY DATE
+|--------------------------------------------------------------------------
+| Prevents changing current population using an event dated earlier than
+| an already-recorded population event.
+|--------------------------------------------------------------------------
+*/
+
+const validateAllocationEventDate = async (allocation, eventDate, session) => {
+  if (eventDate < allocation.allocationDate) {
+    throw new Error("EVENT_BEFORE_ALLOCATION");
+  }
+
+  let query = FlockPopulationHistory.findOne({
+    allocation: allocation._id,
+  }).sort({ eventDate: -1, createdAt: -1 });
+
+  if (session) query = query.session(session);
+
+  const latestHistory = await query;
+
+  if (latestHistory && eventDate < latestHistory.eventDate) {
+    throw new Error("BACKDATED_POPULATION_EVENT");
+  }
+};
+
+/*
+|--------------------------------------------------------------------------
+| GET FLOCK WITH ALLOCATIONS
+|--------------------------------------------------------------------------
+*/
+
+const getFlockWithAllocations = async (flockId) => {
+  const flock = await Flock.findById(flockId)
+    .populate("createdBy", "name email role")
+    .populate("updatedBy", "name email role")
+    .populate("soldBy", "name email role")
+    .populate("deletedBy", "name email role");
+
+  if (!flock) return null;
+
+  const population = await getPopulationSummary(flockId);
+
+  const flockResponse = buildFlockResponse(flock);
+
+  return {
+    ...flockResponse,
+
+    // Derive tracking status from the verified population.
+    populationTrackingStatus: population.populationKnown
+      ? "TRACKED"
+      : "NOT_SET",
+
+    allocations: population.allocations,
+
+    population: {
+      totalBirds: population.totalBirds,
+      populationKnown: population.populationKnown,
+      activeAllocationCount: population.activeAllocationCount,
+    },
+  };
+};
+
+/*
+|--------------------------------------------------------------------------
+| TRANSACTION HELPER
+|--------------------------------------------------------------------------
+*/
+
+const runTransaction = async (callback) => {
+  const session = await mongoose.startSession();
+
+  try {
+    let result;
+
+    await session.withTransaction(async () => {
+      result = await callback(session);
+    });
+
+    return result;
+  } finally {
+    await session.endSession();
+  }
+};
+
+/*
+|--------------------------------------------------------------------------
+| SERVER ERROR HANDLER
+|--------------------------------------------------------------------------
+*/
+
+const sendServerError = (res, message, error) => {
+  console.error(message, error);
+
+  return res.status(500).json({
+    success: false,
+    message,
+    error: process.env.NODE_ENV === "development" ? error.message : undefined,
+  });
 };
 
 /*
@@ -112,14 +330,23 @@ const getFlocks = async (req, res) => {
     if (pen) {
       const decodedPen = decodeURIComponent(pen);
 
-      if (!PENS.includes(decodedPen)) {
+      if (!isValidPen(decodedPen)) {
         return res.status(400).json({
           success: false,
           message: "Invalid pen",
         });
       }
 
-      filter.pen = decodedPen;
+      const allocations = await FlockAllocation.find({
+        pen: decodedPen,
+        status: "ACTIVE",
+      }).select("flock");
+
+      const allocatedFlockIds = allocations.map(
+        (allocation) => allocation.flock,
+      );
+
+      filter.$or = [{ pen: decodedPen }, { _id: { $in: allocatedFlockIds } }];
     }
 
     const flocks = await Flock.find(filter)
@@ -129,19 +356,17 @@ const getFlocks = async (req, res) => {
       .populate("deletedBy", "name email role")
       .sort({ placementDate: -1 });
 
+    const results = await Promise.all(
+      flocks.map((flock) => getFlockWithAllocations(flock._id)),
+    );
+
     return res.status(200).json({
       success: true,
-      count: flocks.length,
-      flocks: flocks.map(buildFlockResponse),
+      count: results.length,
+      flocks: results,
     });
   } catch (error) {
-    console.error("GET FLOCKS ERROR:", error);
-
-    return res.status(500).json({
-      success: false,
-      message: "Failed to fetch flocks",
-      error: process.env.NODE_ENV === "development" ? error.message : undefined,
-    });
+    return sendServerError(res, "Failed to fetch flocks", error);
   }
 };
 
@@ -157,18 +382,14 @@ const getFlock = async (req, res) => {
   try {
     const { id } = req.params;
 
-    if (!mongoose.Types.ObjectId.isValid(id)) {
+    if (!isValidId(id)) {
       return res.status(400).json({
         success: false,
         message: "Invalid flock ID",
       });
     }
 
-    const flock = await Flock.findById(id)
-      .populate("createdBy", "name email role")
-      .populate("updatedBy", "name email role")
-      .populate("soldBy", "name email role")
-      .populate("deletedBy", "name email role");
+    const flock = await getAccessibleFlock(id, req);
 
     if (!flock) {
       return res.status(404).json({
@@ -177,30 +398,18 @@ const getFlock = async (req, res) => {
       });
     }
 
-    if (flock.isDeleted && !isSuperAdmin(req)) {
-      return res.status(404).json({
-        success: false,
-        message: "Flock not found",
-      });
-    }
-
     return res.status(200).json({
       success: true,
-      flock: buildFlockResponse(flock),
+      flock: await getFlockWithAllocations(id),
     });
   } catch (error) {
-    console.error("GET FLOCK ERROR:", error);
-
-    return res.status(500).json({
-      success: false,
-      message: "Failed to fetch flock",
-    });
+    return sendServerError(res, "Failed to fetch flock", error);
   }
 };
 
 /*
 |--------------------------------------------------------------------------
-| GET ACTIVE FLOCK BY PEN
+| GET ACTIVE FLOCKS IN A PEN
 |--------------------------------------------------------------------------
 | GET /api/flocks/pen/:pen/active
 |--------------------------------------------------------------------------
@@ -210,39 +419,58 @@ const getActiveFlockByPen = async (req, res) => {
   try {
     const decodedPen = decodeURIComponent(req.params.pen);
 
-    if (!PENS.includes(decodedPen)) {
+    if (!isValidPen(decodedPen)) {
       return res.status(400).json({
         success: false,
         message: "Invalid pen",
       });
     }
 
-    const flock = await Flock.findOne({
+    const allocations = await FlockAllocation.find({
       pen: decodedPen,
       status: "ACTIVE",
-      isDeleted: false,
     })
-      .populate("createdBy", "name email role")
-      .populate("updatedBy", "name email role");
+      .populate({
+        path: "flock",
+        match: {
+          status: "ACTIVE",
+          isDeleted: false,
+        },
+        select: "flockId pen placementDate startingAgeWeeks status remarks",
+      })
+      .sort({ allocationDate: 1 });
 
-    if (!flock) {
-      return res.status(404).json({
-        success: false,
-        message: "No active flock found in this pen",
+    const activeAllocations = allocations.filter(
+      (allocation) => allocation.flock,
+    );
+
+    if (!activeAllocations.length) {
+      return res.status(200).json({
+        success: true,
+        count: 0,
+        pen: decodedPen,
+        flocks: [],
+        allocations: [],
+        flock: null,
       });
     }
 
+    const responseAllocations = activeAllocations.map((allocation) => ({
+      ...allocation.toObject(),
+      flock: buildFlockResponse(allocation.flock),
+    }));
+
     return res.status(200).json({
       success: true,
-      flock: buildFlockResponse(flock),
+      count: responseAllocations.length,
+      pen: decodedPen,
+      allocations: responseAllocations,
+      flocks: responseAllocations.map((item) => item.flock),
+      flock:
+        responseAllocations.length === 1 ? responseAllocations[0].flock : null,
     });
   } catch (error) {
-    console.error("GET ACTIVE FLOCK BY PEN ERROR:", error);
-
-    return res.status(500).json({
-      success: false,
-      message: "Failed to fetch active flock",
-    });
+    return sendServerError(res, "Failed to fetch active flocks in pen", error);
   }
 };
 
@@ -256,7 +484,14 @@ const getActiveFlockByPen = async (req, res) => {
 
 const createFlock = async (req, res) => {
   try {
-    const { flockId, pen, placementDate, startingAgeWeeks, remarks } = req.body;
+    const {
+      flockId,
+      pen,
+      placementDate,
+      startingAgeWeeks,
+      initialBirdCount,
+      remarks,
+    } = req.body;
 
     if (
       !flockId ||
@@ -271,7 +506,7 @@ const createFlock = async (req, res) => {
       });
     }
 
-    if (!PENS.includes(pen)) {
+    if (!isValidPen(pen)) {
       return res.status(400).json({
         success: false,
         message: "Invalid pen selected",
@@ -287,15 +522,15 @@ const createFlock = async (req, res) => {
       });
     }
 
-    const existingFlock = await Flock.findOne({
+    const duplicate = await Flock.findOne({
       flockId: normalizedFlockId,
     });
 
-    if (existingFlock) {
+    if (duplicate) {
       return res.status(409).json({
         success: false,
         message: "Flock ID already exists",
-        existingFlock: buildFlockResponse(existingFlock),
+        existingFlock: buildFlockResponse(duplicate),
       });
     }
 
@@ -308,75 +543,130 @@ const createFlock = async (req, res) => {
       });
     }
 
-    const parsedPlacementDate = new Date(placementDate);
+    const parsedPlacementDate = parseDate(placementDate);
 
-    if (Number.isNaN(parsedPlacementDate.getTime())) {
+    if (!parsedPlacementDate) {
       return res.status(400).json({
         success: false,
         message: "Invalid placement date",
       });
     }
 
-    const activeFlock = await Flock.findOne({
-      pen,
-      status: "ACTIVE",
-      isDeleted: false,
-    });
-
-    if (activeFlock) {
-      return res.status(409).json({
+    if (isFutureDate(parsedPlacementDate)) {
+      return res.status(400).json({
         success: false,
-        message: "This pen already has an active flock",
-        existingFlock: buildFlockResponse(activeFlock),
+        message: "Placement date cannot be in the future",
       });
     }
 
-    const flock = await Flock.create({
-      flockId: normalizedFlockId,
-      pen,
-      placementDate: parsedPlacementDate,
-      startingAgeWeeks: age,
-      remarks: remarks?.trim() || "",
-      status: "ACTIVE",
-      isDeleted: false,
-      createdBy: getUserId(req),
+    let population = null;
+
+    if (
+      initialBirdCount !== undefined &&
+      initialBirdCount !== null &&
+      initialBirdCount !== ""
+    ) {
+      if (!isWholeNumber(initialBirdCount)) {
+        return res.status(400).json({
+          success: false,
+          message:
+            "Initial bird population must be a whole number of 0 or more",
+        });
+      }
+
+      population = Number(initialBirdCount);
+    }
+
+    const createdFlock = await runTransaction(async (session) => {
+      const [flock] = await Flock.create(
+        [
+          {
+            flockId: normalizedFlockId,
+            pen,
+            placementDate: parsedPlacementDate,
+            startingAgeWeeks: age,
+            initialBirdCount: population,
+            populationTrackingStatus:
+              population === null ? "NOT_SET" : "TRACKED",
+            remarks: typeof remarks === "string" ? remarks.trim() : "",
+            status: "ACTIVE",
+            isDeleted: false,
+            createdBy: getUserId(req),
+          },
+        ],
+        { session },
+      );
+
+      const [allocation] = await FlockAllocation.create(
+        [
+          {
+            flock: flock._id,
+            pen,
+            openingBirds: population,
+            currentBirds: population,
+            allocationDate: parsedPlacementDate,
+            status: "ACTIVE",
+            createdBy: getUserId(req),
+          },
+        ],
+        { session },
+      );
+
+      // Always record initial placement.
+      // Unknown population remains null, never zero.
+      await FlockPopulationHistory.create(
+        [
+          {
+            flock: flock._id,
+            allocation: allocation._id,
+            pen,
+            eventType: "INITIAL_PLACEMENT",
+            quantityChange: population,
+            balanceAfter: population,
+            eventDate: parsedPlacementDate,
+            sourceType: "FLOCK",
+            sourceId: flock._id,
+            remarks:
+              population === null
+                ? "Initial flock placement recorded; population not yet established"
+                : "Initial flock population recorded",
+            createdBy: getUserId(req),
+          },
+        ],
+        { session },
+      );
+
+      return flock;
     });
 
-    // AUDIT: Record flock creation.
     await logAudit(req, {
       action: "CREATE",
       module: "Flocks",
-      description: `Created flock ${flock.flockId} in ${flock.pen}`,
-      entityId: flock._id,
-      entityName: getFlockAuditName(flock),
+      description: `Created flock ${createdFlock.flockId} in ${pen}`,
+      entityId: createdFlock._id,
+      entityName: getFlockAuditName(createdFlock),
       before: null,
-      after: getFlockAuditSnapshot(flock),
+      after: getFlockAuditSnapshot(createdFlock),
+      metadata: {
+        initialBirdCount: population,
+        populationTrackingStatus: population === null ? "NOT_SET" : "TRACKED",
+      },
     });
-
-    const populatedFlock = await Flock.findById(flock._id).populate(
-      "createdBy",
-      "name email role",
-    );
 
     return res.status(201).json({
       success: true,
       message: "Flock created successfully",
-      flock: buildFlockResponse(populatedFlock),
+      flock: await getFlockWithAllocations(createdFlock._id),
     });
   } catch (error) {
-    console.error("CREATE FLOCK ERROR:", error);
-
     if (error?.code === 11000) {
       return res.status(409).json({
         success: false,
-        message: "A flock with this ID or pen already exists",
+        message: "A flock with this ID already exists",
       });
     }
 
-    return res.status(500).json({
-      success: false,
-      message: "Failed to create flock",
-    });
+    return sendServerError(res, "Failed to create flock", error);
   }
 };
 
@@ -392,7 +682,7 @@ const updateFlock = async (req, res) => {
   try {
     const { id } = req.params;
 
-    if (!mongoose.Types.ObjectId.isValid(id)) {
+    if (!isValidId(id)) {
       return res.status(400).json({
         success: false,
         message: "Invalid flock ID",
@@ -408,16 +698,17 @@ const updateFlock = async (req, res) => {
       });
     }
 
-    // AUDIT: Capture original values before editing.
     const beforeAudit = getFlockAuditSnapshot(flock);
 
     const { flockId, pen, placementDate, startingAgeWeeks, remarks } = req.body;
 
-    /*
-    |--------------------------------------------------------------------------
-    | FLOCK ID
-    |--------------------------------------------------------------------------
-    */
+    if (pen !== undefined && pen !== flock.pen) {
+      return res.status(400).json({
+        success: false,
+        message:
+          "A flock cannot be moved by editing its pen. Use the flock transfer operation to preserve its allocation and population history.",
+      });
+    }
 
     if (flockId !== undefined) {
       const normalizedFlockId = String(flockId).trim().toUpperCase();
@@ -445,64 +736,41 @@ const updateFlock = async (req, res) => {
       flock.flockId = normalizedFlockId;
     }
 
-    /*
-    |--------------------------------------------------------------------------
-    | PEN
-    |--------------------------------------------------------------------------
-    */
-
-    if (pen !== undefined) {
-      if (!PENS.includes(pen)) {
-        return res.status(400).json({
-          success: false,
-          message: "Invalid pen selected",
-        });
-      }
-
-      if (flock.status === "ACTIVE" && pen !== flock.pen) {
-        const activeFlock = await Flock.findOne({
-          pen,
-          status: "ACTIVE",
-          isDeleted: false,
-          _id: { $ne: flock._id },
-        });
-
-        if (activeFlock) {
-          return res.status(409).json({
-            success: false,
-            message: "This pen already has an active flock",
-            existingFlock: buildFlockResponse(activeFlock),
-          });
-        }
-      }
-
-      flock.pen = pen;
-    }
-
-    /*
-    |--------------------------------------------------------------------------
-    | PLACEMENT DATE
-    |--------------------------------------------------------------------------
-    */
-
     if (placementDate !== undefined) {
-      const parsedPlacementDate = new Date(placementDate);
+      const parsedDate = parseDate(placementDate);
 
-      if (Number.isNaN(parsedPlacementDate.getTime())) {
+      if (!parsedDate) {
         return res.status(400).json({
           success: false,
           message: "Invalid placement date",
         });
       }
 
-      flock.placementDate = parsedPlacementDate;
-    }
+      if (isFutureDate(parsedDate)) {
+        return res.status(400).json({
+          success: false,
+          message: "Placement date cannot be in the future",
+        });
+      }
 
-    /*
-    |--------------------------------------------------------------------------
-    | STARTING AGE
-    |--------------------------------------------------------------------------
-    */
+      // Do not allow placement date to move beyond existing allocations.
+      const earliestAllocation = await FlockAllocation.findOne({
+        flock: flock._id,
+      }).sort({ allocationDate: 1 });
+
+      if (
+        earliestAllocation &&
+        parsedDate > earliestAllocation.allocationDate
+      ) {
+        return res.status(400).json({
+          success: false,
+          message:
+            "Placement date cannot be later than the flock's first allocation date.",
+        });
+      }
+
+      flock.placementDate = parsedDate;
+    }
 
     if (startingAgeWeeks !== undefined) {
       const age = Number(startingAgeWeeks);
@@ -517,12 +785,6 @@ const updateFlock = async (req, res) => {
       flock.startingAgeWeeks = age;
     }
 
-    /*
-    |--------------------------------------------------------------------------
-    | REMARKS
-    |--------------------------------------------------------------------------
-    */
-
     if (remarks !== undefined) {
       flock.remarks = typeof remarks === "string" ? remarks.trim() : "";
     }
@@ -531,7 +793,6 @@ const updateFlock = async (req, res) => {
 
     await flock.save();
 
-    // AUDIT: Record flock update.
     await logAudit(req, {
       action: "UPDATE",
       module: "Flocks",
@@ -542,50 +803,666 @@ const updateFlock = async (req, res) => {
       after: getFlockAuditSnapshot(flock),
     });
 
-    const updatedFlock = await Flock.findById(flock._id)
-      .populate("createdBy", "name email role")
-      .populate("updatedBy", "name email role");
-
     return res.status(200).json({
       success: true,
       message: "Flock updated successfully",
-      flock: buildFlockResponse(updatedFlock),
+      flock: await getFlockWithAllocations(flock._id),
     });
   } catch (error) {
-    console.error("UPDATE FLOCK ERROR:", error);
-
     if (error?.code === 11000) {
       return res.status(409).json({
         success: false,
-        message:
-          "Another active flock already occupies this pen or the flock ID already exists",
+        message: "Flock ID already exists",
       });
     }
 
-    return res.status(500).json({
-      success: false,
-      message: "Failed to update flock",
-    });
+    return sendServerError(res, "Failed to update flock", error);
   }
 };
 
 /*
 |--------------------------------------------------------------------------
-| SELL FLOCK
+| TRANSFER BIRDS BETWEEN PENS
+|--------------------------------------------------------------------------
+| POST /api/flocks/:id/transfers
+|--------------------------------------------------------------------------
+*/
+
+const createFlockTransfer = async (req, res) => {
+  try {
+    const { id } = req.params;
+
+    if (!isValidId(id)) {
+      return res.status(400).json({
+        success: false,
+        message: "Invalid flock ID",
+      });
+    }
+
+    const { fromPen, toPen, birdsMoved, transferDate, reason, remarks } =
+      req.body;
+
+    if (!fromPen || !toPen || birdsMoved === undefined || birdsMoved === null) {
+      return res.status(400).json({
+        success: false,
+        message: "Source pen, destination pen and number of birds are required",
+      });
+    }
+
+    if (!isValidPen(fromPen) || !isValidPen(toPen)) {
+      return res.status(400).json({
+        success: false,
+        message: "Invalid source or destination pen",
+      });
+    }
+
+    if (fromPen === toPen) {
+      return res.status(400).json({
+        success: false,
+        message: "Source and destination pens must be different",
+      });
+    }
+
+    if (!isPositiveWholeNumber(birdsMoved)) {
+      return res.status(400).json({
+        success: false,
+        message:
+          "Number of birds moved must be a whole number greater than zero",
+      });
+    }
+
+    if (!reason || !String(reason).trim()) {
+      return res.status(400).json({
+        success: false,
+        message: "A transfer reason is required",
+      });
+    }
+
+    const parsedTransferDate = transferDate
+      ? parseDate(transferDate)
+      : new Date();
+
+    if (!parsedTransferDate) {
+      return res.status(400).json({
+        success: false,
+        message: "Invalid transfer date",
+      });
+    }
+
+    if (isFutureDate(parsedTransferDate)) {
+      return res.status(400).json({
+        success: false,
+        message: "Transfer date cannot be in the future",
+      });
+    }
+
+    const flock = await Flock.findById(id);
+
+    if (!flock || flock.isDeleted || flock.status !== "ACTIVE") {
+      return res.status(404).json({
+        success: false,
+        message: "Active flock not found",
+      });
+    }
+
+    const moved = Number(birdsMoved);
+
+    const transfer = await runTransaction(async (session) => {
+      const source = await FlockAllocation.findOne({
+        flock: flock._id,
+        pen: fromPen,
+        status: "ACTIVE",
+      }).session(session);
+
+      if (!source) {
+        throw new Error("SOURCE_ALLOCATION_NOT_FOUND");
+      }
+
+      if (source.currentBirds === null || source.currentBirds === undefined) {
+        throw new Error("SOURCE_POPULATION_UNKNOWN");
+      }
+
+      if (source.currentBirds < moved) {
+        throw new Error("INSUFFICIENT_BIRDS");
+      }
+
+      await validateAllocationEventDate(source, parsedTransferDate, session);
+
+      let destination = await FlockAllocation.findOne({
+        flock: flock._id,
+        pen: toPen,
+        status: "ACTIVE",
+      }).session(session);
+
+      if (!destination) {
+        [destination] = await FlockAllocation.create(
+          [
+            {
+              flock: flock._id,
+              pen: toPen,
+              openingBirds: 0,
+              currentBirds: 0,
+              allocationDate: parsedTransferDate,
+              status: "ACTIVE",
+              createdBy: getUserId(req),
+            },
+          ],
+          { session },
+        );
+      } else {
+        await validateAllocationEventDate(
+          destination,
+          parsedTransferDate,
+          session,
+        );
+      }
+
+      if (
+        destination.currentBirds === null ||
+        destination.currentBirds === undefined
+      ) {
+        throw new Error("DESTINATION_POPULATION_UNKNOWN");
+      }
+
+      source.currentBirds -= moved;
+      source.updatedBy = getUserId(req);
+
+      if (source.currentBirds === 0) {
+        source.status = "CLOSED";
+        source.closedAt = parsedTransferDate;
+        source.closedReason = "TRANSFERRED";
+      }
+
+      destination.currentBirds += moved;
+      destination.updatedBy = getUserId(req);
+
+      await source.save({ session });
+      await destination.save({ session });
+
+      const [createdTransfer] = await FlockTransfer.create(
+        [
+          {
+            flock: flock._id,
+            fromPen,
+            toPen,
+            fromAllocation: source._id,
+            toAllocation: destination._id,
+            birdsMoved: moved,
+            transferDate: parsedTransferDate,
+            reason: String(reason).trim(),
+            remarks: typeof remarks === "string" ? remarks.trim() : "",
+            status: "COMPLETED",
+            transferredBy: getUserId(req),
+          },
+        ],
+        { session },
+      );
+
+      await FlockPopulationHistory.create(
+        [
+          {
+            flock: flock._id,
+            allocation: source._id,
+            pen: fromPen,
+            eventType: "TRANSFER_OUT",
+            quantityChange: -moved,
+            balanceAfter: source.currentBirds,
+            eventDate: parsedTransferDate,
+            sourceType: "TRANSFER",
+            sourceId: createdTransfer._id,
+            remarks: `Transferred ${moved} birds to ${toPen}`,
+            createdBy: getUserId(req),
+          },
+          {
+            flock: flock._id,
+            allocation: destination._id,
+            pen: toPen,
+            eventType: "TRANSFER_IN",
+            quantityChange: moved,
+            balanceAfter: destination.currentBirds,
+            eventDate: parsedTransferDate,
+            sourceType: "TRANSFER",
+            sourceId: createdTransfer._id,
+            remarks: `Received ${moved} birds from ${fromPen}`,
+            createdBy: getUserId(req),
+          },
+        ],
+        { session, ordered: true },
+      );
+
+      await updatePopulationTrackingStatus(flock, session, getUserId(req));
+
+      return createdTransfer;
+    });
+
+    await logAudit(req, {
+      action: "CREATE",
+      module: "Flock Transfers",
+      description: `Transferred ${moved} birds of ${flock.flockId} from ${fromPen} to ${toPen}`,
+      entityId: transfer._id,
+      entityName: `${flock.flockId}: ${fromPen} to ${toPen}`,
+      before: null,
+      after: {
+        flock: flock._id,
+        fromPen,
+        toPen,
+        birdsMoved: moved,
+        transferDate: parsedTransferDate,
+      },
+    });
+
+    return res.status(201).json({
+      success: true,
+      message: "Flock transfer completed successfully",
+      transfer,
+      flock: await getFlockWithAllocations(flock._id),
+    });
+  } catch (error) {
+    const messages = {
+      SOURCE_ALLOCATION_NOT_FOUND:
+        "This flock has no active allocation in the selected source pen.",
+      SOURCE_POPULATION_UNKNOWN:
+        "The source pen population is unknown. Record the population before transferring birds.",
+      DESTINATION_POPULATION_UNKNOWN:
+        "The destination allocation has an unknown population. Resolve it before transferring birds.",
+      INSUFFICIENT_BIRDS:
+        "The source pen does not have enough birds for this transfer.",
+      EVENT_BEFORE_ALLOCATION:
+        "The event date cannot be earlier than the allocation date.",
+      BACKDATED_POPULATION_EVENT:
+        "This transfer date is earlier than an existing population history entry. Use the current date or correct the existing history first.",
+    };
+
+    if (messages[error.message]) {
+      return res.status(400).json({
+        success: false,
+        message: messages[error.message],
+      });
+    }
+
+    return sendServerError(res, "Failed to complete flock transfer", error);
+  }
+};
+
+/*
+|--------------------------------------------------------------------------
+| GET FLOCK ALLOCATIONS
+|--------------------------------------------------------------------------
+| GET /api/flocks/:id/allocations
+|--------------------------------------------------------------------------
+*/
+
+const getFlockAllocations = async (req, res) => {
+  try {
+    const { id } = req.params;
+
+    if (!isValidId(id)) {
+      return res.status(400).json({
+        success: false,
+        message: "Invalid flock ID",
+      });
+    }
+
+    const flock = await getAccessibleFlock(id, req);
+
+    if (!flock) {
+      return res.status(404).json({
+        success: false,
+        message: "Flock not found",
+      });
+    }
+
+    const allocations = await FlockAllocation.find({
+      flock: id,
+    }).sort({ allocationDate: 1, createdAt: 1 });
+
+    return res.status(200).json({
+      success: true,
+      count: allocations.length,
+      allocations,
+    });
+  } catch (error) {
+    return sendServerError(res, "Failed to fetch flock allocations", error);
+  }
+};
+
+/*
+|--------------------------------------------------------------------------
+| GET FLOCK TRANSFERS
+|--------------------------------------------------------------------------
+| GET /api/flocks/:id/transfers
+|--------------------------------------------------------------------------
+*/
+
+const getFlockTransfers = async (req, res) => {
+  try {
+    const { id } = req.params;
+
+    if (!isValidId(id)) {
+      return res.status(400).json({
+        success: false,
+        message: "Invalid flock ID",
+      });
+    }
+
+    const flock = await getAccessibleFlock(id, req);
+
+    if (!flock) {
+      return res.status(404).json({
+        success: false,
+        message: "Flock not found",
+      });
+    }
+
+    const transfers = await FlockTransfer.find({ flock: id })
+      .populate("fromAllocation")
+      .populate("toAllocation")
+      .populate("transferredBy", "name email")
+      .sort({ transferDate: -1, createdAt: -1 });
+
+    return res.status(200).json({
+      success: true,
+      count: transfers.length,
+      transfers,
+    });
+  } catch (error) {
+    return sendServerError(res, "Failed to fetch flock transfers", error);
+  }
+};
+
+/*
+|--------------------------------------------------------------------------
+| GET FLOCK POPULATION HISTORY
+|--------------------------------------------------------------------------
+| GET /api/flocks/:id/population-history
+|--------------------------------------------------------------------------
+*/
+
+const getFlockPopulationHistory = async (req, res) => {
+  try {
+    const { id } = req.params;
+
+    if (!isValidId(id)) {
+      return res.status(400).json({
+        success: false,
+        message: "Invalid flock ID",
+      });
+    }
+
+    const flock = await getAccessibleFlock(id, req);
+
+    if (!flock) {
+      return res.status(404).json({
+        success: false,
+        message: "Flock not found",
+      });
+    }
+
+    const history = await FlockPopulationHistory.find({ flock: id })
+      .populate("allocation")
+      .populate("createdBy", "name email")
+      .sort({ eventDate: -1, createdAt: -1 });
+
+    return res.status(200).json({
+      success: true,
+      count: history.length,
+      history,
+    });
+  } catch (error) {
+    return sendServerError(
+      res,
+      "Failed to fetch flock population history",
+      error,
+    );
+  }
+};
+
+/*
+|--------------------------------------------------------------------------
+| ADJUST FLOCK POPULATION
+|--------------------------------------------------------------------------
+| POST /api/flocks/:id/population-adjustments
+|--------------------------------------------------------------------------
+|
+| Either:
+| { "allocationId": "...", "newPopulation": 450 }
+|
+| Or:
+| { "allocationId": "...", "quantityChange": -10 }
+|--------------------------------------------------------------------------
+*/
+
+const createFlockPopulationAdjustment = async (req, res) => {
+  try {
+    const { id } = req.params;
+
+    const { allocationId, newPopulation, quantityChange, remarks } = req.body;
+
+    if (!isValidId(id) || !isValidId(allocationId)) {
+      return res.status(400).json({
+        success: false,
+        message: "Invalid flock or allocation ID",
+      });
+    }
+
+    const hasNewPopulation =
+      newPopulation !== undefined && newPopulation !== null;
+
+    const hasQuantityChange =
+      quantityChange !== undefined && quantityChange !== null;
+
+    if (hasNewPopulation === hasQuantityChange) {
+      return res.status(400).json({
+        success: false,
+        message:
+          "Provide either a new population or a population change, not both.",
+      });
+    }
+
+    if (hasNewPopulation && !isWholeNumber(newPopulation)) {
+      return res.status(400).json({
+        success: false,
+        message: "New population must be a whole number of 0 or more",
+      });
+    }
+
+    if (hasQuantityChange && !Number.isInteger(Number(quantityChange))) {
+      return res.status(400).json({
+        success: false,
+        message: "Population change must be a whole number",
+      });
+    }
+
+    const flock = await Flock.findById(id);
+
+    if (!flock || flock.isDeleted || flock.status !== "ACTIVE") {
+      return res.status(404).json({
+        success: false,
+        message: "Active flock not found",
+      });
+    }
+
+    const result = await runTransaction(async (session) => {
+      const allocation = await FlockAllocation.findOne({
+        _id: allocationId,
+        flock: id,
+        status: "ACTIVE",
+      }).session(session);
+
+      if (!allocation) {
+        throw new Error("ALLOCATION_NOT_FOUND");
+      }
+
+      const eventDate = new Date();
+
+      await validateAllocationEventDate(allocation, eventDate, session);
+
+      const previousPopulation = allocation.currentBirds;
+
+      let nextPopulation;
+      let delta;
+
+      if (hasNewPopulation) {
+        nextPopulation = Number(newPopulation);
+
+        delta =
+          previousPopulation === null || previousPopulation === undefined
+            ? null
+            : nextPopulation - previousPopulation;
+      } else {
+        if (previousPopulation === null || previousPopulation === undefined) {
+          throw new Error("POPULATION_UNKNOWN");
+        }
+
+        delta = Number(quantityChange);
+        nextPopulation = previousPopulation + delta;
+      }
+
+      if (nextPopulation < 0) {
+        throw new Error("NEGATIVE_POPULATION");
+      }
+
+      allocation.currentBirds = nextPopulation;
+      allocation.updatedBy = getUserId(req);
+
+      await allocation.save({ session });
+
+      const [history] = await FlockPopulationHistory.create(
+        [
+          {
+            flock: flock._id,
+            allocation: allocation._id,
+            pen: allocation.pen,
+            eventType: "ADJUSTMENT",
+            quantityChange: delta,
+            balanceAfter: nextPopulation,
+            eventDate,
+            sourceType: "ADJUSTMENT",
+            sourceId: allocation._id,
+            remarks:
+              typeof remarks === "string" && remarks.trim()
+                ? remarks.trim()
+                : "Manual population adjustment",
+            createdBy: getUserId(req),
+          },
+        ],
+        { session },
+      );
+
+      await updatePopulationTrackingStatus(flock, session, getUserId(req));
+
+      return {
+        allocation,
+        history,
+        previousPopulation,
+      };
+    });
+
+    await logAudit(req, {
+      action: "UPDATE",
+      module: "Flock Population",
+      description: `Adjusted population for ${flock.flockId} in ${result.allocation.pen}`,
+      entityId: result.allocation._id,
+      entityName: `${flock.flockId} - ${result.allocation.pen}`,
+      before: {
+        currentBirds: result.previousPopulation,
+      },
+      after: {
+        currentBirds: result.allocation.currentBirds,
+      },
+    });
+
+    return res.status(200).json({
+      success: true,
+      message: "Flock population adjusted successfully",
+      allocation: result.allocation,
+      history: result.history,
+      flock: await getFlockWithAllocations(flock._id),
+    });
+  } catch (error) {
+    const messages = {
+      ALLOCATION_NOT_FOUND: "Active flock allocation not found",
+      POPULATION_UNKNOWN:
+        "This allocation has an unknown population. Set a new population first.",
+      NEGATIVE_POPULATION:
+        "The adjustment cannot result in a negative bird population.",
+      EVENT_BEFORE_ALLOCATION:
+        "The adjustment date cannot be earlier than the allocation date.",
+      BACKDATED_POPULATION_EVENT:
+        "The adjustment date is earlier than an existing population history entry.",
+    };
+
+    if (messages[error.message]) {
+      return res.status(400).json({
+        success: false,
+        message: messages[error.message],
+      });
+    }
+
+    return sendServerError(res, "Failed to adjust flock population", error);
+  }
+};
+
+/*
+|--------------------------------------------------------------------------
+| SELL FLOCK / RECORD BIRD SALE
 |--------------------------------------------------------------------------
 | PATCH /api/flocks/:id/sell
+|--------------------------------------------------------------------------
+|
+| Partial sale:
+| {
+|   "saleDate": "2026-11-23",
+|   "allocationSales": [
+|     { "allocationId": "...", "birdsSold": 100 }
+|   ]
+| }
+|
+| Full sale:
+| {
+|   "saleDate": "2026-11-23",
+|   "sellAll": true
+| }
+|
+| A full sale must be explicitly confirmed with sellAll: true.
 |--------------------------------------------------------------------------
 */
 
 const sellFlock = async (req, res) => {
   try {
     const { id } = req.params;
-    const { saleDate } = req.body;
 
-    if (!mongoose.Types.ObjectId.isValid(id)) {
+    const { saleDate, allocationSales, sellAll } = req.body;
+
+    if (!isValidId(id)) {
       return res.status(400).json({
         success: false,
         message: "Invalid flock ID",
+      });
+    }
+
+    if (sellAll !== undefined && typeof sellAll !== "boolean") {
+      return res.status(400).json({
+        success: false,
+        message: "sellAll must be true or false",
+      });
+    }
+
+    if (sellAll === true && allocationSales !== undefined) {
+      return res.status(400).json({
+        success: false,
+        message: "Provide either sellAll: true or allocationSales, not both.",
+      });
+    }
+
+    if (
+      sellAll !== true &&
+      (!Array.isArray(allocationSales) || allocationSales.length === 0)
+    ) {
+      return res.status(400).json({
+        success: false,
+        message:
+          "Provide allocationSales for a partial sale or explicitly set sellAll: true for a full sale.",
       });
     }
 
@@ -605,63 +1482,272 @@ const sellFlock = async (req, res) => {
       });
     }
 
-    // AUDIT: Capture values before the sale.
-    const beforeAudit = getFlockAuditSnapshot(flock);
+    const parsedSaleDate = saleDate ? parseDate(saleDate) : new Date();
 
-    const parsedSaleDate = saleDate ? new Date(saleDate) : new Date();
-
-    if (Number.isNaN(parsedSaleDate.getTime())) {
+    if (!parsedSaleDate) {
       return res.status(400).json({
         success: false,
         message: "Invalid sale date",
       });
     }
 
-    flock.status = "SOLD";
-    flock.saleDate = parsedSaleDate;
-    flock.soldBy = getUserId(req);
-    flock.updatedBy = getUserId(req);
+    if (isFutureDate(parsedSaleDate)) {
+      return res.status(400).json({
+        success: false,
+        message: "Sale date cannot be in the future",
+      });
+    }
 
-    await flock.save();
+    const beforeAudit = getFlockAuditSnapshot(flock);
 
-    // AUDIT: Record the flock status change.
+    const result = await runTransaction(async (session) => {
+      const allocations = await getActiveAllocations(flock._id, session);
+
+      if (!allocations.length) {
+        throw new Error("NO_ACTIVE_ALLOCATIONS");
+      }
+
+      if (sellAll === true) {
+        if (
+          allocations.some(
+            (allocation) =>
+              allocation.currentBirds === null ||
+              allocation.currentBirds === undefined,
+          )
+        ) {
+          throw new Error("UNKNOWN_POPULATION");
+        }
+      }
+
+      let sales;
+
+      if (sellAll === true) {
+        sales = allocations
+          .filter((allocation) => allocation.currentBirds > 0)
+          .map((allocation) => ({
+            allocationId: allocation._id.toString(),
+            birdsSold: allocation.currentBirds,
+          }));
+      } else {
+        sales = allocationSales;
+      }
+
+      const allocationMap = new Map(
+        allocations.map((allocation) => [
+          allocation._id.toString(),
+          allocation,
+        ]),
+      );
+
+      const seenAllocationIds = new Set();
+      const processed = [];
+      let totalSold = 0;
+
+      for (const item of sales) {
+        if (!item || !isValidId(item.allocationId)) {
+          throw new Error("INVALID_SALE_ALLOCATION");
+        }
+
+        const allocationId = item.allocationId.toString();
+
+        if (seenAllocationIds.has(allocationId)) {
+          throw new Error("DUPLICATE_SALE_ALLOCATION");
+        }
+
+        seenAllocationIds.add(allocationId);
+
+        if (!isPositiveWholeNumber(item.birdsSold)) {
+          throw new Error("INVALID_SALE_QUANTITY");
+        }
+
+        const allocation = allocationMap.get(allocationId);
+
+        if (!allocation) {
+          throw new Error("SALE_ALLOCATION_NOT_FOUND");
+        }
+
+        if (
+          allocation.currentBirds === null ||
+          allocation.currentBirds === undefined
+        ) {
+          throw new Error("UNKNOWN_SALE_ALLOCATION_POPULATION");
+        }
+
+        const quantity = Number(item.birdsSold);
+
+        if (quantity > allocation.currentBirds) {
+          throw new Error("SALE_EXCEEDS_POPULATION");
+        }
+
+        await validateAllocationEventDate(allocation, parsedSaleDate, session);
+
+        allocation.currentBirds -= quantity;
+        allocation.updatedBy = getUserId(req);
+
+        if (allocation.currentBirds === 0) {
+          allocation.status = "CLOSED";
+          allocation.closedAt = parsedSaleDate;
+          allocation.closedReason = "SOLD";
+        }
+
+        await allocation.save({ session });
+
+        await FlockPopulationHistory.create(
+          [
+            {
+              flock: flock._id,
+              allocation: allocation._id,
+              pen: allocation.pen,
+              eventType: "SALE",
+              quantityChange: -quantity,
+              balanceAfter: allocation.currentBirds,
+              eventDate: parsedSaleDate,
+              sourceType: "SALE",
+              sourceId: flock._id,
+              remarks: `Sold ${quantity} birds from ${allocation.pen}`,
+              createdBy: getUserId(req),
+            },
+          ],
+          { session },
+        );
+
+        totalSold += quantity;
+
+        processed.push({
+          allocationId: allocation._id,
+          pen: allocation.pen,
+          birdsSold: quantity,
+          remainingBirds: allocation.currentBirds,
+        });
+      }
+
+      // For an explicitly requested full sale, also close allocations
+      // that already had a confirmed population of zero.
+      if (sellAll === true) {
+        for (const allocation of allocations) {
+          if (allocation.status === "ACTIVE" && allocation.currentBirds === 0) {
+            await validateAllocationEventDate(
+              allocation,
+              parsedSaleDate,
+              session,
+            );
+
+            allocation.status = "CLOSED";
+            allocation.closedAt = parsedSaleDate;
+            allocation.closedReason = "SOLD";
+            allocation.updatedBy = getUserId(req);
+
+            await allocation.save({ session });
+          }
+        }
+      }
+
+      const remaining = await getActiveAllocations(flock._id, session);
+
+      const fullyDepopulated =
+        remaining.length === 0 ||
+        remaining.every(
+          (allocation) =>
+            allocation.currentBirds !== null &&
+            allocation.currentBirds !== undefined &&
+            allocation.currentBirds === 0,
+        );
+
+      if (fullyDepopulated) {
+        // Close any remaining confirmed-zero allocations.
+        for (const allocation of remaining) {
+          allocation.status = "CLOSED";
+          allocation.closedAt = parsedSaleDate;
+          allocation.closedReason = "SOLD";
+          allocation.updatedBy = getUserId(req);
+
+          await allocation.save({ session });
+        }
+
+        flock.status = "SOLD";
+        flock.saleDate = parsedSaleDate;
+        flock.soldBy = getUserId(req);
+      }
+
+      flock.updatedBy = getUserId(req);
+
+      await flock.save({ session });
+
+      await updatePopulationTrackingStatus(flock, session, getUserId(req));
+
+      return {
+        totalSold,
+        fullyDepopulated,
+        allocations: processed,
+      };
+    });
+
     await logAudit(req, {
-      action: "STATUS_CHANGE",
+      action: result.fullyDepopulated ? "STATUS_CHANGE" : "UPDATE",
       module: "Flocks",
-      description: `Marked flock ${flock.flockId} in ${flock.pen} as SOLD`,
+      description: `Recorded sale of ${result.totalSold} birds from ${flock.flockId}`,
       entityId: flock._id,
       entityName: getFlockAuditName(flock),
       before: beforeAudit,
       after: getFlockAuditSnapshot(flock),
       metadata: {
-        previousStatus: "ACTIVE",
-        newStatus: "SOLD",
+        birdsSold: result.totalSold,
+        fullyDepopulated: result.fullyDepopulated,
         saleDate: parsedSaleDate,
+        allocationSales: result.allocations,
+        sellAll: sellAll === true,
       },
     });
 
-    const soldFlock = await Flock.findById(flock._id)
-      .populate("soldBy", "name email role")
-      .populate("updatedBy", "name email role");
-
     return res.status(200).json({
       success: true,
-      message: "Flock marked as sold successfully",
-      flock: buildFlockResponse(soldFlock),
+      message: result.fullyDepopulated
+        ? "Flock fully sold and marked as SOLD"
+        : "Bird sale recorded successfully; flock remains ACTIVE",
+      sale: {
+        birdsSold: result.totalSold,
+        saleDate: parsedSaleDate,
+        fullyDepopulated: result.fullyDepopulated,
+        allocations: result.allocations,
+      },
+      flock: await getFlockWithAllocations(flock._id),
     });
   } catch (error) {
-    console.error("SELL FLOCK ERROR:", error);
+    const messages = {
+      NO_ACTIVE_ALLOCATIONS: "This flock has no active allocations to sell.",
+      UNKNOWN_POPULATION:
+        "The population of one or more allocations is unknown. Record the population before selling the entire flock.",
+      UNKNOWN_SALE_ALLOCATION_POPULATION:
+        "The selected allocation has an unknown population. Record its population before selling birds.",
+      INVALID_SALE_ALLOCATION: "An invalid allocation ID was supplied.",
+      DUPLICATE_SALE_ALLOCATION:
+        "The same allocation cannot appear more than once in a sale.",
+      INVALID_SALE_QUANTITY:
+        "Each sale quantity must be a whole number greater than zero.",
+      SALE_ALLOCATION_NOT_FOUND:
+        "One of the selected allocations does not belong to this active flock.",
+      SALE_EXCEEDS_POPULATION:
+        "The number of birds sold cannot exceed the allocation's current population.",
+      EVENT_BEFORE_ALLOCATION:
+        "The sale date cannot be earlier than the allocation date.",
+      BACKDATED_POPULATION_EVENT:
+        "The sale date is earlier than an existing population history entry. Use the current date or correct the existing history first.",
+    };
 
-    return res.status(500).json({
-      success: false,
-      message: "Failed to sell flock",
-    });
+    if (messages[error.message]) {
+      return res.status(400).json({
+        success: false,
+        message: messages[error.message],
+      });
+    }
+
+    return sendServerError(res, "Failed to record flock sale", error);
   }
 };
 
 /*
 |--------------------------------------------------------------------------
-| DELETE FLOCK
+| SOFT DELETE FLOCK
 |--------------------------------------------------------------------------
 | DELETE /api/flocks/:id
 |--------------------------------------------------------------------------
@@ -671,7 +1757,7 @@ const deleteFlock = async (req, res) => {
   try {
     const { id } = req.params;
 
-    if (!mongoose.Types.ObjectId.isValid(id)) {
+    if (!isValidId(id)) {
       return res.status(400).json({
         success: false,
         message: "Invalid flock ID",
@@ -687,10 +1773,6 @@ const deleteFlock = async (req, res) => {
       });
     }
 
-    /*
-     * Prevent accidental deletion of an active flock.
-     * Active flocks should first be sold/depopulated.
-     */
     if (flock.status === "ACTIVE") {
       return res.status(400).json({
         success: false,
@@ -699,7 +1781,6 @@ const deleteFlock = async (req, res) => {
       });
     }
 
-    // AUDIT: Capture values before deletion.
     const beforeAudit = getFlockAuditSnapshot(flock);
 
     flock.isDeleted = true;
@@ -709,11 +1790,10 @@ const deleteFlock = async (req, res) => {
 
     await flock.save();
 
-    // AUDIT: Record soft deletion.
     await logAudit(req, {
       action: "DELETE",
       module: "Flocks",
-      description: `Deleted flock ${flock.flockId} from ${flock.pen}`,
+      description: `Deleted flock ${flock.flockId}`,
       entityId: flock._id,
       entityName: getFlockAuditName(flock),
       before: beforeAudit,
@@ -729,12 +1809,7 @@ const deleteFlock = async (req, res) => {
       flock: buildFlockResponse(flock),
     });
   } catch (error) {
-    console.error("DELETE FLOCK ERROR:", error);
-
-    return res.status(500).json({
-      success: false,
-      message: "Failed to delete flock",
-    });
+    return sendServerError(res, "Failed to delete flock", error);
   }
 };
 
@@ -750,7 +1825,7 @@ const restoreFlock = async (req, res) => {
   try {
     const { id } = req.params;
 
-    if (!mongoose.Types.ObjectId.isValid(id)) {
+    if (!isValidId(id)) {
       return res.status(400).json({
         success: false,
         message: "Invalid flock ID",
@@ -773,31 +1848,9 @@ const restoreFlock = async (req, res) => {
       });
     }
 
-    // AUDIT: Capture deleted state before restoration.
     const beforeAudit = getFlockAuditSnapshot(flock);
 
-    /*
-     * If restoring an ACTIVE flock, ensure
-     * its pen is still available.
-     */
-    if (flock.status === "ACTIVE") {
-      const activeFlock = await Flock.findOne({
-        pen: flock.pen,
-        status: "ACTIVE",
-        isDeleted: false,
-        _id: { $ne: flock._id },
-      });
-
-      if (activeFlock) {
-        return res.status(409).json({
-          success: false,
-          message:
-            "Cannot restore flock because its pen already has an active flock",
-          existingFlock: buildFlockResponse(activeFlock),
-        });
-      }
-    }
-
+    // Restore does not create a new allocation or overwrite history.
     flock.isDeleted = false;
     flock.deletedAt = null;
     flock.deletedBy = null;
@@ -805,11 +1858,10 @@ const restoreFlock = async (req, res) => {
 
     await flock.save();
 
-    // AUDIT: Record restoration.
     await logAudit(req, {
       action: "RESTORE",
       module: "Flocks",
-      description: `Restored flock ${flock.flockId} in ${flock.pen}`,
+      description: `Restored flock ${flock.flockId}`,
       entityId: flock._id,
       entityName: getFlockAuditName(flock),
       before: beforeAudit,
@@ -819,24 +1871,18 @@ const restoreFlock = async (req, res) => {
     return res.status(200).json({
       success: true,
       message: "Flock restored successfully",
-      flock: buildFlockResponse(flock),
+      flock: await getFlockWithAllocations(flock._id),
     });
   } catch (error) {
-    console.error("RESTORE FLOCK ERROR:", error);
-
-    if (error?.code === 11000) {
-      return res.status(409).json({
-        success: false,
-        message: "Cannot restore flock because its pen is already occupied",
-      });
-    }
-
-    return res.status(500).json({
-      success: false,
-      message: "Failed to restore flock",
-    });
+    return sendServerError(res, "Failed to restore flock", error);
   }
 };
+
+/*
+|--------------------------------------------------------------------------
+| EXPORTS
+|--------------------------------------------------------------------------
+*/
 
 module.exports = {
   getFlocks,
@@ -844,6 +1890,11 @@ module.exports = {
   getActiveFlockByPen,
   createFlock,
   updateFlock,
+  createFlockTransfer,
+  getFlockAllocations,
+  getFlockTransfers,
+  getFlockPopulationHistory,
+  createFlockPopulationAdjustment,
   sellFlock,
   deleteFlock,
   restoreFlock,
