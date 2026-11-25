@@ -1,16 +1,20 @@
 import React, { useEffect, useMemo, useState, useCallback } from "react";
+
 import {
   fetchFlocks,
   fetchFlock,
   fetchFlockAllocations,
   fetchFlockTransfers,
   fetchFlockPopulationHistory,
+  fetchPenOccupancySummary,
   createFlock,
   updateFlock,
   sellFlock,
   deleteFlock,
   restoreFlock,
+  createFlockPopulationAdjustment,
 } from "../services/flockService";
+
 import { toast } from "react-toastify";
 
 const MAX_LAYING_AGE_WEEKS = 104;
@@ -34,6 +38,7 @@ const EMPTY_FORM = {
   pen: "",
   placementDate: "",
   startingAgeWeeks: "",
+  initialBirdCount: "",
   remarks: "",
 };
 
@@ -151,6 +156,13 @@ const extractArray = (response, keys = []) => {
 const extractFlockRecord = (response) =>
   response?.flock || response?.data?.flock || response?.data || response;
 
+const isKnownPopulation = (value) =>
+  value !== null &&
+  value !== undefined &&
+  value !== "" &&
+  Number.isFinite(Number(value)) &&
+  Number(value) >= 0;
+
 const getPopulationSummary = (allocations = []) => {
   const active = allocations.filter(
     (allocation) => allocation.status === "ACTIVE",
@@ -164,11 +176,8 @@ const getPopulationSummary = (allocations = []) => {
     };
   }
 
-  const allKnown = active.every(
-    (allocation) =>
-      allocation.currentBirds !== null &&
-      allocation.currentBirds !== undefined &&
-      allocation.currentBirds !== "",
+  const allKnown = active.every((allocation) =>
+    isKnownPopulation(allocation.currentBirds),
   );
 
   if (!allKnown) {
@@ -187,6 +196,37 @@ const getPopulationSummary = (allocations = []) => {
     ),
     activeCount: active.length,
   };
+};
+
+const getFlockPopulation = (flock) => {
+  const population = flock?.population;
+
+  if (population && typeof population.populationKnown === "boolean") {
+    return {
+      known: population.populationKnown,
+      total: population.populationKnown
+        ? Number(population.totalBirds || 0)
+        : null,
+      activeCount: Number(population.activeAllocationCount || 0),
+    };
+  }
+
+  return getPopulationSummary(
+    Array.isArray(flock?.allocations) ? flock.allocations : [],
+  );
+};
+
+const getActiveAllocations = (flock) =>
+  (Array.isArray(flock?.allocations) ? flock.allocations : []).filter(
+    (allocation) => allocation.status === "ACTIVE",
+  );
+
+const getActivePenNames = (flock) => {
+  const names = getActiveAllocations(flock)
+    .map((allocation) => allocation.pen)
+    .filter(Boolean);
+
+  return [...new Set(names)];
 };
 
 function DetailSection({ title, subtitle, children }) {
@@ -228,13 +268,89 @@ function FlockDetailsModal({
   loading,
   error,
   onClose,
+  onCorrectPopulation,
 }) {
   const population = useMemo(
     () => getPopulationSummary(allocations),
     [allocations],
   );
 
+  const [correctingAllocationId, setCorrectingAllocationId] = useState(null);
+  const [newPopulation, setNewPopulation] = useState("");
+  const [adjustmentRemarks, setAdjustmentRemarks] = useState("");
+  const [submittingAdjustment, setSubmittingAdjustment] = useState(false);
+
   if (!flock) return null;
+
+  const openCorrectionForm = (allocation) => {
+    setCorrectingAllocationId(allocation._id);
+
+    setNewPopulation(
+      isKnownPopulation(allocation.currentBirds)
+        ? String(allocation.currentBirds)
+        : "",
+    );
+
+    setAdjustmentRemarks("");
+  };
+
+  const cancelCorrection = () => {
+    setCorrectingAllocationId(null);
+    setNewPopulation("");
+    setAdjustmentRemarks("");
+  };
+
+  const submitCorrection = async (allocation) => {
+    if (submittingAdjustment) return;
+
+    if (allocation.status !== "ACTIVE") {
+      toast.error("Only active allocations can be corrected.");
+      return;
+    }
+
+    const trimmedPopulation = newPopulation.trim();
+
+    if (trimmedPopulation === "" || !/^\d+$/.test(trimmedPopulation)) {
+      toast.error("Enter a valid non-negative whole number.");
+      return;
+    }
+
+    const confirmedPopulation = Number(trimmedPopulation);
+
+    if (!Number.isSafeInteger(confirmedPopulation)) {
+      toast.error("The population value is too large.");
+      return;
+    }
+
+    const previousPopulation = isKnownPopulation(allocation.currentBirds)
+      ? formatNumber(allocation.currentBirds)
+      : "Unknown";
+
+    const confirmed = window.confirm(
+      `Correct the population for ${allocation.pen || "this allocation"}?\n\n` +
+        `Previously recorded: ${previousPopulation}\n` +
+        `New confirmed population: ${formatNumber(confirmedPopulation)}\n\n` +
+        "This will create a permanent population adjustment history record.",
+    );
+
+    if (!confirmed) return;
+
+    try {
+      setSubmittingAdjustment(true);
+
+      await onCorrectPopulation({
+        allocation,
+        newPopulation: confirmedPopulation,
+        remarks: adjustmentRemarks.trim(),
+      });
+
+      cancelCorrection();
+    } catch (error) {
+      // The parent handler displays the relevant error notification.
+    } finally {
+      setSubmittingAdjustment(false);
+    }
+  };
 
   return (
     <div
@@ -294,7 +410,7 @@ function FlockDetailsModal({
                   <p className="mt-1 text-xs text-gray-500">
                     {population.known
                       ? "Based on active allocations"
-                      : "Population has not been confirmed"}
+                      : "At least one active allocation has an unknown population"}
                   </p>
                 </div>
 
@@ -336,7 +452,7 @@ function FlockDetailsModal({
               <DetailSection title="Flock Information">
                 <div className="grid grid-cols-1 gap-3 sm:grid-cols-2 lg:grid-cols-3">
                   <DetailValue label="Flock ID" value={flock.flockId} />
-                  <DetailValue label="Legacy Pen" value={flock.pen} />
+                  <DetailValue label="Legacy / Initial Pen" value={flock.pen} />
                   <DetailValue label="Status" value={flock.status} />
                   <DetailValue
                     label="Placement Date"
@@ -393,13 +509,13 @@ function FlockDetailsModal({
 
               <DetailSection
                 title="Pen Allocations"
-                subtitle="Both current and closed allocations are shown here."
+                subtitle="Both current and closed allocations are shown here. Correct the population of an active allocation when a physical count confirms a different number."
               >
                 {allocations.length === 0 ? (
                   <EmptyMessage>No allocation records found.</EmptyMessage>
                 ) : (
                   <div className="overflow-x-auto">
-                    <table className="w-full min-w-[650px] text-sm">
+                    <table className="w-full min-w-[850px] text-sm">
                       <thead className="bg-[#edf3e9] text-left text-[#38563d]">
                         <tr>
                           {[
@@ -410,6 +526,7 @@ function FlockDetailsModal({
                             "Status",
                             "Closed Date",
                             "Close Reason",
+                            "Actions",
                           ].map((heading) => (
                             <th
                               key={heading}
@@ -420,39 +537,184 @@ function FlockDetailsModal({
                           ))}
                         </tr>
                       </thead>
+
                       <tbody className="divide-y divide-gray-100">
                         {allocations.map((allocation) => (
-                          <tr key={allocation._id}>
-                            <td className="px-3 py-3 font-semibold text-gray-800">
-                              {allocation.pen || "—"}
-                            </td>
-                            <td className="px-3 py-3">
-                              {formatNumber(allocation.openingBirds)}
-                            </td>
-                            <td className="px-3 py-3 font-semibold">
-                              {formatNumber(allocation.currentBirds)}
-                            </td>
-                            <td className="px-3 py-3">
-                              {formatDate(allocation.allocationDate)}
-                            </td>
-                            <td className="px-3 py-3">
-                              <span
-                                className={`rounded-full px-2 py-1 text-xs font-bold ${
-                                  allocation.status === "ACTIVE"
-                                    ? "bg-green-100 text-green-700"
-                                    : "bg-gray-100 text-gray-600"
-                                }`}
-                              >
-                                {allocation.status || "—"}
-                              </span>
-                            </td>
-                            <td className="px-3 py-3">
-                              {formatDate(allocation.closedAt)}
-                            </td>
-                            <td className="px-3 py-3">
-                              {allocation.closedReason || "—"}
-                            </td>
-                          </tr>
+                          <React.Fragment key={allocation._id}>
+                            <tr>
+                              <td className="px-3 py-3 font-semibold text-gray-800">
+                                {allocation.pen || "—"}
+                              </td>
+
+                              <td className="px-3 py-3">
+                                {formatNumber(allocation.openingBirds)}
+                              </td>
+
+                              <td className="px-3 py-3 font-semibold">
+                                {isKnownPopulation(allocation.currentBirds)
+                                  ? formatNumber(allocation.currentBirds)
+                                  : "Unknown"}
+                              </td>
+
+                              <td className="px-3 py-3">
+                                {formatDate(allocation.allocationDate)}
+                              </td>
+
+                              <td className="px-3 py-3">
+                                <span
+                                  className={`rounded-full px-2 py-1 text-xs font-bold ${
+                                    allocation.status === "ACTIVE"
+                                      ? "bg-green-100 text-green-700"
+                                      : "bg-gray-100 text-gray-600"
+                                  }`}
+                                >
+                                  {allocation.status || "—"}
+                                </span>
+                              </td>
+
+                              <td className="px-3 py-3">
+                                {formatDate(allocation.closedAt)}
+                              </td>
+
+                              <td className="px-3 py-3">
+                                {allocation.closedReason || "—"}
+                              </td>
+
+                              <td className="px-3 py-3">
+                                {allocation.status === "ACTIVE" ? (
+                                  <button
+                                    type="button"
+                                    onClick={() => {
+                                      if (
+                                        correctingAllocationId ===
+                                        allocation._id
+                                      ) {
+                                        cancelCorrection();
+                                      } else {
+                                        openCorrectionForm(allocation);
+                                      }
+                                    }}
+                                    disabled={submittingAdjustment}
+                                    className="whitespace-nowrap rounded-lg border border-blue-200 bg-blue-50 px-3 py-2 text-xs font-bold text-blue-700 transition hover:bg-blue-100 disabled:cursor-not-allowed disabled:opacity-50"
+                                  >
+                                    {correctingAllocationId === allocation._id
+                                      ? "Cancel Correction"
+                                      : "Correct Population"}
+                                  </button>
+                                ) : (
+                                  <span className="text-xs text-gray-400">
+                                    Unavailable
+                                  </span>
+                                )}
+                              </td>
+                            </tr>
+
+                            {correctingAllocationId === allocation._id && (
+                              <tr>
+                                <td colSpan={8} className="bg-blue-50/60 p-4">
+                                  <div className="rounded-xl border border-blue-200 bg-white p-4">
+                                    <div className="mb-4">
+                                      <h4 className="font-bold text-gray-800">
+                                        Correct Allocation Population
+                                      </h4>
+
+                                      <p className="mt-1 text-xs text-gray-500">
+                                        {allocation.pen} — {flock.flockId}
+                                      </p>
+                                    </div>
+
+                                    <div className="mb-4 grid grid-cols-1 gap-3 sm:grid-cols-2">
+                                      <div className="rounded-lg bg-gray-50 p-3">
+                                        <p className="text-xs text-gray-500">
+                                          Previously Recorded Population
+                                        </p>
+
+                                        <p className="mt-1 text-lg font-bold text-gray-800">
+                                          {isKnownPopulation(
+                                            allocation.currentBirds,
+                                          )
+                                            ? formatNumber(
+                                                allocation.currentBirds,
+                                              )
+                                            : "Unknown"}
+                                        </p>
+                                      </div>
+
+                                      <div>
+                                        <label
+                                          htmlFor={`new-population-${allocation._id}`}
+                                          className={labelClass}
+                                        >
+                                          New Confirmed Population
+                                        </label>
+
+                                        <input
+                                          id={`new-population-${allocation._id}`}
+                                          type="number"
+                                          min="0"
+                                          step="1"
+                                          value={newPopulation}
+                                          onChange={(event) =>
+                                            setNewPopulation(event.target.value)
+                                          }
+                                          placeholder="Enter physical bird count"
+                                          className={inputClass}
+                                          disabled={submittingAdjustment}
+                                        />
+                                      </div>
+                                    </div>
+
+                                    <div className="mb-4">
+                                      <label
+                                        htmlFor={`adjustment-remarks-${allocation._id}`}
+                                        className={labelClass}
+                                      >
+                                        Correction Remarks (Optional)
+                                      </label>
+
+                                      <textarea
+                                        id={`adjustment-remarks-${allocation._id}`}
+                                        rows={3}
+                                        value={adjustmentRemarks}
+                                        onChange={(event) =>
+                                          setAdjustmentRemarks(
+                                            event.target.value,
+                                          )
+                                        }
+                                        placeholder="Explain why this population correction is necessary..."
+                                        className={inputClass}
+                                        disabled={submittingAdjustment}
+                                      />
+                                    </div>
+
+                                    <div className="flex flex-wrap justify-end gap-2">
+                                      <button
+                                        type="button"
+                                        onClick={cancelCorrection}
+                                        disabled={submittingAdjustment}
+                                        className="rounded-lg border border-gray-200 bg-white px-4 py-2.5 text-sm font-semibold text-gray-700 transition hover:bg-gray-50 disabled:opacity-50"
+                                      >
+                                        Cancel
+                                      </button>
+
+                                      <button
+                                        type="button"
+                                        onClick={() =>
+                                          submitCorrection(allocation)
+                                        }
+                                        disabled={submittingAdjustment}
+                                        className="rounded-lg bg-[#39784b] px-5 py-2.5 text-sm font-semibold text-white transition hover:bg-[#2d633d] disabled:cursor-not-allowed disabled:opacity-50"
+                                      >
+                                        {submittingAdjustment
+                                          ? "Saving Correction..."
+                                          : "Save Correction"}
+                                      </button>
+                                    </div>
+                                  </div>
+                                </td>
+                              </tr>
+                            )}
+                          </React.Fragment>
                         ))}
                       </tbody>
                     </table>
@@ -488,6 +750,7 @@ function FlockDetailsModal({
                           ))}
                         </tr>
                       </thead>
+
                       <tbody className="divide-y divide-gray-100">
                         {transfers.map((transfer) => (
                           <tr key={transfer._id}>
@@ -547,25 +810,31 @@ function FlockDetailsModal({
                           ))}
                         </tr>
                       </thead>
+
                       <tbody className="divide-y divide-gray-100">
                         {history.map((item) => (
                           <tr key={item._id}>
                             <td className="whitespace-nowrap px-3 py-3">
                               {formatDateTime(item.eventDate)}
                             </td>
+
                             <td className="px-3 py-3 font-semibold">
                               {item.eventType || "—"}
                             </td>
+
                             <td className="px-3 py-3">{item.pen || "—"}</td>
+
                             <td className="px-3 py-3 font-semibold">
                               {item.quantityChange === null ||
                               item.quantityChange === undefined
                                 ? "Unknown"
                                 : `${item.quantityChange > 0 ? "+" : ""}${formatNumber(item.quantityChange)}`}
                             </td>
+
                             <td className="px-3 py-3">
                               {formatNumber(item.balanceAfter)}
                             </td>
+
                             <td className="px-3 py-3">{item.remarks || "—"}</td>
                           </tr>
                         ))}
@@ -594,6 +863,10 @@ function FlockDetailsModal({
 
 export default function Flocks() {
   const [flocks, setFlocks] = useState([]);
+  const [penOccupancySummary, setPenOccupancySummary] = useState(null);
+  const [penOccupancyLoading, setPenOccupancyLoading] = useState(true);
+  const [penOccupancyError, setPenOccupancyError] = useState("");
+
   const [formData, setFormData] = useState(EMPTY_FORM);
   const [editingId, setEditingId] = useState(null);
 
@@ -612,18 +885,62 @@ export default function Flocks() {
   const [transfers, setTransfers] = useState([]);
   const [populationHistory, setPopulationHistory] = useState([]);
 
-  const loadFlocks = useCallback(async (showToast = false) => {
-    try {
-      setLoading(true);
-      const response = await fetchFlocks();
-      setFlocks(extractFlocks(response));
+  // ============================================================
+  // LOAD FLOCKS AND GLOBAL PEN OCCUPANCY
+  // ============================================================
 
-      if (showToast) toast.success("Flock records refreshed.");
-    } catch (error) {
-      console.error("LOAD FLOCKS ERROR:", error);
-      toast.error(getErrorMessage(error, "Failed to load flock records."));
+  const loadFlocks = useCallback(async (showToast = false) => {
+    setLoading(true);
+    setPenOccupancyLoading(true);
+    setPenOccupancyError("");
+
+    try {
+      const [flocksResult, occupancyResult] = await Promise.allSettled([
+        fetchFlocks(),
+        fetchPenOccupancySummary(),
+      ]);
+
+      if (flocksResult.status === "fulfilled") {
+        setFlocks(extractFlocks(flocksResult.value));
+      } else {
+        console.error("LOAD FLOCKS ERROR:", flocksResult.reason);
+
+        toast.error(
+          getErrorMessage(flocksResult.reason, "Failed to load flock records."),
+        );
+      }
+
+      if (occupancyResult.status === "fulfilled") {
+        const response = occupancyResult.value;
+
+        setPenOccupancySummary({
+          summary: response?.summary || null,
+          occupancy: Array.isArray(response?.occupancy)
+            ? response.occupancy
+            : [],
+        });
+      } else {
+        console.error(
+          "LOAD PEN OCCUPANCY SUMMARY ERROR:",
+          occupancyResult.reason,
+        );
+
+        setPenOccupancySummary(null);
+
+        setPenOccupancyError(
+          getErrorMessage(
+            occupancyResult.reason,
+            "Failed to load global pen occupancy.",
+          ),
+        );
+      }
+
+      if (showToast && flocksResult.status === "fulfilled") {
+        toast.success("Flock records refreshed.");
+      }
     } finally {
       setLoading(false);
+      setPenOccupancyLoading(false);
     }
   }, []);
 
@@ -631,29 +948,75 @@ export default function Flocks() {
     loadFlocks();
   }, [loadFlocks]);
 
-  const occupiedPens = useMemo(() => {
-    return new Set(
-      flocks
-        .filter((flock) => flock.status === "ACTIVE" && !flock.isDeleted)
-        .map((flock) => flock.pen),
-    );
+  // ============================================================
+  // ALLOCATION-BASED PEN OCCUPANCY
+  // ============================================================
+
+  const penOccupancy = useMemo(() => {
+    const result = Object.fromEntries(PENS.map((pen) => [pen, []]));
+
+    flocks
+      .filter((flock) => flock.status === "ACTIVE" && !flock.isDeleted)
+      .forEach((flock) => {
+        getActiveAllocations(flock).forEach((allocation) => {
+          if (!allocation.pen) return;
+
+          if (!result[allocation.pen]) {
+            result[allocation.pen] = [];
+          }
+
+          result[allocation.pen].push({
+            allocationId: allocation._id,
+            flockId: flock._id,
+            flockCode: flock.flockId,
+            pen: allocation.pen,
+            currentBirds: allocation.currentBirds,
+          });
+        });
+      });
+
+    return result;
   }, [flocks]);
+
+  // ============================================================
+  // GLOBAL PEN OCCUPANCY LOOKUP
+  // ============================================================
+
+  const globalOccupancyByPen = useMemo(() => {
+    const result = new Map();
+
+    const occupancy = penOccupancySummary?.occupancy || [];
+
+    occupancy.forEach((item) => {
+      if (item?.pen) {
+        result.set(item.pen, item);
+      }
+    });
+
+    return result;
+  }, [penOccupancySummary]);
 
   const filteredFlocks = useMemo(() => {
     const query = search.trim().toLowerCase();
     if (!query) return flocks;
 
-    return flocks.filter((flock) =>
-      [
+    return flocks.filter((flock) => {
+      const activePens = getActivePenNames(flock);
+
+      const searchable = [
         flock.flockId,
         flock.pen,
         flock.status,
         flock.lifecycleStatus,
+        flock.populationTrackingStatus,
         flock.remarks,
-      ]
+        ...activePens,
+      ];
+
+      return searchable
         .filter(Boolean)
-        .some((value) => String(value).toLowerCase().includes(query)),
-    );
+        .some((value) => String(value).toLowerCase().includes(query));
+    });
   }, [flocks, search]);
 
   const stats = useMemo(() => {
@@ -717,11 +1080,84 @@ export default function Flocks() {
       );
     } catch (error) {
       console.error("LOAD FLOCK DETAILS ERROR:", error);
+
       setDetailsError(
         getErrorMessage(error, "Unable to load complete flock details."),
       );
     } finally {
       setDetailsLoading(false);
+    }
+  };
+
+  // ============================================================
+  // CORRECT ALLOCATION POPULATION
+  // ============================================================
+
+  const handleCorrectPopulation = async ({
+    allocation,
+    newPopulation,
+    remarks,
+  }) => {
+    if (!selectedFlock?._id || !allocation?._id) {
+      toast.error("Unable to identify the flock allocation.");
+      throw new Error("Missing flock or allocation ID.");
+    }
+
+    if (allocation.status !== "ACTIVE") {
+      toast.error("Only active allocations can be corrected.");
+      throw new Error("Allocation is not active.");
+    }
+
+    if (!Number.isSafeInteger(newPopulation) || newPopulation < 0) {
+      toast.error("Enter a valid non-negative whole number.");
+      throw new Error("Invalid population value.");
+    }
+
+    try {
+      await createFlockPopulationAdjustment(selectedFlock._id, {
+        allocationId: allocation._id,
+        newPopulation,
+        remarks,
+      });
+
+      const [
+        flockResponse,
+        allocationResponse,
+        transferResponse,
+        historyResponse,
+      ] = await Promise.all([
+        fetchFlock(selectedFlock._id),
+        fetchFlockAllocations(selectedFlock._id),
+        fetchFlockTransfers(selectedFlock._id),
+        fetchFlockPopulationHistory(selectedFlock._id),
+      ]);
+
+      setSelectedFlock(extractFlockRecord(flockResponse));
+
+      setAllocations(extractArray(allocationResponse, ["allocations"]));
+
+      setTransfers(extractArray(transferResponse, ["transfers"]));
+
+      setPopulationHistory(
+        extractArray(historyResponse, [
+          "history",
+          "populationHistory",
+          "records",
+        ]),
+      );
+
+      // Refresh flock records and the global pen occupancy summary.
+      await loadFlocks();
+
+      toast.success("Allocation population corrected successfully.");
+    } catch (error) {
+      console.error("POPULATION CORRECTION ERROR:", error);
+
+      toast.error(
+        getErrorMessage(error, "Failed to correct allocation population."),
+      );
+
+      throw error;
     }
   };
 
@@ -759,6 +1195,7 @@ export default function Flocks() {
       pen: flock.pen || "",
       placementDate: formatDateForInput(flock.placementDate),
       startingAgeWeeks: flock.startingAgeWeeks ?? "",
+      initialBirdCount: "",
       remarks: flock.remarks || "",
     });
 
@@ -778,9 +1215,14 @@ export default function Flocks() {
     const flockId = formData.flockId.trim().toUpperCase();
 
     if (!flockId) return toast.error("Flock ID is required.");
-    if (!formData.pen) return toast.error("Please select a pen.");
-    if (!formData.placementDate)
+
+    if (!editingId && !formData.pen) {
+      return toast.error("Please select an initial pen.");
+    }
+
+    if (!formData.placementDate) {
       return toast.error("Placement date is required.");
+    }
 
     const placementDate = new Date(`${formData.placementDate}T00:00:00`);
 
@@ -796,28 +1238,32 @@ export default function Flocks() {
       );
     }
 
-    if (!editingId) {
-      const existingActiveFlock = flocks.find(
-        (flock) =>
-          flock.pen === formData.pen &&
-          flock.status === "ACTIVE" &&
-          !flock.isDeleted,
-      );
+    let initialBirdCount;
 
-      if (existingActiveFlock) {
+    if (!editingId && formData.initialBirdCount !== "") {
+      initialBirdCount = Number(formData.initialBirdCount);
+
+      if (!Number.isInteger(initialBirdCount) || initialBirdCount < 0) {
         return toast.error(
-          `Pen "${formData.pen}" already has active flock "${existingActiveFlock.flockId}".`,
+          "Initial bird count must be a non-negative whole number. Leave it blank if the population is unknown.",
         );
       }
     }
 
     const payload = {
       flockId,
-      pen: formData.pen,
       placementDate: formData.placementDate,
       startingAgeWeeks: age,
       remarks: formData.remarks.trim(),
     };
+
+    if (!editingId) {
+      payload.pen = formData.pen;
+
+      if (initialBirdCount !== undefined) {
+        payload.initialBirdCount = initialBirdCount;
+      }
+    }
 
     try {
       setSaving(true);
@@ -841,7 +1287,7 @@ export default function Flocks() {
         const existing = responseData.existingFlock;
 
         toast.error(
-          `Pen "${existing.pen}" already has active flock "${existing.flockId}".`,
+          `Unable to complete this operation. The conflicting flock is "${existing.flockId}" in "${existing.pen}".`,
         );
       } else {
         toast.error(getErrorMessage(error, "Failed to save flock."));
@@ -862,6 +1308,7 @@ export default function Flocks() {
       setActionBusyId(flock._id);
 
       const allocationResponse = await fetchFlockAllocations(flock._id);
+
       const flockAllocations = extractArray(allocationResponse, [
         "allocations",
       ]);
@@ -876,9 +1323,7 @@ export default function Flocks() {
       }
 
       const unknown = activeAllocations.some(
-        (allocation) =>
-          allocation.currentBirds === null ||
-          allocation.currentBirds === undefined,
+        (allocation) => !isKnownPopulation(allocation.currentBirds),
       );
 
       if (unknown) {
@@ -896,7 +1341,7 @@ export default function Flocks() {
         if (available <= 0) continue;
 
         const entered = window.prompt(
-          `Flock: ${flock.flockId}\nPen: ${allocation.pen}\nAvailable birds: ${available}\n\nEnter the number of birds sold from this pen. Enter 0 if none were sold.`,
+          `Flock: ${flock.flockId}\nPen: ${allocation.pen}\nAvailable birds: ${formatNumber(available)}\n\nEnter the number of birds sold from this pen. Enter 0 if none were sold.`,
           "0",
         );
 
@@ -911,7 +1356,7 @@ export default function Flocks() {
 
         if (birdsSold > available) {
           toast.error(
-            `You cannot sell ${birdsSold} birds from ${allocation.pen}; only ${available} are recorded.`,
+            `You cannot sell ${formatNumber(birdsSold)} birds from ${allocation.pen}; only ${formatNumber(available)} are recorded.`,
           );
           return;
         }
@@ -929,8 +1374,13 @@ export default function Flocks() {
         return;
       }
 
+      const totalBirdsSold = allocationSales.reduce(
+        (sum, item) => sum + item.birdsSold,
+        0,
+      );
+
       const confirmed = window.confirm(
-        `Record the sale of ${allocationSales.reduce((sum, item) => sum + item.birdsSold, 0)} birds from flock "${flock.flockId}"?`,
+        `Record the sale of ${formatNumber(totalBirdsSold)} birds from flock "${flock.flockId}"?`,
       );
 
       if (!confirmed) return;
@@ -938,6 +1388,7 @@ export default function Flocks() {
       await sellFlock(flock._id, new Date().toISOString(), allocationSales);
 
       toast.success("Bird sale recorded successfully.");
+
       await loadFlocks();
     } catch (error) {
       console.error("SELL FLOCK ERROR:", error);
@@ -962,8 +1413,11 @@ export default function Flocks() {
 
     try {
       setActionBusyId(flock._id);
+
       await deleteFlock(flock._id);
+
       toast.success("Flock deleted successfully.");
+
       await loadFlocks();
     } catch (error) {
       console.error("DELETE FLOCK ERROR:", error);
@@ -985,8 +1439,11 @@ export default function Flocks() {
 
     try {
       setActionBusyId(flock._id);
+
       await restoreFlock(flock._id);
+
       toast.success("Flock restored successfully.");
+
       await loadFlocks();
     } catch (error) {
       console.error("RESTORE FLOCK ERROR:", error);
@@ -1005,6 +1462,10 @@ export default function Flocks() {
     }
   };
 
+  // ============================================================
+  // RENDER
+  // ============================================================
+
   return (
     <div className="min-h-screen space-y-6 bg-[#f5f7f3] p-4 md:p-6">
       {detailsOpen && (
@@ -1016,6 +1477,7 @@ export default function Flocks() {
           loading={detailsLoading}
           error={detailsError}
           onClose={closeDetails}
+          onCorrectPopulation={handleCorrectPopulation}
         />
       )}
 
@@ -1032,8 +1494,8 @@ export default function Flocks() {
           </h1>
 
           <p className="mt-1 max-w-2xl text-sm leading-6 text-gray-500">
-            Manage poultry flocks, pen assignments, placement dates and flock
-            lifecycle.
+            Manage poultry flocks, pen allocations, placement dates, population
+            and flock lifecycle.
           </p>
         </div>
 
@@ -1041,10 +1503,10 @@ export default function Flocks() {
           <button
             type="button"
             onClick={() => loadFlocks(true)}
-            disabled={loading}
+            disabled={loading || penOccupancyLoading}
             className="rounded-lg border border-gray-200 bg-white px-4 py-3 text-sm font-semibold text-gray-700 transition hover:bg-gray-50 disabled:opacity-50"
           >
-            {loading ? "Refreshing..." : "Refresh"}
+            {loading || penOccupancyLoading ? "Refreshing..." : "Refresh"}
           </button>
 
           <button
@@ -1093,24 +1555,270 @@ export default function Flocks() {
         ))}
       </div>
 
-      {/* OCCUPIED PEN OVERVIEW */}
+      {/* GLOBAL PEN OCCUPANCY SUMMARY */}
+
+      <section className={`${panelClass} overflow-hidden`}>
+        <div className="border-b border-[#e8ede6] bg-[#fbfcfa] p-5">
+          <div className="flex flex-col gap-3 md:flex-row md:items-center md:justify-between">
+            <div>
+              <h2 className="text-lg font-bold text-[#2c4331]">
+                Global Pen Occupancy Summary
+              </h2>
+
+              <p className="mt-1 text-sm text-gray-500">
+                Combined current bird population across all active allocations
+                belonging to active, non-deleted flocks.
+              </p>
+            </div>
+
+            <span className="w-fit rounded-full border border-green-100 bg-green-50 px-3 py-1.5 text-xs font-semibold text-green-800">
+              All Active Flocks
+            </span>
+          </div>
+        </div>
+
+        <div className="space-y-5 p-5">
+          {penOccupancyLoading ? (
+            <div className="rounded-xl bg-gray-50 p-8 text-center">
+              <div className="mx-auto h-8 w-8 animate-spin rounded-full border-4 border-green-100 border-t-green-700" />
+
+              <p className="mt-3 text-sm text-gray-500">
+                Calculating global pen occupancy...
+              </p>
+            </div>
+          ) : penOccupancyError ? (
+            <div className="rounded-xl border border-red-200 bg-red-50 p-4">
+              <p className="text-sm font-semibold text-red-700">
+                Unable to load global pen occupancy
+              </p>
+
+              <p className="mt-1 text-sm text-red-600">{penOccupancyError}</p>
+
+              <button
+                type="button"
+                onClick={() => loadFlocks()}
+                className="mt-3 rounded-lg border border-red-200 bg-white px-4 py-2 text-xs font-semibold text-red-700 transition hover:bg-red-100"
+              >
+                Retry
+              </button>
+            </div>
+          ) : (
+            <>
+              {/* OVERALL SUMMARY */}
+
+              <div className="grid grid-cols-1 gap-3 sm:grid-cols-2 lg:grid-cols-4">
+                <div className="rounded-xl border border-green-100 bg-[#f4f8f1] p-4">
+                  <p className="text-xs font-medium text-gray-500">
+                    Total Current Birds
+                  </p>
+
+                  <p
+                    className={`mt-2 text-2xl font-bold ${
+                      penOccupancySummary?.summary?.populationKnown
+                        ? "text-green-800"
+                        : "text-amber-700"
+                    }`}
+                  >
+                    {penOccupancySummary?.summary?.populationKnown
+                      ? formatNumber(penOccupancySummary.summary.totalBirds)
+                      : "Unknown"}
+                  </p>
+
+                  <p className="mt-1 text-xs text-gray-500">
+                    {penOccupancySummary?.summary?.populationKnown
+                      ? "Confirmed combined population"
+                      : "At least one pen has an unknown allocation population"}
+                  </p>
+                </div>
+
+                <div className="rounded-xl border border-gray-200 bg-white p-4">
+                  <p className="text-xs font-medium text-gray-500">
+                    Active Allocations
+                  </p>
+
+                  <p className="mt-2 text-2xl font-bold text-gray-800">
+                    {formatNumber(
+                      penOccupancySummary?.summary?.totalActiveAllocations,
+                    )}
+                  </p>
+
+                  <p className="mt-1 text-xs text-gray-500">
+                    Across all active flocks
+                  </p>
+                </div>
+
+                <div className="rounded-xl border border-gray-200 bg-white p-4">
+                  <p className="text-xs font-medium text-gray-500">
+                    Active Flocks
+                  </p>
+
+                  <p className="mt-2 text-2xl font-bold text-gray-800">
+                    {formatNumber(
+                      penOccupancySummary?.summary?.totalActiveFlocks,
+                    )}
+                  </p>
+
+                  <p className="mt-1 text-xs text-gray-500">
+                    With active pen allocations
+                  </p>
+                </div>
+
+                <div className="rounded-xl border border-amber-100 bg-amber-50/60 p-4">
+                  <p className="text-xs font-medium text-gray-500">
+                    Pens With Unknown Population
+                  </p>
+
+                  <p className="mt-2 text-2xl font-bold text-amber-700">
+                    {formatNumber(
+                      penOccupancySummary?.summary?.pensWithUnknownPopulation,
+                    )}
+                  </p>
+
+                  <p className="mt-1 text-xs text-gray-500">
+                    Require population confirmation
+                  </p>
+                </div>
+              </div>
+
+              {/* PEN-BY-PEN SUMMARY */}
+
+              <div>
+                <div className="mb-3">
+                  <h3 className="font-bold text-gray-800">Population by Pen</h3>
+
+                  <p className="mt-1 text-xs text-gray-500">
+                    Each figure combines every active allocation in that pen.
+                  </p>
+                </div>
+
+                <div className="grid grid-cols-1 gap-3 sm:grid-cols-2 lg:grid-cols-3 xl:grid-cols-4">
+                  {PENS.map((pen) => {
+                    const penSummary = globalOccupancyByPen.get(pen);
+
+                    const populationKnown =
+                      penSummary?.populationKnown !== false;
+
+                    const totalBirds = penSummary?.totalBirds ?? 0;
+
+                    const activeAllocationCount =
+                      penSummary?.activeAllocationCount ?? 0;
+
+                    const activeFlockCount = penSummary?.activeFlockCount ?? 0;
+
+                    const unknownAllocationCount =
+                      penSummary?.unknownAllocationCount ?? 0;
+
+                    const isOccupied = activeAllocationCount > 0;
+
+                    return (
+                      <div
+                        key={pen}
+                        className={`rounded-xl border p-4 ${
+                          !isOccupied
+                            ? "border-gray-200 bg-gray-50"
+                            : !populationKnown
+                              ? "border-amber-200 bg-amber-50/50"
+                              : "border-green-100 bg-[#f4f8f1]"
+                        }`}
+                      >
+                        <div className="flex items-start justify-between gap-2">
+                          <h4 className="text-sm font-semibold text-gray-700">
+                            {pen}
+                          </h4>
+
+                          <span
+                            className={`shrink-0 rounded-full px-2 py-1 text-[10px] font-bold ${
+                              !isOccupied
+                                ? "bg-gray-200 text-gray-600"
+                                : !populationKnown
+                                  ? "bg-amber-100 text-amber-800"
+                                  : "bg-green-100 text-green-700"
+                            }`}
+                          >
+                            {!isOccupied
+                              ? "EMPTY"
+                              : !populationKnown
+                                ? "UNKNOWN"
+                                : "OCCUPIED"}
+                          </span>
+                        </div>
+
+                        <p
+                          className={`mt-3 text-2xl font-bold ${
+                            !populationKnown
+                              ? "text-amber-700"
+                              : "text-[#315f3d]"
+                          }`}
+                        >
+                          {populationKnown
+                            ? formatNumber(totalBirds)
+                            : "Unknown"}
+                        </p>
+
+                        <p className="mt-1 text-xs text-gray-500">
+                          Current birds
+                        </p>
+
+                        <div className="mt-3 grid grid-cols-2 gap-2 border-t border-gray-200/70 pt-3">
+                          <div>
+                            <p className="text-[10px] text-gray-500">
+                              Allocations
+                            </p>
+
+                            <p className="mt-1 text-sm font-bold text-gray-700">
+                              {activeAllocationCount}
+                            </p>
+                          </div>
+
+                          <div>
+                            <p className="text-[10px] text-gray-500">
+                              Active Flocks
+                            </p>
+
+                            <p className="mt-1 text-sm font-bold text-gray-700">
+                              {activeFlockCount}
+                            </p>
+                          </div>
+                        </div>
+
+                        {unknownAllocationCount > 0 && (
+                          <p className="mt-3 rounded-lg bg-amber-100 px-2 py-2 text-xs font-medium text-amber-800">
+                            {unknownAllocationCount} allocation
+                            {unknownAllocationCount === 1 ? "" : "s"} with
+                            unknown population
+                          </p>
+                        )}
+
+                        {!isOccupied && (
+                          <p className="mt-2 text-xs text-gray-500">
+                            No active allocations
+                          </p>
+                        )}
+                      </div>
+                    );
+                  })}
+                </div>
+              </div>
+            </>
+          )}
+        </div>
+      </section>
+
+      {/* ALLOCATION-BASED PEN OCCUPANCY */}
 
       <section className={`${panelClass} p-5`}>
         <div className="mb-4">
           <h2 className="text-lg font-bold text-[#2c4331]">Pen Occupancy</h2>
           <p className="mt-1 text-sm text-gray-500">
-            See the legacy pen assignment currently recorded for each flock.
+            Occupancy is calculated from active flock allocations. A pen can
+            contain multiple flocks, and a flock can occupy multiple pens.
           </p>
         </div>
 
         <div className="grid grid-cols-1 gap-2 sm:grid-cols-2 lg:grid-cols-3 xl:grid-cols-4">
           {PENS.map((pen) => {
-            const matchingFlocks = flocks.filter(
-              (item) =>
-                item.pen === pen && item.status === "ACTIVE" && !item.isDeleted,
-            );
-
-            const isOccupied = matchingFlocks.length > 0;
+            const matchingAllocations = penOccupancy[pen] || [];
+            const isOccupied = matchingAllocations.length > 0;
 
             return (
               <div
@@ -1123,6 +1831,7 @@ export default function Flocks() {
               >
                 <div className="flex items-start justify-between gap-2">
                   <p className="text-sm font-semibold text-gray-700">{pen}</p>
+
                   <span
                     className={`shrink-0 rounded-full px-2 py-1 text-[10px] font-bold ${
                       isOccupied
@@ -1130,24 +1839,50 @@ export default function Flocks() {
                         : "bg-gray-200 text-gray-600"
                     }`}
                   >
-                    {isOccupied ? "OCCUPIED" : "AVAILABLE"}
+                    {isOccupied
+                      ? `${matchingAllocations.length} ALLOCATION${matchingAllocations.length === 1 ? "" : "S"}`
+                      : "AVAILABLE"}
                   </span>
                 </div>
 
-                <div className="mt-2 space-y-1">
+                <div className="mt-2 space-y-2">
                   {isOccupied ? (
-                    matchingFlocks.map((flock) => (
-                      <button
-                        key={flock._id}
-                        type="button"
-                        onClick={() => handleViewDetails(flock)}
-                        className="block text-left text-xs font-medium text-green-800 underline decoration-green-300 underline-offset-2 hover:text-green-950"
+                    matchingAllocations.map((item) => (
+                      <div
+                        key={
+                          item.allocationId ||
+                          `${item.flockId}-${item.flockCode}`
+                        }
+                        className="rounded-md border border-green-100 bg-white px-2 py-2"
                       >
-                        {flock.flockId || "Assigned flock"} — View details
-                      </button>
+                        <button
+                          type="button"
+                          onClick={() => {
+                            const flock = flocks.find(
+                              (entry) => entry._id === item.flockId,
+                            );
+
+                            if (flock) handleViewDetails(flock);
+                          }}
+                          className="block text-left text-xs font-bold text-green-800 underline decoration-green-300 underline-offset-2 hover:text-green-950"
+                        >
+                          {item.flockCode || "Assigned flock"} — View details
+                        </button>
+
+                        <p className="mt-1 text-xs text-gray-500">
+                          Population:{" "}
+                          <span className="font-semibold text-gray-700">
+                            {isKnownPopulation(item.currentBirds)
+                              ? formatNumber(item.currentBirds)
+                              : "Unknown"}
+                          </span>
+                        </p>
+                      </div>
                     ))
                   ) : (
-                    <p className="text-xs text-gray-500">No active flock</p>
+                    <p className="text-xs text-gray-500">
+                      No active flock allocation
+                    </p>
                   )}
                 </div>
               </div>
@@ -1164,8 +1899,11 @@ export default function Flocks() {
             <h2 className="text-lg font-bold text-[#2c4331]">
               {editingId ? "Edit Flock Details" : "Register New Flock"}
             </h2>
+
             <p className="mt-1 text-sm text-gray-500">
-              Provide the flock identification, pen and placement information.
+              {editingId
+                ? "Update the flock identity and lifecycle details. Use flock transfers to move birds between pens."
+                : "Register the flock and create its initial pen allocation."}
             </p>
           </div>
 
@@ -1177,6 +1915,7 @@ export default function Flocks() {
               <label htmlFor="flockId" className={labelClass}>
                 Flock ID
               </label>
+
               <input
                 id="flockId"
                 type="text"
@@ -1187,6 +1926,7 @@ export default function Flocks() {
                 required
                 className={inputClass}
               />
+
               <p className="mt-1 text-xs text-gray-400">
                 The flock ID will be saved in uppercase.
               </p>
@@ -1194,32 +1934,31 @@ export default function Flocks() {
 
             <div>
               <label htmlFor="pen" className={labelClass}>
-                Assign Pen
+                {editingId ? "Initial Pen (Legacy Field)" : "Initial Pen"}
               </label>
+
               <select
                 id="pen"
                 name="pen"
                 value={formData.pen}
                 onChange={handleChange}
-                required
-                className={inputClass}
+                required={!editingId}
+                disabled={Boolean(editingId)}
+                className={`${inputClass} disabled:cursor-not-allowed disabled:bg-gray-100 disabled:text-gray-500`}
               >
-                <option value="">Select Pen</option>
-                {PENS.map((pen) => {
-                  const occupied =
-                    occupiedPens.has(pen) &&
-                    !(editingId && formData.pen === pen);
+                <option value="">Select Initial Pen</option>
 
-                  return (
-                    <option key={pen} value={pen} disabled={occupied}>
-                      {occupied ? `${pen} — OCCUPIED` : pen}
-                    </option>
-                  );
-                })}
+                {PENS.map((pen) => (
+                  <option key={pen} value={pen}>
+                    {pen}
+                  </option>
+                ))}
               </select>
+
               <p className="mt-1 text-xs text-gray-400">
-                This is the legacy pen field. Actual housing can be represented
-                by multiple flock allocations.
+                {editingId
+                  ? "The initial pen cannot be changed here. Use a flock transfer to move birds to another pen."
+                  : "This creates the flock's initial allocation. A pen can have multiple active flock allocations."}
               </p>
             </div>
 
@@ -1227,6 +1966,7 @@ export default function Flocks() {
               <label htmlFor="placementDate" className={labelClass}>
                 Placement Date
               </label>
+
               <input
                 id="placementDate"
                 type="date"
@@ -1242,6 +1982,7 @@ export default function Flocks() {
               <label htmlFor="startingAgeWeeks" className={labelClass}>
                 Starting Age (Weeks)
               </label>
+
               <input
                 id="startingAgeWeeks"
                 type="number"
@@ -1255,15 +1996,42 @@ export default function Flocks() {
                 required
                 className={inputClass}
               />
+
               <p className="mt-1 text-xs text-gray-400">
                 Maximum: {MAX_LAYING_AGE_WEEKS} weeks.
               </p>
             </div>
 
+            {!editingId && (
+              <div>
+                <label htmlFor="initialBirdCount" className={labelClass}>
+                  Initial Bird Count (Optional)
+                </label>
+
+                <input
+                  id="initialBirdCount"
+                  type="number"
+                  name="initialBirdCount"
+                  min="0"
+                  step="1"
+                  value={formData.initialBirdCount}
+                  onChange={handleChange}
+                  placeholder="Leave blank if unknown"
+                  className={inputClass}
+                />
+
+                <p className="mt-1 text-xs text-gray-400">
+                  Leave blank to record an unknown population. Enter 0 only when
+                  the population is confirmed to be zero.
+                </p>
+              </div>
+            )}
+
             <div className="md:col-span-2">
               <label htmlFor="remarks" className={labelClass}>
                 Remarks
               </label>
+
               <textarea
                 id="remarks"
                 name="remarks"
@@ -1309,8 +2077,10 @@ export default function Flocks() {
             <h2 className="text-lg font-bold text-[#2c4331]">
               Registered Flocks
             </h2>
+
             <p className="mt-1 text-sm text-gray-500">
-              Select View Details to inspect a flock's complete records.
+              Select View Details to inspect a flock's complete allocation and
+              population records.
             </p>
           </div>
 
@@ -1328,6 +2098,7 @@ export default function Flocks() {
         {loading ? (
           <div className="p-12 text-center">
             <div className="mx-auto h-8 w-8 animate-spin rounded-full border-4 border-[#dce9d9] border-t-[#39784b]" />
+
             <p className="mt-3 text-sm text-gray-500">
               Loading flock records...
             </p>
@@ -1335,6 +2106,7 @@ export default function Flocks() {
         ) : filteredFlocks.length === 0 ? (
           <div className="p-12 text-center">
             <h3 className="font-semibold text-gray-700">No flocks found</h3>
+
             <p className="mt-1 text-sm text-gray-500">
               {search
                 ? "Try another search term."
@@ -1344,12 +2116,14 @@ export default function Flocks() {
         ) : (
           <>
             <div className="overflow-x-auto">
-              <table className="w-full min-w-[1450px] text-sm">
+              <table className="w-full min-w-[1750px] text-sm">
                 <thead className="bg-[#edf3e9] text-left text-[#38563d]">
                   <tr>
                     {[
                       "Flock ID",
-                      "Pen",
+                      "Active Pen Allocations",
+                      "Current Birds",
+                      "Population Tracking",
                       "Placement Date",
                       "Current Age",
                       "Lifecycle",
@@ -1371,6 +2145,8 @@ export default function Flocks() {
                 <tbody className="divide-y divide-gray-100">
                   {filteredFlocks.map((flock) => {
                     const busy = actionBusyId === flock._id;
+                    const activePens = getActivePenNames(flock);
+                    const population = getFlockPopulation(flock);
 
                     return (
                       <tr
@@ -1383,6 +2159,7 @@ export default function Flocks() {
                           <div className="font-bold text-gray-800">
                             {flock.flockId || "—"}
                           </div>
+
                           {flock.remarks && (
                             <p
                               className="mt-1 max-w-[180px] truncate text-xs text-gray-400"
@@ -1391,10 +2168,60 @@ export default function Flocks() {
                               {flock.remarks}
                             </p>
                           )}
+
+                          <p className="mt-1 text-[10px] text-gray-400">
+                            Initial pen: {flock.pen || "—"}
+                          </p>
                         </td>
 
-                        <td className="whitespace-nowrap px-4 py-4 font-medium text-gray-700">
-                          {flock.pen || "—"}
+                        <td className="px-4 py-4">
+                          {activePens.length ? (
+                            <div className="flex max-w-[260px] flex-wrap gap-1">
+                              {activePens.map((pen) => (
+                                <span
+                                  key={pen}
+                                  className="rounded-full border border-green-100 bg-green-50 px-2 py-1 text-xs font-medium text-green-800"
+                                >
+                                  {pen}
+                                </span>
+                              ))}
+                            </div>
+                          ) : (
+                            <span className="text-xs text-gray-400">
+                              No active allocations
+                            </span>
+                          )}
+                        </td>
+
+                        <td className="whitespace-nowrap px-4 py-4">
+                          <span
+                            className={`font-bold ${
+                              population.known
+                                ? "text-gray-800"
+                                : "text-amber-700"
+                            }`}
+                          >
+                            {population.known
+                              ? formatNumber(population.total)
+                              : "Unknown"}
+                          </span>
+
+                          <p className="mt-1 text-[10px] text-gray-400">
+                            {population.activeCount} active allocation
+                            {population.activeCount === 1 ? "" : "s"}
+                          </p>
+                        </td>
+
+                        <td className="whitespace-nowrap px-4 py-4">
+                          <span
+                            className={`inline-flex rounded-full border px-2 py-1 text-xs font-semibold ${
+                              flock.populationTrackingStatus === "TRACKED"
+                                ? "border-green-100 bg-green-50 text-green-700"
+                                : "border-amber-100 bg-amber-50 text-amber-700"
+                            }`}
+                          >
+                            {flock.populationTrackingStatus || "UNKNOWN"}
+                          </span>
                         </td>
 
                         <td className="whitespace-nowrap px-4 py-4 text-gray-600">
@@ -1506,9 +2333,9 @@ export default function Flocks() {
               <p className="text-xs text-gray-500">
                 Showing {filteredFlocks.length} of {flocks.length} flock records
               </p>
+
               <p className="text-xs text-gray-400">
-                Use View Details to inspect the allocation and population
-                history.
+                Population totals are calculated from active allocations.
               </p>
             </div>
           </>

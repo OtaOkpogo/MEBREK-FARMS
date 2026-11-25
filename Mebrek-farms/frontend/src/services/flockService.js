@@ -44,6 +44,21 @@ export const fetchActiveFlocksByPen = async (pen) => {
 
 /*
 |--------------------------------------------------------------------------
+| GET GLOBAL PEN OCCUPANCY SUMMARY
+|--------------------------------------------------------------------------
+| Returns the combined population of all active allocations across
+| every active, non-deleted flock, grouped by configured pen.
+|--------------------------------------------------------------------------
+*/
+
+export const fetchPenOccupancySummary = async () => {
+  const response = await apiClient.get("/flocks/pen-occupancy");
+
+  return response.data;
+};
+
+/*
+|--------------------------------------------------------------------------
 | LEGACY: GET ONE ACTIVE FLOCK BY PEN
 |--------------------------------------------------------------------------
 | Retained temporarily for older components.

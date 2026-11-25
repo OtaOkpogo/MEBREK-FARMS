@@ -13,7 +13,10 @@ import {
   deleteProduction,
 } from "../services/productionService";
 
-import { fetchActiveFlockByPen } from "../services/flockService";
+import {
+  fetchActiveFlockByPen,
+  fetchActiveFlocksByPen,
+} from "../services/flockService";
 
 import socket from "../services/socket";
 
@@ -127,6 +130,107 @@ const formatNumber = (value) =>
 const formatDate = (value) =>
   value ? new Date(value).toLocaleDateString("en-NG") : "—";
 
+// Extract a populated or unpopulated allocation ID.
+const getAllocationId = (item) => {
+  const allocation = item?.allocation;
+
+  if (!allocation) return "";
+
+  if (typeof allocation === "object") {
+    return String(allocation._id || allocation.id || "");
+  }
+
+  return String(allocation);
+};
+
+// Normalize an allocation returned by the active allocations endpoint.
+const normalizeActiveAllocation = (item) => {
+  const flock =
+    item?.flock && typeof item.flock === "object" ? item.flock : null;
+
+  return {
+    allocationId: String(item?._id || ""),
+    flockId: flock?.flockId || item?.flockId || "Unknown flock",
+    flockName: flock?.name || "",
+    pen: item?.pen || flock?.pen || "",
+    currentBirds:
+      item?.currentBirds === null || item?.currentBirds === undefined
+        ? null
+        : Number(item.currentBirds),
+    numberDead: 0,
+    historical: false,
+  };
+};
+
+// Normalize mortality allocations already saved on a production record.
+const normalizeSavedMortality = (item) => {
+  const allocation =
+    item?.allocation && typeof item.allocation === "object"
+      ? item.allocation
+      : null;
+
+  const flock =
+    allocation?.flock && typeof allocation.flock === "object"
+      ? allocation.flock
+      : null;
+
+  return {
+    allocationId: getAllocationId(item),
+    flockId:
+      flock?.flockId ||
+      allocation?.flockId ||
+      item?.flockId ||
+      "Historical allocation",
+    flockName: flock?.name || "",
+    pen: allocation?.pen || item?.pen || "",
+    currentBirds:
+      allocation?.currentBirds === null ||
+      allocation?.currentBirds === undefined
+        ? null
+        : Number(allocation.currentBirds),
+    numberDead: Number(item?.numberDead || 0),
+    historical: true,
+  };
+};
+
+// Merge current active allocations with a record's saved mortality breakdown.
+// Saved mortality values take priority, including for allocations no longer active.
+const mergeMortalityAllocations = (activeAllocations, savedMortality) => {
+  const activeRows = Array.isArray(activeAllocations)
+    ? activeAllocations.map(normalizeActiveAllocation)
+    : [];
+
+  const savedRows = Array.isArray(savedMortality)
+    ? savedMortality.map(normalizeSavedMortality)
+    : [];
+
+  const savedById = new Map(
+    savedRows
+      .filter((row) => row.allocationId)
+      .map((row) => [row.allocationId, row]),
+  );
+
+  const merged = activeRows.map((row) => {
+    const saved = savedById.get(row.allocationId);
+
+    if (!saved) return row;
+
+    savedById.delete(row.allocationId);
+
+    return {
+      ...row,
+      numberDead: saved.numberDead,
+    };
+  });
+
+  // Keep historical allocations even if they are no longer active.
+  savedById.forEach((row) => {
+    merged.push(row);
+  });
+
+  return merged;
+};
+
 // ============================================================
 // COMPONENT
 // ============================================================
@@ -169,8 +273,28 @@ const Production = () => {
   const [flockLoading, setFlockLoading] = useState(false);
   const [flockError, setFlockError] = useState("");
 
+  // All active allocations in the selected pen.
+  const [mortalityAllocations, setMortalityAllocations] = useState([]);
+  const [allocationLoading, setAllocationLoading] = useState(false);
+  const [allocationError, setAllocationError] = useState("");
+
   const broodingHouse = isBroodingHouse(formData.pen);
   const isCombinedBatteryReport = reportView === "Battery Cage Combined";
+
+  // The mortality total is always derived from the allocation breakdown
+  // for normal pens. Brooding House retains its existing manual field.
+  const allocatedMortality = useMemo(
+    () =>
+      mortalityAllocations.reduce(
+        (sum, item) => sum + Number(item.numberDead || 0),
+        0,
+      ),
+    [mortalityAllocations],
+  );
+
+  const mortalityTotal = broodingHouse
+    ? Number(formData.mortality || 0)
+    : allocatedMortality;
 
   // ============================================================
   // STYLES
@@ -247,34 +371,81 @@ const Production = () => {
   }, []);
 
   // ============================================================
-  // LOAD ACTIVE FLOCK
+  // LOAD FLOCK AND ALL ACTIVE ALLOCATIONS
   // ============================================================
 
-  const loadActiveFlock = async (pen) => {
+  const loadActiveFlock = async (pen, record = null) => {
     setActiveFlock(null);
     setFlockError("");
+    setAllocationError("");
+    setMortalityAllocations([]);
 
     if (!pen || pen === BROODING_HOUSE) {
       setFlockLoading(false);
+      setAllocationLoading(false);
       return;
     }
 
     setFlockLoading(true);
+    setAllocationLoading(true);
 
     try {
-      const flock = await fetchActiveFlockByPen(pen);
-      setActiveFlock(flock || null);
-    } catch (error) {
-      console.error("ACTIVE FLOCK ERROR:", error);
+      // Keep the existing single-flock lookup for the flock information
+      // and automatic flock-age calculation.
+      const flockPromise = fetchActiveFlockByPen(pen);
 
-      setActiveFlock(null);
+      // Use all active allocations for mortality accounting.
+      const allocationsPromise = fetchActiveFlocksByPen(pen);
 
-      setFlockError(
-        error.response?.data?.message ||
-          `Failed to load active flock for ${pen}.`,
-      );
+      const [flockResult, allocationsResult] = await Promise.allSettled([
+        flockPromise,
+        allocationsPromise,
+      ]);
+
+      if (flockResult.status === "fulfilled") {
+        setActiveFlock(flockResult.value || null);
+      } else {
+        console.error("ACTIVE FLOCK ERROR:", flockResult.reason);
+        setActiveFlock(null);
+        setFlockError(
+          flockResult.reason?.response?.data?.message ||
+            `Failed to load active flock for ${pen}.`,
+        );
+      }
+
+      if (allocationsResult.status === "fulfilled") {
+        const activeRows = Array.isArray(allocationsResult.value)
+          ? allocationsResult.value
+          : [];
+
+        setMortalityAllocations(
+          mergeMortalityAllocations(
+            activeRows,
+            record?.mortalityAllocations || [],
+          ),
+        );
+      } else {
+        console.error(
+          "ACTIVE FLOCK ALLOCATIONS ERROR:",
+          allocationsResult.reason,
+        );
+
+        setAllocationError(
+          allocationsResult.reason?.response?.data?.message ||
+            `Failed to load active flock allocations for ${pen}.`,
+        );
+
+        // Preserve the existing saved breakdown if the active allocation
+        // lookup fails while editing a historical record.
+        if (Array.isArray(record?.mortalityAllocations)) {
+          setMortalityAllocations(
+            mergeMortalityAllocations([], record.mortalityAllocations),
+          );
+        }
+      }
     } finally {
       setFlockLoading(false);
+      setAllocationLoading(false);
     }
   };
 
@@ -368,6 +539,7 @@ const Production = () => {
       ...prev,
       pen,
       days: "",
+      mortality: "",
       openingStock: editingId ? prev.openingStock : "",
       ...(pen === BROODING_HOUSE
         ? {
@@ -379,6 +551,9 @@ const Production = () => {
         : {}),
     }));
 
+    setMortalityAllocations([]);
+    setAllocationError("");
+
     await loadActiveFlock(pen);
   };
 
@@ -389,10 +564,112 @@ const Production = () => {
   const handleChange = (e) => {
     const { name, value } = e.target;
 
+    // Mortality for normal pens is allocation-driven and cannot be
+    // manually overwritten. Brooding House retains the manual field.
+    if (name === "mortality" && !broodingHouse) return;
+
     setFormData((prev) => ({
       ...prev,
       [name]: value,
     }));
+  };
+
+  // ============================================================
+  // ALLOCATION MORTALITY INPUT
+  // ============================================================
+
+  const handleAllocationMortalityChange = (allocationId, value) => {
+    const numberDead = value === "" ? 0 : Number(value);
+
+    if (!Number.isFinite(numberDead) || numberDead < 0) return;
+
+    setMortalityAllocations((previous) => {
+      const updated = previous.map((item) => {
+        if (String(item.allocationId) !== String(allocationId)) {
+          return item;
+        }
+
+        return {
+          ...item,
+          numberDead,
+        };
+      });
+
+      const total = updated.reduce(
+        (sum, item) => sum + Number(item.numberDead || 0),
+        0,
+      );
+
+      setFormData((current) => ({
+        ...current,
+        mortality: String(total),
+      }));
+
+      return updated;
+    });
+  };
+
+  // ============================================================
+  // VALIDATE MORTALITY ALLOCATIONS
+  // ============================================================
+
+  const validateMortalityAllocations = () => {
+    if (broodingHouse) return true;
+
+    const total = mortalityAllocations.reduce(
+      (sum, item) => sum + Number(item.numberDead || 0),
+      0,
+    );
+
+    if (total !== Number(formData.mortality || 0)) {
+      toast.error(
+        "Mortality total does not match the allocation breakdown. Review the allocation entries.",
+      );
+      return false;
+    }
+
+    if (total > 0 && mortalityAllocations.length === 0) {
+      toast.error(
+        "Mortality cannot be recorded without an active flock allocation.",
+      );
+      return false;
+    }
+
+    for (const item of mortalityAllocations) {
+      const numberDead = Number(item.numberDead || 0);
+
+      if (!Number.isFinite(numberDead) || numberDead < 0) {
+        toast.error(
+          "Mortality allocation values must be valid non-negative numbers.",
+        );
+        return false;
+      }
+
+      if (numberDead === 0) continue;
+
+      if (!item.allocationId) {
+        toast.error(
+          "A mortality entry is missing its allocation reference. Review the allocation breakdown.",
+        );
+        return false;
+      }
+
+      if (item.currentBirds === null || item.currentBirds === undefined) {
+        toast.error(
+          `The current population for ${item.flockId} is unknown. Mortality cannot be allocated to this flock until its population is known.`,
+        );
+        return false;
+      }
+
+      if (numberDead > Number(item.currentBirds)) {
+        toast.error(
+          `Mortality for ${item.flockId} cannot exceed its current population of ${formatNumber(item.currentBirds)} birds.`,
+        );
+        return false;
+      }
+    }
+
+    return true;
   };
 
   // ============================================================
@@ -418,11 +695,17 @@ const Production = () => {
       return;
     }
 
+    if (!validateMortalityAllocations()) return;
+
+    const mortality = broodingHouse
+      ? Number(formData.mortality || 0)
+      : allocatedMortality;
+
     const calculatedClosingStock =
       Number(formData.openingStock || 0) +
       Number(formData.transferIn || 0) -
       Number(formData.transferOut || 0) -
-      Number(formData.mortality || 0);
+      mortality;
 
     if (calculatedClosingStock < 0) {
       toast.error(
@@ -433,14 +716,13 @@ const Production = () => {
 
     // The backend determines flock, flockId and flockAgeWeeks.
     // These values are deliberately not sent by the frontend.
-
     const payload = {
       ...formData,
       days: Number(formData.days || 0),
       openingStock: Number(formData.openingStock || 0),
       transferIn: Number(formData.transferIn || 0),
       transferOut: Number(formData.transferOut || 0),
-      mortality: Number(formData.mortality || 0),
+      mortality,
       sickBirds: Number(formData.sickBirds || 0),
       feedBagsConsumed: Number(formData.feedBagsConsumed || 0),
       waterConsumed: Number(formData.waterConsumed || 0),
@@ -450,6 +732,17 @@ const Production = () => {
         ? 0
         : Number(formData.miscarriageProduction || 0),
       crackedEggs: broodingHouse ? 0 : Number(formData.crackedEggs || 0),
+
+      // The backend uses these entries to deduct mortality from the
+      // exact flock allocations affected.
+      mortalityAllocations: broodingHouse
+        ? []
+        : mortalityAllocations
+            .filter((item) => Number(item.numberDead || 0) > 0)
+            .map((item) => ({
+              allocation: item.allocationId,
+              numberDead: Number(item.numberDead),
+            })),
     };
 
     setSaving(true);
@@ -480,6 +773,9 @@ const Production = () => {
       setActiveFlock(null);
       setFlockError("");
       setFlockLoading(false);
+      setMortalityAllocations([]);
+      setAllocationError("");
+      setAllocationLoading(false);
       setCurrentPage(1);
     } catch (error) {
       console.error("SAVE PRODUCTION ERROR:", error);
@@ -501,8 +797,10 @@ const Production = () => {
     setFormData(toFormData(record));
     setActiveFlock(null);
     setFlockError("");
+    setMortalityAllocations([]);
+    setAllocationError("");
 
-    await loadActiveFlock(record.pen);
+    await loadActiveFlock(record.pen, record);
 
     window.scrollTo({
       top: 0,
@@ -520,6 +818,9 @@ const Production = () => {
     setActiveFlock(null);
     setFlockError("");
     setFlockLoading(false);
+    setMortalityAllocations([]);
+    setAllocationError("");
+    setAllocationLoading(false);
   };
 
   // ============================================================
@@ -1116,7 +1417,7 @@ const Production = () => {
     Number(formData.openingStock || 0) +
     Number(formData.transferIn || 0) -
     Number(formData.transferOut || 0) -
-    Number(formData.mortality || 0);
+    mortalityTotal;
 
   const calculatedTotalEggs =
     Number(formData.cratesProduced || 0) * 30 +
@@ -1533,21 +1834,198 @@ const Production = () => {
             />
           </div>
 
-          {/* MORTALITY */}
+          {/* ALLOCATION-BASED MORTALITY */}
 
-          <div>
-            <label htmlFor="mortality" className={labelClass}>
-              Mortality
-            </label>
-            <input
-              id="mortality"
-              type="number"
-              min="0"
-              name="mortality"
-              value={formData.mortality}
-              onChange={handleChange}
-              className={inputClass}
-            />
+          <div className="rounded-xl border border-[#e5ebe3] bg-[#fbfcfa] p-4 md:col-span-3">
+            <div className="mb-3 flex flex-wrap items-center justify-between gap-2">
+              <div>
+                <label className={labelClass}>Mortality Allocation</label>
+                <p className="text-xs text-gray-500">
+                  Record deaths against the specific flock allocation in this
+                  pen. The total is calculated automatically.
+                </p>
+              </div>
+
+              <div className="rounded-lg bg-[#fbeeed] px-4 py-2 text-right">
+                <p className="text-xs font-medium text-[#98524b]">
+                  Total Mortality
+                </p>
+                <p className="text-xl font-bold text-[#a94b43]">
+                  {formatNumber(mortalityTotal)}
+                </p>
+              </div>
+            </div>
+
+            {broodingHouse ? (
+              <div className="max-w-sm">
+                <label htmlFor="mortality" className={labelClass}>
+                  Brooding House Mortality
+                </label>
+                <input
+                  id="mortality"
+                  type="number"
+                  min="0"
+                  step="1"
+                  name="mortality"
+                  value={formData.mortality}
+                  onChange={handleChange}
+                  className={inputClass}
+                />
+                <p className="mt-1 text-xs text-gray-500">
+                  Brooding House has no flock allocation breakdown, so mortality
+                  remains a manual entry here.
+                </p>
+              </div>
+            ) : allocationLoading ? (
+              <p className="rounded-lg bg-white p-3 text-sm text-gray-600">
+                Loading active flock allocations for {formData.pen}...
+              </p>
+            ) : allocationError ? (
+              <p className="rounded-lg border border-red-200 bg-red-50 p-3 text-sm text-red-700">
+                {allocationError} Mortality cannot be allocated until the
+                allocation information is available.
+              </p>
+            ) : mortalityAllocations.length === 0 ? (
+              <p className="rounded-lg border border-amber-200 bg-amber-50 p-3 text-sm text-amber-800">
+                No active flock allocations were found for this pen. You can
+                record production with zero mortality, but positive mortality
+                requires a valid flock allocation.
+              </p>
+            ) : (
+              <div className="space-y-3">
+                <div className="overflow-x-auto rounded-lg border border-[#e5ebe3] bg-white">
+                  <table className="w-full min-w-[650px] text-sm">
+                    <thead className="bg-[#edf3e9] text-left text-[#38563d]">
+                      <tr>
+                        <th className="px-3 py-3 font-semibold">Flock</th>
+                        <th className="px-3 py-3 font-semibold">Pen</th>
+                        <th className="px-3 py-3 font-semibold">
+                          Current Population
+                        </th>
+                        <th className="px-3 py-3 font-semibold">Number Dead</th>
+                        <th className="px-3 py-3 font-semibold">Status</th>
+                      </tr>
+                    </thead>
+
+                    <tbody className="divide-y divide-gray-100">
+                      {mortalityAllocations.map((item) => {
+                        const populationKnown =
+                          item.currentBirds !== null &&
+                          item.currentBirds !== undefined &&
+                          Number.isFinite(Number(item.currentBirds));
+
+                        const exceedsPopulation =
+                          populationKnown &&
+                          Number(item.numberDead || 0) >
+                            Number(item.currentBirds);
+
+                        return (
+                          <tr
+                            key={
+                              item.allocationId || `${item.flockId}-${item.pen}`
+                            }
+                            className="align-middle"
+                          >
+                            <td className="px-3 py-3">
+                              <p className="font-semibold text-gray-800">
+                                {item.flockId}
+                              </p>
+                              {item.historical && (
+                                <span className="mt-1 inline-block rounded-full bg-amber-100 px-2 py-0.5 text-[10px] font-semibold text-amber-800">
+                                  Historical allocation
+                                </span>
+                              )}
+                            </td>
+
+                            <td className="px-3 py-3 text-gray-600">
+                              {item.pen || formData.pen}
+                            </td>
+
+                            <td className="px-3 py-3 font-medium text-gray-700">
+                              {populationKnown
+                                ? formatNumber(item.currentBirds)
+                                : "Unknown"}
+                            </td>
+
+                            <td className="px-3 py-3">
+                              <input
+                                type="number"
+                                min="0"
+                                step="1"
+                                value={item.numberDead || ""}
+                                disabled={
+                                  !populationKnown || !item.allocationId
+                                }
+                                onChange={(e) =>
+                                  handleAllocationMortalityChange(
+                                    item.allocationId,
+                                    e.target.value,
+                                  )
+                                }
+                                className={`${inputClass} max-w-36 ${
+                                  exceedsPopulation
+                                    ? "border-red-400 focus:border-red-500 focus:ring-red-100"
+                                    : ""
+                                }`}
+                                aria-label={`Mortality for ${item.flockId}`}
+                              />
+
+                              {exceedsPopulation && (
+                                <p className="mt-1 text-xs text-red-600">
+                                  Exceeds available population.
+                                </p>
+                              )}
+                            </td>
+
+                            <td className="px-3 py-3">
+                              {!item.allocationId ? (
+                                <span className="text-xs font-medium text-red-600">
+                                  Missing allocation ID
+                                </span>
+                              ) : !populationKnown ? (
+                                <span className="text-xs font-medium text-amber-700">
+                                  Population unknown
+                                </span>
+                              ) : item.historical ? (
+                                <span className="text-xs font-medium text-amber-700">
+                                  Historical
+                                </span>
+                              ) : (
+                                <span className="text-xs font-medium text-green-700">
+                                  Available
+                                </span>
+                              )}
+                            </td>
+                          </tr>
+                        );
+                      })}
+                    </tbody>
+
+                    <tfoot className="bg-[#f7faf5]">
+                      <tr>
+                        <td
+                          colSpan="3"
+                          className="px-3 py-3 text-right font-bold text-gray-700"
+                        >
+                          Total Allocated Mortality
+                        </td>
+                        <td className="px-3 py-3 font-bold text-[#a94b43]">
+                          {formatNumber(allocatedMortality)}
+                        </td>
+                        <td />
+                      </tr>
+                    </tfoot>
+                  </table>
+                </div>
+
+                <p className="text-xs leading-5 text-gray-500">
+                  Each mortality entry is linked to its own flock allocation.
+                  Allocations with unknown populations are disabled. Historical
+                  allocations are retained when editing previously saved
+                  production records.
+                </p>
+              </div>
+            )}
           </div>
 
           {/* SICK BIRDS */}
@@ -1751,7 +2229,11 @@ const Production = () => {
           <div className="flex flex-wrap gap-3 border-t border-gray-100 pt-4 md:col-span-3">
             <button
               type="submit"
-              disabled={saving}
+              disabled={
+                saving ||
+                allocationLoading ||
+                (!broodingHouse && Boolean(allocationError))
+              }
               className="rounded-lg bg-[#39784b] px-6 py-2.5 text-sm font-semibold text-white transition hover:bg-[#2d633d] disabled:cursor-not-allowed disabled:opacity-50"
             >
               {saving
