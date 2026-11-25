@@ -4,9 +4,11 @@ const {
   getFlocks,
   getFlock,
   getActiveFlockByPen,
+  getPenOccupancySummary,
   createFlock,
   updateFlock,
   createFlockTransfer,
+  cancelFlockTransfer,
   getFlockAllocations,
   getFlockTransfers,
   getFlockPopulationHistory,
@@ -22,55 +24,31 @@ const router = express.Router();
 
 router.use(protect);
 
-/*
-|--------------------------------------------------------------------------
-| COLLECTION ROUTES
-|--------------------------------------------------------------------------
-*/
-
+// Flock listing and creation
 router.get("/", getFlocks);
 router.post("/", createFlock);
 
-/*
-|--------------------------------------------------------------------------
-| PEN ROUTES
-|--------------------------------------------------------------------------
-| Keep this before /:id routes.
-|--------------------------------------------------------------------------
-*/
-
+// Pen operations
 router.get("/pen/:pen/active", getActiveFlockByPen);
+router.get("/pen-occupancy", getPenOccupancySummary);
 
-/*
-|--------------------------------------------------------------------------
-| FLOCK-SPECIFIC ROUTES
-|--------------------------------------------------------------------------
-*/
-
+// Allocation operations
 router.get("/:id/allocations", getFlockAllocations);
 
+// Transfer operations
 router.get("/:id/transfers", getFlockTransfers);
-
 router.post("/:id/transfers", createFlockTransfer);
+router.patch("/:id/transfers/:transferId/cancel", cancelFlockTransfer);
 
+// Population operations
 router.get("/:id/population-history", getFlockPopulationHistory);
-
 router.post("/:id/population-adjustments", createFlockPopulationAdjustment);
 
-/*
-|--------------------------------------------------------------------------
-| FLOCK CRUD AND LIFECYCLE
-|--------------------------------------------------------------------------
-*/
-
+// Individual flock operations
 router.get("/:id", getFlock);
-
 router.put("/:id", updateFlock);
-
 router.patch("/:id/sell", sellFlock);
-
 router.delete("/:id", deleteFlock);
-
 router.patch("/:id/restore", restoreFlock);
 
 module.exports = router;

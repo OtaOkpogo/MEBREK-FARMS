@@ -1,6 +1,31 @@
 const mongoose = require("mongoose");
 const PENS = require("../constants/pens");
 
+// ============================================================
+// PRODUCTION MORTALITY ALLOCATION
+// ============================================================
+
+const mortalityAllocationSchema = new mongoose.Schema(
+  {
+    allocation: {
+      type: mongoose.Schema.Types.ObjectId,
+      ref: "FlockAllocation",
+      required: true,
+    },
+
+    numberDead: {
+      type: Number,
+      required: true,
+      min: [0, "numberDead cannot be negative"],
+      validate: {
+        validator: Number.isInteger,
+        message: "numberDead must be a whole number",
+      },
+    },
+  },
+  { _id: false },
+);
+
 const productionSchema = new mongoose.Schema(
   {
     date: {
@@ -16,17 +41,6 @@ const productionSchema = new mongoose.Schema(
 
     // ============================================================
     // FLOCK ASSOCIATION
-    // ============================================================
-    // These fields are automatically populated by the production
-    // controller. The frontend should NOT be trusted to provide them.
-    //
-    // flock       = actual Flock document reference
-    // flockId     = permanent snapshot of the flock's human-readable ID
-    // flockAgeWeeks = flock age at the time this production was recorded
-    //
-    // Keeping flockId and flockAgeWeeks on the production record
-    // preserves historical production information even after the
-    // flock is sold or replaced.
     // ============================================================
 
     flock: {
@@ -75,6 +89,42 @@ const productionSchema = new mongoose.Schema(
       type: Number,
       default: 0,
       min: [0, "mortality cannot be negative"],
+      validate: {
+        validator: Number.isInteger,
+        message: "mortality must be a whole number",
+      },
+    },
+
+    // ============================================================
+    // MORTALITY ALLOCATION BREAKDOWN
+    // ============================================================
+    // A production record represents a pen for a particular day.
+    // Mortality must therefore be assigned explicitly to the
+    // relevant flock allocations when multiple flocks share a pen.
+    //
+    // An empty array is permitted for legacy records. New production
+    // mortality entries will be validated by the controller.
+    // ============================================================
+
+    mortalityAllocations: {
+      type: [mortalityAllocationSchema],
+      default: [],
+      validate: {
+        validator: function (allocations) {
+          if (!allocations || allocations.length === 0) {
+            return true;
+          }
+
+          const totalAllocated = allocations.reduce(
+            (total, item) => total + item.numberDead,
+            0,
+          );
+
+          return totalAllocated === this.mortality;
+        },
+        message:
+          "The total mortality allocation must equal the production mortality.",
+      },
     },
 
     mortalityRecord: {
@@ -97,16 +147,6 @@ const productionSchema = new mongoose.Schema(
 
     // ============================================================
     // FEED
-    // ============================================================
-    // Decimal values are intentionally allowed.
-    //
-    // Examples:
-    // 0
-    // 0.5
-    // 1
-    // 1.25
-    // 2.5
-    // 10
     // ============================================================
 
     feedBagsConsumed: {
@@ -205,24 +245,17 @@ const productionSchema = new mongoose.Schema(
 // ============================================================
 
 productionSchema.index({ date: -1 });
-
 productionSchema.index({ createdAt: -1 });
-
 productionSchema.index({ pen: 1, date: -1 });
-
 productionSchema.index({ isDeleted: 1, date: -1 });
-
 productionSchema.index({ isDeleted: 1, pen: 1, date: -1 });
 
-// Flock-related indexes
 productionSchema.index({ flock: 1, date: -1 });
-
 productionSchema.index({ flockId: 1, date: -1 });
-
 productionSchema.index({ flockAgeWeeks: 1 });
 
-// Existing protection against duplicate production
-// entries for the same pen on the same date.
+productionSchema.index({ "mortalityAllocations.allocation": 1 });
+
 productionSchema.index({ date: 1, pen: 1 }, { unique: true });
 
 productionSchema.index({ remarks: "text" });

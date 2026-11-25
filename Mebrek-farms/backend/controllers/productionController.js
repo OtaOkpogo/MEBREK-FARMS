@@ -1,6 +1,15 @@
+const mongoose = require("mongoose");
+
 const Production = require("../models/Production");
 const Flock = require("../models/Flock");
+const FlockAllocation = require("../models/FlockAllocation");
+const FlockPopulationHistory = require("../models/FlockPopulationHistory");
 const Mortality = require("../models/Mortality");
+
+const {
+  syncMortalityPopulation,
+  reverseMortalityPopulation,
+} = require("../services/flockPopulationService");
 
 const {
   softDeleteLinkedBirdHealth,
@@ -12,9 +21,11 @@ const { logAudit } = require("../utils/auditLogger");
 const BROODING_HOUSE = "Brooding House";
 
 const DAY_MS = 24 * 60 * 60 * 1000;
-const WEEK_MS = 7 * DAY_MS;
 
-// Normalize a value to the start of its UTC calendar day.
+// ------------------------------------------------------------
+// DATE HELPERS
+// ------------------------------------------------------------
+
 const toUtcDay = (value) => {
   if (!value) return null;
 
@@ -27,7 +38,18 @@ const toUtcDay = (value) => {
 
 const getDayDate = (value) => {
   const day = toUtcDay(value);
+
   return day === null ? null : new Date(day);
+};
+
+const isValidObjectId = (value) => mongoose.Types.ObjectId.isValid(value);
+
+// ------------------------------------------------------------
+// QUERY SESSION HELPER
+// ------------------------------------------------------------
+
+const withSession = (query, session) => {
+  return session ? query.session(session) : query;
 };
 
 // ------------------------------------------------------------
@@ -65,7 +87,7 @@ const calculateFlockAgeDays = (flock, productionDate) => {
   return Number(flock.startingAgeWeeks || 0) * 7 + elapsedDays;
 };
 
-const getProductionFlockData = async (pen, productionDate) => {
+const getProductionFlockData = async (pen, productionDate, session = null) => {
   if (!pen || pen === BROODING_HOUSE) {
     return {
       flock: null,
@@ -88,23 +110,27 @@ const getProductionFlockData = async (pen, productionDate) => {
 
   const recordDate = new Date(recordDay);
 
-  const activeFlock = await Flock.findOne({
+  let activeQuery = Flock.findOne({
     pen,
     status: "ACTIVE",
     isDeleted: false,
     placementDate: { $lte: recordDate },
   }).sort({ placementDate: -1 });
 
+  let activeFlock = await withSession(activeQuery, session);
+
   let flock = activeFlock;
 
   if (!flock) {
-    flock = await Flock.findOne({
+    const soldQuery = Flock.findOne({
       pen,
       isDeleted: false,
       status: "SOLD",
       placementDate: { $lte: recordDate },
       saleDate: { $gte: recordDate },
     }).sort({ placementDate: -1 });
+
+    flock = await withSession(soldQuery, session);
   }
 
   if (!flock) {
@@ -156,9 +182,12 @@ const calculateProductionTotals = (production) => {
 // STOCK CARRY-FORWARD
 // ------------------------------------------------------------
 
-// Find the most recent earlier, active record for the SAME pen.
-// A deleted record must never provide the next opening stock.
-const getPreviousProduction = async (pen, productionDate, excludeId = null) => {
+const getPreviousProduction = async (
+  pen,
+  productionDate,
+  excludeId = null,
+  session = null,
+) => {
   const day = toUtcDay(productionDate);
 
   if (!pen || day === null) return null;
@@ -173,28 +202,31 @@ const getPreviousProduction = async (pen, productionDate, excludeId = null) => {
     filter._id = { $ne: excludeId };
   }
 
-  return Production.findOne(filter).sort({
+  const query = Production.findOne(filter).sort({
     date: -1,
     _id: -1,
   });
+
+  return withSession(query, session);
 };
 
-// Recalculate active records after a given date using the supplied
-// closing stock as the next opening stock.
 const recalculateRecordsAfter = async (
   pen,
   productionDate,
   startingClosingStock,
+  session = null,
 ) => {
   const day = toUtcDay(productionDate);
 
   if (!pen || day === null) return;
 
-  const records = await Production.find({
+  const query = Production.find({
     pen,
     isDeleted: false,
     date: { $gt: new Date(day) },
   }).sort({ date: 1, _id: 1 });
+
+  const records = await withSession(query, session);
 
   let previousClosingStock = Number(startingClosingStock);
 
@@ -211,31 +243,32 @@ const recalculateRecordsAfter = async (
 
     Object.assign(record, totals);
 
-    await record.save();
+    await record.save(session ? { session } : {});
 
     previousClosingStock = record.closingStock;
   }
 };
 
-// Rebuild a pen's history from a date after a record is moved or removed.
-// If an earlier active record exists, use its closing stock. Otherwise,
-// preserve the first remaining record's manually entered opening stock.
-const recalculatePenFromDate = async (pen, fromDate) => {
+const recalculatePenFromDate = async (pen, fromDate, session = null) => {
   const day = toUtcDay(fromDate);
 
   if (!pen || day === null) return;
 
-  const previous = await Production.findOne({
+  const previousQuery = Production.findOne({
     pen,
     isDeleted: false,
     date: { $lt: new Date(day) },
   }).sort({ date: -1, _id: -1 });
 
-  const records = await Production.find({
+  const previous = await withSession(previousQuery, session);
+
+  const recordsQuery = Production.find({
     pen,
     isDeleted: false,
     date: { $gte: new Date(day) },
   }).sort({ date: 1, _id: 1 });
+
+  const records = await withSession(recordsQuery, session);
 
   if (!records.length) return;
 
@@ -243,8 +276,6 @@ const recalculatePenFromDate = async (pen, fromDate) => {
     previous === null ? null : Number(previous.closingStock);
 
   for (const record of records) {
-    // Preserve the manually entered starting stock if this is now the
-    // first active record in the pen's history.
     if (previousClosingStock !== null) {
       record.openingStock = previousClosingStock;
     }
@@ -258,7 +289,8 @@ const recalculatePenFromDate = async (pen, fromDate) => {
     }
 
     Object.assign(record, totals);
-    await record.save();
+
+    await record.save(session ? { session } : {});
 
     previousClosingStock = record.closingStock;
   }
@@ -268,8 +300,6 @@ const recalculatePenFromDate = async (pen, fromDate) => {
 // AUDIT SNAPSHOT
 // ------------------------------------------------------------
 
-// Keep audit records limited to relevant production information.
-// Do not store the entire Mongoose document.
 const getProductionAuditSnapshot = (production) => {
   if (!production) return null;
 
@@ -284,22 +314,100 @@ const getProductionAuditSnapshot = (production) => {
     transferIn: production.transferIn,
     transferOut: production.transferOut,
     mortality: production.mortality,
+    mortalityAllocations: (production.mortalityAllocations || []).map(
+      (item) => ({
+        allocation: item.allocation,
+        numberDead: item.numberDead,
+      }),
+    ),
     closingStock: production.closingStock,
-    sick: production.sick,
-    feed: production.feed,
-    water: production.water,
+    sickBirds: production.sickBirds,
+    feedBagsConsumed: production.feedBagsConsumed,
+    waterConsumed: production.waterConsumed,
+    drugsUsed: production.drugsUsed,
     cratesProduced: production.cratesProduced,
     extraEggPieces: production.extraEggPieces,
     totalEggs: production.totalEggs,
     productionPercentage: production.productionPercentage,
-    miscarriage: production.miscarriage,
-    cracked: production.cracked,
+    miscarriageProduction: production.miscarriageProduction,
+    crackedEggs: production.crackedEggs,
+    remarks: production.remarks,
     isDeleted: production.isDeleted,
   };
 };
 
 // ------------------------------------------------------------
-// MORTALITY AND BIRD HEALTH SYNCHRONISATION
+// REQUEST VALIDATION
+// ------------------------------------------------------------
+
+const validateProductionMortality = (production) => {
+  const mortality = Number(production.mortality || 0);
+
+  if (!Number.isInteger(mortality) || mortality < 0) {
+    throw new Error(
+      "Production mortality must be a non-negative whole number.",
+    );
+  }
+
+  const allocations = production.mortalityAllocations || [];
+
+  if (!Array.isArray(allocations)) {
+    throw new Error("Mortality allocations must be an array.");
+  }
+
+  if (mortality === 0 && allocations.length > 0) {
+    throw new Error(
+      "Mortality allocations must be empty when production mortality is zero.",
+    );
+  }
+
+  if (mortality > 0 && allocations.length === 0) {
+    throw new Error(
+      "You must assign production mortality to one or more flock allocations.",
+    );
+  }
+
+  const seenAllocations = new Set();
+
+  let totalAllocated = 0;
+
+  for (const item of allocations) {
+    if (!item || !isValidObjectId(item.allocation)) {
+      throw new Error(
+        "Every mortality entry must contain a valid flock allocation ID.",
+      );
+    }
+
+    const allocationId = String(item.allocation);
+
+    if (seenAllocations.has(allocationId)) {
+      throw new Error(
+        "A flock allocation cannot appear more than once in the mortality breakdown.",
+      );
+    }
+
+    seenAllocations.add(allocationId);
+
+    const numberDead = Number(item.numberDead);
+
+    if (!Number.isInteger(numberDead) || numberDead <= 0) {
+      throw new Error(
+        "Each mortality allocation must contain a positive whole number of dead birds.",
+      );
+    }
+
+    totalAllocated += numberDead;
+  }
+
+  if (totalAllocated !== mortality) {
+    throw new Error(
+      `The mortality allocation total (${totalAllocated}) must equal the production mortality (${mortality}).`,
+    );
+  }
+};
+
+// ------------------------------------------------------------
+// MORTALITY HEALTH PAYLOAD
 // ------------------------------------------------------------
 
 const buildMortalityHealthPayload = (mortality) => ({
@@ -316,85 +424,344 @@ const buildMortalityHealthPayload = (mortality) => ({
   remarks: mortality.notes || "",
 });
 
-const removeLinkedMortality = async (production, req) => {
-  let mortality = production.mortalityRecord
-    ? await Mortality.findById(production.mortalityRecord)
-    : null;
+// ------------------------------------------------------------
+// LEGACY MORTALITY SAFETY
+// ------------------------------------------------------------
 
-  if (!mortality) {
-    mortality = await Mortality.findOne({
-      productionRecord: production._id,
-    });
+const validateLegacyMortalityHasNoPopulationHistory = async (
+  mortality,
+  session,
+) => {
+  if (mortality.allocation) return;
+
+  const history = await FlockPopulationHistory.findOne({
+    sourceType: "PRODUCTION",
+    sourceId: mortality._id,
+  }).session(session);
+
+  if (history) {
+    throw new Error(
+      `Legacy mortality record ${mortality._id} has population history but no allocation reference. It must be reconciled before this production record can be changed or deleted.`,
+    );
   }
-
-  if (!mortality) {
-    production.mortalityRecord = null;
-    return;
-  }
-
-  await softDeleteLinkedBirdHealth({
-    sourceRecord: mortality,
-    sourceLinkField: "birdHealthRecord",
-    healthLinkField: "mortalityRecord",
-    req,
-  });
-
-  await Mortality.findByIdAndDelete(mortality._id);
-
-  production.mortalityRecord = null;
 };
 
-const syncProductionMortality = async (production, req) => {
-  const numberDead = Number(production.mortality || 0);
+// ------------------------------------------------------------
+// ALLOCATION VALIDATION
+// ------------------------------------------------------------
 
-  if (numberDead <= 0) {
-    await removeLinkedMortality(production, req);
-    return;
+const validateProductionAllocations = async ({
+  production,
+  existingMortalityRecords,
+  session,
+}) => {
+  const requested = production.mortalityAllocations || [];
+
+  const existingByAllocation = new Map();
+
+  for (const record of existingMortalityRecords) {
+    if (!record.allocation) {
+      await validateLegacyMortalityHasNoPopulationHistory(record, session);
+      continue;
+    }
+
+    const id = String(record.allocation);
+
+    if (existingByAllocation.has(id)) {
+      throw new Error(
+        `Multiple existing mortality records reference allocation ${id}. Reconcile these records before continuing.`,
+      );
+    }
+
+    existingByAllocation.set(id, record);
   }
 
-  let mortality = production.mortalityRecord
-    ? await Mortality.findById(production.mortalityRecord)
-    : null;
+  const validated = [];
 
-  if (!mortality) {
-    mortality = await Mortality.findOne({
-      productionRecord: production._id,
+  for (const item of requested) {
+    const allocationId = item.allocation;
+    const allocation =
+      await FlockAllocation.findById(allocationId).session(session);
+
+    if (!allocation) {
+      throw new Error(`Flock allocation ${allocationId} was not found.`);
+    }
+
+    if (allocation.pen !== production.pen) {
+      throw new Error(
+        `Allocation ${allocationId} belongs to ${allocation.pen}, not ${production.pen}.`,
+      );
+    }
+
+    const allocationDay = toUtcDay(allocation.allocationDate);
+    const productionDay = toUtcDay(production.date);
+
+    if (
+      allocationDay === null ||
+      productionDay === null ||
+      productionDay < allocationDay
+    ) {
+      throw new Error(
+        `The production date cannot be earlier than the allocation date for ${allocation.pen}.`,
+      );
+    }
+
+    const existing = existingByAllocation.get(String(allocationId));
+
+    if (!existing && allocation.status !== "ACTIVE") {
+      throw new Error(
+        `New mortality cannot be assigned to the closed allocation in ${allocation.pen}.`,
+      );
+    }
+
+    if (allocation.status !== "ACTIVE" && allocation.status !== "CLOSED") {
+      throw new Error(`Allocation ${allocationId} has an invalid status.`);
+    }
+
+    if (allocation.currentBirds === null) {
+      throw new Error(
+        `The population of allocation ${allocationId} is unknown. Establish its population before recording mortality.`,
+      );
+    }
+
+    validated.push({
+      allocation,
+      numberDead: Number(item.numberDead),
+      existingMortality: existing || null,
     });
   }
 
-  const mortalityData = {
-    productionRecord: production._id,
-    birdBatch: production.pen,
-    numberDead,
-    cause: "Production mortality",
-    date: production.date,
-    notes: `Automatically generated from Production record ${production._id}`,
+  return {
+    validated,
+    existingByAllocation,
   };
+};
 
-  if (mortality) {
-    Object.assign(mortality, mortalityData);
-    await mortality.save();
-  } else {
-    mortality = await Mortality.create(mortalityData);
+// ------------------------------------------------------------
+// SYNCHRONISE PRODUCTION MORTALITY
+// ------------------------------------------------------------
+
+/**
+ * Must be called inside the production MongoDB transaction.
+ *
+ * Every mortality source gets its own Mortality document ID.
+ * That ID is used as the population-history sourceId.
+ */
+const syncProductionMortality = async ({ production, req, session }) => {
+  validateProductionMortality(production);
+
+  const existingMortalityRecords = await Mortality.find({
+    productionRecord: production._id,
+  }).session(session);
+
+  const { validated, existingByAllocation } =
+    await validateProductionAllocations({
+      production,
+      existingMortalityRecords,
+      session,
+    });
+
+  const retainedIds = new Set();
+  const healthSyncRecords = [];
+  const healthDeleteRecords = [];
+
+  for (const item of validated) {
+    const { allocation, numberDead, existingMortality } = item;
+
+    let mortalityRecord = existingMortality;
+
+    if (mortalityRecord) {
+      mortalityRecord.flock = allocation.flock;
+      mortalityRecord.allocation = allocation._id;
+      mortalityRecord.productionRecord = production._id;
+      mortalityRecord.birdBatch = production.pen;
+      mortalityRecord.numberDead = numberDead;
+      mortalityRecord.cause = "Production mortality";
+      mortalityRecord.date = production.date;
+      mortalityRecord.notes = `Automatically generated from Production record ${production._id}`;
+
+      await mortalityRecord.save({ session });
+
+      await syncMortalityPopulation({
+        allocationId: allocation._id,
+        quantity: numberDead,
+        eventDate: production.date,
+        operation: "CORRECTION",
+        sourceType: "PRODUCTION",
+        sourceId: mortalityRecord._id,
+        req,
+        session,
+        remarks: `Production mortality correction for ${production.pen}`,
+      });
+    } else {
+      const created = await Mortality.create(
+        [
+          {
+            flock: allocation.flock,
+            allocation: allocation._id,
+            productionRecord: production._id,
+            birdBatch: production.pen,
+            numberDead,
+            cause: "Production mortality",
+            date: production.date,
+            notes: `Automatically generated from Production record ${production._id}`,
+          },
+        ],
+        { session },
+      );
+
+      mortalityRecord = created[0];
+
+      await syncMortalityPopulation({
+        allocationId: allocation._id,
+        quantity: numberDead,
+        eventDate: production.date,
+        operation: "NEW",
+        sourceType: "PRODUCTION",
+        sourceId: mortalityRecord._id,
+        req,
+        session,
+        remarks: `Production mortality deduction for ${production.pen}`,
+      });
+    }
+
+    retainedIds.add(String(mortalityRecord._id));
+    healthSyncRecords.push(mortalityRecord);
   }
 
-  production.mortalityRecord = mortality._id;
-  await production.save({ validateModifiedOnly: true });
+  // Reverse and remove mortality records whose allocations were removed
+  // from the production breakdown.
+  for (const [allocationId, oldRecord] of existingByAllocation.entries()) {
+    if (retainedIds.has(String(oldRecord._id))) {
+      continue;
+    }
 
-  await syncLinkedBirdHealth({
-    sourceRecord: mortality,
-    sourceLinkField: "birdHealthRecord",
-    healthLinkField: "mortalityRecord",
-    payload: buildMortalityHealthPayload(mortality),
-    req,
-  });
+    await reverseMortalityPopulation({
+      allocationId,
+      eventDate: production.date,
+      sourceType: "PRODUCTION",
+      sourceId: oldRecord._id,
+      req,
+      session,
+      remarks: `Production mortality allocation removed from ${production.pen}`,
+    });
+
+    healthDeleteRecords.push(oldRecord);
+
+    await Mortality.findByIdAndDelete(oldRecord._id).session(session);
+  }
+
+  // Remove obsolete legacy mortality records only after confirming
+  // that they have no population history.
+  for (const oldRecord of existingMortalityRecords) {
+    if (oldRecord.allocation) continue;
+
+    await validateLegacyMortalityHasNoPopulationHistory(oldRecord, session);
+
+    healthDeleteRecords.push(oldRecord);
+
+    await Mortality.findByIdAndDelete(oldRecord._id).session(session);
+  }
+
+  production.mortalityRecord =
+    healthSyncRecords.length > 0 ? healthSyncRecords[0]._id : null;
+
+  await production.save({ session });
+
+  return {
+    healthSyncRecords,
+    healthDeleteRecords,
+  };
 };
+
+// ------------------------------------------------------------
+// POST-TRANSACTION BIRD HEALTH SYNCHRONISATION
+// ------------------------------------------------------------
+
+const syncProductionBirdHealthAfterCommit = async ({
+  healthSyncRecords = [],
+  healthDeleteRecords = [],
+  req,
+}) => {
+  for (const mortality of healthSyncRecords) {
+    try {
+      await syncLinkedBirdHealth({
+        sourceRecord: mortality,
+        sourceLinkField: "birdHealthRecord",
+        healthLinkField: "mortalityRecord",
+        payload: buildMortalityHealthPayload(mortality),
+        req,
+      });
+    } catch (error) {
+      console.error(
+        `Production BirdHealth sync failed for mortality ${mortality._id}:`,
+        error,
+      );
+    }
+  }
+
+  for (const mortality of healthDeleteRecords) {
+    try {
+      await softDeleteLinkedBirdHealth({
+        sourceRecord: mortality,
+        sourceLinkField: "birdHealthRecord",
+        healthLinkField: "mortalityRecord",
+        req,
+      });
+    } catch (error) {
+      console.error(
+        `Production BirdHealth cleanup failed for mortality ${mortality._id}:`,
+        error,
+      );
+    }
+  }
+};
+
+// ------------------------------------------------------------
+// POPULATE PRODUCTION
+// ------------------------------------------------------------
 
 const populateProduction = (query) =>
   query.populate(
     "flock",
     "flockId pen placementDate startingAgeWeeks status saleDate",
   );
+
+// ------------------------------------------------------------
+// ALLOWED PRODUCTION FIELDS
+// ------------------------------------------------------------
+
+const ALLOWED_PRODUCTION_FIELDS = [
+  "date",
+  "pen",
+  "days",
+  "openingStock",
+  "transferIn",
+  "transferOut",
+  "mortality",
+  "mortalityAllocations",
+  "sickBirds",
+  "feedBagsConsumed",
+  "waterConsumed",
+  "drugsUsed",
+  "cratesProduced",
+  "extraEggPieces",
+  "miscarriageProduction",
+  "crackedEggs",
+  "remarks",
+];
+
+const pickProductionFields = (body) => {
+  const result = {};
+
+  for (const field of ALLOWED_PRODUCTION_FIELDS) {
+    if (Object.prototype.hasOwnProperty.call(body, field)) {
+      result[field] = body[field];
+    }
+  }
+
+  return result;
+};
 
 // ------------------------------------------------------------
 // GET PRODUCTIONS
@@ -445,60 +812,91 @@ exports.getProduction = async (req, res) => {
 // ------------------------------------------------------------
 
 exports.createProduction = async (req, res) => {
+  const session = await mongoose.startSession();
+
+  let productionId;
+  let healthSyncRecords = [];
+  let healthDeleteRecords = [];
+
   try {
-    const { pen, date } = req.body;
-    const productionDate = getDayDate(date);
+    await session.withTransaction(async () => {
+      const productionData = pickProductionFields(req.body);
 
-    if (!pen || !productionDate) {
-      return res.status(400).json({
-        message: "A valid production date and pen are required.",
-      });
-    }
+      const { pen, date } = productionData;
+      const productionDate = getDayDate(date);
 
-    const previous = await getPreviousProduction(pen, productionDate);
+      if (!pen || !productionDate) {
+        throw new Error("A valid production date and pen are required.");
+      }
 
-    const flockData = await getProductionFlockData(pen, productionDate);
+      const previous = await getPreviousProduction(
+        pen,
+        productionDate,
+        null,
+        session,
+      );
 
-    const productionData = {
-      ...req.body,
-      date: productionDate,
-      pen,
-      flock: flockData.flock,
-      flockId: flockData.flockId,
-      flockAgeWeeks: flockData.flockAgeWeeks,
+      const flockData = await getProductionFlockData(
+        pen,
+        productionDate,
+        session,
+      );
 
-      // Automatically carry forward the previous closing stock.
-      // For the first active record, retain the manually entered stock.
-      openingStock:
+      productionData.date = productionDate;
+      productionData.pen = pen;
+      productionData.flock = flockData.flock;
+      productionData.flockId = flockData.flockId;
+      productionData.flockAgeWeeks = flockData.flockAgeWeeks;
+
+      productionData.openingStock =
         previous !== null
           ? Number(previous.closingStock)
-          : Number(req.body.openingStock || 0),
-    };
+          : Number(productionData.openingStock || 0);
 
-    if (flockData.days !== null) {
-      productionData.days = flockData.days;
-    }
+      if (flockData.days !== null) {
+        productionData.days = flockData.days;
+      }
 
-    const totals = calculateProductionTotals(productionData);
+      const totals = calculateProductionTotals(productionData);
 
-    if (totals.closingStock < 0) {
-      return res.status(400).json({
-        message:
+      if (totals.closingStock < 0) {
+        throw new Error(
           "Closing stock cannot be negative. Check opening stock, transfers, and mortality.",
+        );
+      }
+
+      Object.assign(productionData, totals);
+
+      const production = new Production(productionData);
+
+      await production.save({ session });
+
+      const syncResult = await syncProductionMortality({
+        production,
+        req,
+        session,
       });
-    }
 
-    Object.assign(productionData, totals);
+      productionId = production._id;
+      healthSyncRecords = syncResult.healthSyncRecords;
+      healthDeleteRecords = syncResult.healthDeleteRecords;
 
-    const production = await Production.create(productionData);
+      await recalculateRecordsAfter(
+        production.pen,
+        production.date,
+        production.closingStock,
+        session,
+      );
+    });
 
-    try {
-      await syncProductionMortality(production, req);
-    } catch (syncError) {
-      console.error("Production → Mortality sync error:", syncError);
-    }
+    await syncProductionBirdHealthAfterCommit({
+      healthSyncRecords,
+      healthDeleteRecords,
+      req,
+    });
 
-    // AUDIT: Record successful production creation.
+    const production = await Production.findById(productionId);
+
     await logAudit(req, {
       action: "CREATE",
       module: "Production",
@@ -509,12 +907,11 @@ exports.createProduction = async (req, res) => {
       after: getProductionAuditSnapshot(production),
       metadata: {
         flockId: production.flockId || null,
+        mortalityAllocations: production.mortalityAllocations,
       },
     });
 
-    const result = await populateProduction(
-      Production.findById(production._id),
-    );
+    const result = await populateProduction(Production.findById(productionId));
 
     res.status(201).json(result);
   } catch (err) {
@@ -526,7 +923,9 @@ exports.createProduction = async (req, res) => {
       });
     }
 
-    res.status(500).json({ message: err.message });
+    res.status(400).json({ message: err.message });
+  } finally {
+    await session.endSession();
   }
 };
 
@@ -535,133 +934,143 @@ exports.createProduction = async (req, res) => {
 // ------------------------------------------------------------
 
 exports.updateProduction = async (req, res) => {
+  const session = await mongoose.startSession();
+
+  let productionId;
+  let beforeAudit;
+  let afterAudit;
+  let oldPen;
+  let oldDate;
+  let newPen;
+  let newDate;
+  let healthSyncRecords = [];
+  let healthDeleteRecords = [];
+
   try {
-    const production = await Production.findById(req.params.id);
+    await session.withTransaction(async () => {
+      const production = await Production.findById(req.params.id).session(
+        session,
+      );
 
-    if (!production) {
-      return res.status(404).json({
-        message: "Production record not found",
-      });
-    }
+      if (!production) {
+        const error = new Error("Production record not found");
+        error.statusCode = 404;
+        throw error;
+      }
 
-    if (req.user.role !== "superadmin" && production.isDeleted) {
-      return res.status(404).json({
-        message: "Production record not found",
-      });
-    }
+      if (req.user.role !== "superadmin" && production.isDeleted) {
+        const error = new Error("Production record not found");
+        error.statusCode = 404;
+        throw error;
+      }
 
-    const oldPen = production.pen;
-    const oldDate = new Date(production.date);
+      oldPen = production.pen;
+      oldDate = new Date(production.date);
 
-    // AUDIT: Capture original values before making changes.
-    const beforeAudit = getProductionAuditSnapshot(production);
+      beforeAudit = getProductionAuditSnapshot(production);
 
-    const protectedFields = [
-      "_id",
-      "flock",
-      "flockId",
-      "flockAgeWeeks",
-      "mortalityRecord",
-      "isDeleted",
-      "deletedAt",
-      "deletedBy",
-      "closingStock",
-      "totalEggs",
-      "productionPercentage",
-    ];
+      const updates = pickProductionFields(req.body);
 
-    for (const [key, value] of Object.entries(req.body)) {
-      if (!protectedFields.includes(key)) {
+      for (const [key, value] of Object.entries(updates)) {
         production[key] = value;
       }
-    }
 
-    const productionDate = getDayDate(production.date);
+      const productionDate = getDayDate(production.date);
 
-    if (!production.pen || !productionDate) {
-      return res.status(400).json({
-        message: "A valid production date and pen are required.",
-      });
-    }
+      if (!production.pen || !productionDate) {
+        throw new Error("A valid production date and pen are required.");
+      }
 
-    production.date = productionDate;
+      production.date = productionDate;
 
-    const flockData = await getProductionFlockData(
-      production.pen,
-      production.date,
-    );
+      const flockData = await getProductionFlockData(
+        production.pen,
+        production.date,
+        session,
+      );
 
-    production.flock = flockData.flock;
-    production.flockId = flockData.flockId;
-    production.flockAgeWeeks = flockData.flockAgeWeeks;
+      production.flock = flockData.flock;
+      production.flockId = flockData.flockId;
+      production.flockAgeWeeks = flockData.flockAgeWeeks;
 
-    if (flockData.days !== null) {
-      production.days = flockData.days;
-    }
+      if (flockData.days !== null) {
+        production.days = flockData.days;
+      }
 
-    const previous = await getPreviousProduction(
-      production.pen,
-      production.date,
-      production._id,
-    );
+      const previous = await getPreviousProduction(
+        production.pen,
+        production.date,
+        production._id,
+        session,
+      );
 
-    // Use the earlier record's closing stock where one exists.
-    // Otherwise, keep the manually entered starting stock.
-    if (previous) {
-      production.openingStock = Number(previous.closingStock);
-    }
+      if (previous) {
+        production.openingStock = Number(previous.closingStock);
+      }
 
-    const totals = calculateProductionTotals(production);
+      const totals = calculateProductionTotals(production);
 
-    if (totals.closingStock < 0) {
-      return res.status(400).json({
-        message:
+      if (totals.closingStock < 0) {
+        throw new Error(
           "Closing stock cannot be negative. Check opening stock, transfers, and mortality.",
+        );
+      }
+
+      Object.assign(production, totals);
+
+      await production.save({ session });
+
+      const syncResult = await syncProductionMortality({
+        production,
+        req,
+        session,
       });
-    }
 
-    Object.assign(production, totals);
-    await production.save();
+      healthSyncRecords = syncResult.healthSyncRecords;
+      healthDeleteRecords = syncResult.healthDeleteRecords;
 
-    try {
-      await syncProductionMortality(production, req);
-    } catch (syncError) {
-      console.error("Production → Mortality sync error:", syncError);
-    }
+      newPen = production.pen;
+      newDate = new Date(production.date);
+      productionId = production._id;
 
-    // If the pen or date changed, rebuild the old pen's affected history.
-    const oldDay = toUtcDay(oldDate);
-    const newDay = toUtcDay(production.date);
+      const oldDay = toUtcDay(oldDate);
+      const newDay = toUtcDay(newDate);
 
-    if (oldPen !== production.pen || oldDay !== newDay) {
-      await recalculatePenFromDate(oldPen, oldDate);
-    }
+      if (oldPen !== newPen || oldDay !== newDay) {
+        await recalculatePenFromDate(oldPen, oldDate, session);
+      }
 
-    // Update later records in the current pen using this record's closing stock.
-    await recalculateRecordsAfter(
-      production.pen,
-      production.date,
-      production.closingStock,
-    );
+      await recalculateRecordsAfter(
+        newPen,
+        newDate,
+        production.closingStock,
+        session,
+      );
 
-    // AUDIT: Record the update after successful stock recalculations.
+      afterAudit = getProductionAuditSnapshot(production);
+    });
+
+    await syncProductionBirdHealthAfterCommit({
+      healthSyncRecords,
+      healthDeleteRecords,
+      req,
+    });
+
     await logAudit(req, {
       action: "UPDATE",
       module: "Production",
-      description: `Updated production record for ${production.pen}`,
-      entityId: production._id,
-      entityName: `${production.pen} - ${production.date.toISOString().slice(0, 10)}`,
+      description: `Updated production record for ${newPen}`,
+      entityId: productionId,
+      entityName: `${newPen} - ${newDate.toISOString().slice(0, 10)}`,
       before: beforeAudit,
-      after: getProductionAuditSnapshot(production),
+      after: afterAudit,
       metadata: {
         previousPen: oldPen,
-        currentPen: production.pen,
+        currentPen: newPen,
       },
     });
 
-    const result = await populateProduction(
-      Production.findById(production._id),
-    );
+    const result = await populateProduction(Production.findById(productionId));
 
     res.json(result);
   } catch (err) {
@@ -673,7 +1082,11 @@ exports.updateProduction = async (req, res) => {
       });
     }
 
-    res.status(500).json({ message: err.message });
+    res.status(err.statusCode || 400).json({
+      message: err.message,
+    });
+  } finally {
+    await session.endSession();
   }
 };
 
@@ -682,59 +1095,94 @@ exports.updateProduction = async (req, res) => {
 // ------------------------------------------------------------
 
 exports.deleteProduction = async (req, res) => {
+  const session = await mongoose.startSession();
+
+  let productionId;
+  let affectedPen;
+  let affectedDate;
+  let beforeAudit;
+  let permanentlyDeleted;
+  let healthDeleteRecords = [];
+
   try {
-    const production = await Production.findById(req.params.id);
+    await session.withTransaction(async () => {
+      const production = await Production.findById(req.params.id).session(
+        session,
+      );
 
-    if (!production) {
-      return res.status(404).json({
-        message: "Production record not found",
-      });
-    }
+      if (!production) {
+        const error = new Error("Production record not found");
+        error.statusCode = 404;
+        throw error;
+      }
 
-    const affectedPen = production.pen;
-    const affectedDate = new Date(production.date);
+      affectedPen = production.pen;
+      affectedDate = new Date(production.date);
 
-    // AUDIT: Capture original values before deletion.
-    const beforeAudit = getProductionAuditSnapshot(production);
+      beforeAudit = getProductionAuditSnapshot(production);
 
-    try {
-      await removeLinkedMortality(production, req);
-    } catch (syncError) {
-      console.error("Production mortality cleanup error:", syncError);
+      const mortalityRecords = await Mortality.find({
+        productionRecord: production._id,
+      }).session(session);
 
-      return res.status(500).json({
-        message:
-          "Could not safely remove the linked mortality record. Production was not deleted.",
-      });
-    }
+      for (const mortality of mortalityRecords) {
+        if (mortality.allocation) {
+          await reverseMortalityPopulation({
+            allocationId: mortality.allocation,
+            eventDate: production.date,
+            sourceType: "PRODUCTION",
+            sourceId: mortality._id,
+            req,
+            session,
+            remarks: `Production record deleted for ${production.pen}`,
+          });
+        } else {
+          await validateLegacyMortalityHasNoPopulationHistory(
+            mortality,
+            session,
+          );
+        }
 
-    const permanentlyDeleted = req.user.role === "superadmin";
+        healthDeleteRecords.push(mortality);
 
-    if (permanentlyDeleted) {
-      await Production.findByIdAndDelete(production._id);
-    } else {
-      production.isDeleted = true;
-      production.deletedBy = {
-        id: req.user.id,
-        name: req.user.name,
-        role: req.user.role,
-      };
-      production.deletedAt = new Date();
+        await Mortality.findByIdAndDelete(mortality._id).session(session);
+      }
 
-      await production.save({ validateModifiedOnly: true });
-    }
+      permanentlyDeleted = req.user.role === "superadmin";
 
-    // The deleted record must no longer be used as a stock source.
-    await recalculatePenFromDate(affectedPen, affectedDate);
+      if (permanentlyDeleted) {
+        await Production.findByIdAndDelete(production._id).session(session);
+      } else {
+        production.isDeleted = true;
+        production.deletedBy = {
+          id: req.user.id,
+          name: req.user.name,
+          role: req.user.role,
+        };
+        production.deletedAt = new Date();
+        production.mortalityRecord = null;
+        production.mortalityAllocations = [];
 
-    // AUDIT: Record successful deletion.
+        await production.save({ session });
+      }
+
+      await recalculatePenFromDate(affectedPen, affectedDate, session);
+
+      productionId = production._id;
+    });
+
+    await syncProductionBirdHealthAfterCommit({
+      healthDeleteRecords,
+      req,
+    });
+
     await logAudit(req, {
       action: "DELETE",
       module: "Production",
       description: permanentlyDeleted
         ? `Permanently deleted production record for ${affectedPen}`
         : `Soft-deleted production record for ${affectedPen}`,
-      entityId: production._id,
+      entityId: productionId,
       entityName: `${affectedPen} - ${affectedDate.toISOString().slice(0, 10)}`,
       before: beforeAudit,
       after: permanentlyDeleted
@@ -742,15 +1190,23 @@ exports.deleteProduction = async (req, res) => {
         : {
             ...beforeAudit,
             isDeleted: true,
+            mortalityAllocations: [],
           },
       metadata: {
         deletionType: permanentlyDeleted ? "permanent" : "soft",
       },
     });
 
-    res.json({ message: "Production deleted successfully" });
+    res.json({
+      message: "Production deleted successfully",
+    });
   } catch (err) {
     console.error("DELETE PRODUCTION ERROR:", err);
-    res.status(500).json({ message: err.message });
+
+    res.status(err.statusCode || 400).json({
+      message: err.message,
+    });
+  } finally {
+    await session.endSession();
   }
 };

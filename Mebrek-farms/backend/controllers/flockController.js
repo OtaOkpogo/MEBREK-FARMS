@@ -476,6 +476,111 @@ const getActiveFlockByPen = async (req, res) => {
 
 /*
 |--------------------------------------------------------------------------
+| GET PEN OCCUPANCY SUMMARY
+|--------------------------------------------------------------------------
+| GET /api/flocks/pen-occupancy
+|--------------------------------------------------------------------------
+| Returns the combined current population of every pen across all active,
+| non-deleted flocks.
+|--------------------------------------------------------------------------
+*/
+
+const getPenOccupancySummary = async (req, res) => {
+  try {
+    const allocations = await FlockAllocation.find({
+      status: "ACTIVE",
+    })
+      .populate({
+        path: "flock",
+        match: {
+          status: "ACTIVE",
+          isDeleted: false,
+        },
+        select: "flockId status isDeleted",
+      })
+      .sort({ pen: 1, allocationDate: 1, createdAt: 1 });
+
+    // Ignore allocations belonging to sold, deleted, or missing flocks.
+    const validAllocations = allocations.filter(
+      (allocation) => allocation.flock,
+    );
+
+    // Initialize every configured pen so empty pens are also displayed.
+    const occupancyMap = new Map(
+      PENS.map((pen) => [
+        pen,
+        {
+          pen,
+          totalBirds: 0,
+          populationKnown: true,
+          activeAllocationCount: 0,
+          activeFlockCount: 0,
+          unknownAllocationCount: 0,
+          flockIds: new Set(),
+        },
+      ]),
+    );
+
+    for (const allocation of validAllocations) {
+      const summary = occupancyMap.get(allocation.pen);
+
+      // Ignore unexpected pen values rather than creating unconfigured pens.
+      if (!summary) continue;
+
+      summary.activeAllocationCount += 1;
+      summary.flockIds.add(allocation.flock._id.toString());
+
+      if (
+        allocation.currentBirds === null ||
+        allocation.currentBirds === undefined
+      ) {
+        summary.populationKnown = false;
+        summary.unknownAllocationCount += 1;
+      } else {
+        summary.totalBirds += allocation.currentBirds;
+      }
+    }
+
+    const occupancy = Array.from(occupancyMap.values()).map((summary) => {
+      const { flockIds, ...result } = summary;
+
+      return {
+        ...result,
+        // Never present a partial sum as the pen's confirmed population.
+        totalBirds: result.populationKnown ? result.totalBirds : null,
+        activeFlockCount: flockIds.size,
+      };
+    });
+
+    const totalKnown = occupancy.every((pen) => pen.populationKnown);
+
+    const totalBirds = totalKnown
+      ? occupancy.reduce((sum, pen) => sum + pen.totalBirds, 0)
+      : null;
+
+    return res.status(200).json({
+      success: true,
+      count: occupancy.length,
+      summary: {
+        totalBirds,
+        populationKnown: totalKnown,
+        totalActiveAllocations: validAllocations.length,
+        totalActiveFlocks: new Set(
+          validAllocations.map((allocation) => allocation.flock._id.toString()),
+        ).size,
+        pensWithUnknownPopulation: occupancy.filter(
+          (pen) => !pen.populationKnown,
+        ).length,
+      },
+      occupancy,
+    });
+  } catch (error) {
+    return sendServerError(res, "Failed to fetch pen occupancy summary", error);
+  }
+};
+
+/*
+|--------------------------------------------------------------------------
 | CREATE FLOCK
 |--------------------------------------------------------------------------
 | POST /api/flocks
@@ -1086,6 +1191,314 @@ const createFlockTransfer = async (req, res) => {
 
 /*
 |--------------------------------------------------------------------------
+| CANCEL FLOCK TRANSFER
+|--------------------------------------------------------------------------
+| PATCH /api/flocks/:id/transfers/:transferId/cancel
+|--------------------------------------------------------------------------
+*/
+
+const cancelFlockTransfer = async (req, res) => {
+  try {
+    const { id, transferId } = req.params;
+    const { cancellationReason } = req.body;
+
+    if (!isValidId(id) || !isValidId(transferId)) {
+      return res.status(400).json({
+        success: false,
+        message: "Invalid flock or transfer ID",
+      });
+    }
+
+    if (typeof cancellationReason !== "string" || !cancellationReason.trim()) {
+      return res.status(400).json({
+        success: false,
+        message: "A cancellation reason is required",
+      });
+    }
+
+    const flock = await Flock.findById(id);
+
+    if (!flock || flock.isDeleted || flock.status !== "ACTIVE") {
+      return res.status(404).json({
+        success: false,
+        message: "Active flock not found",
+      });
+    }
+
+    const cancellationDate = new Date();
+    const reason = cancellationReason.trim();
+
+    const result = await runTransaction(async (session) => {
+      const currentFlock = await Flock.findById(id).session(session);
+
+      if (
+        !currentFlock ||
+        currentFlock.isDeleted ||
+        currentFlock.status !== "ACTIVE"
+      ) {
+        throw new Error("FLOCK_NOT_ACTIVE");
+      }
+
+      const transfer = await FlockTransfer.findOne({
+        _id: transferId,
+        flock: id,
+      }).session(session);
+
+      if (!transfer) {
+        throw new Error("TRANSFER_NOT_FOUND");
+      }
+
+      if (transfer.status === "CANCELLED") {
+        throw new Error("TRANSFER_ALREADY_CANCELLED");
+      }
+
+      if (transfer.status !== "COMPLETED") {
+        throw new Error("TRANSFER_NOT_COMPLETED");
+      }
+
+      if (
+        !transfer.fromAllocation ||
+        !transfer.toAllocation ||
+        !transfer.birdsMoved ||
+        transfer.birdsMoved < 1
+      ) {
+        throw new Error("INVALID_TRANSFER_RECORD");
+      }
+
+      const originalSource = await FlockAllocation.findOne({
+        _id: transfer.fromAllocation,
+        flock: id,
+        pen: transfer.fromPen,
+      }).session(session);
+
+      const destination = await FlockAllocation.findOne({
+        _id: transfer.toAllocation,
+        flock: id,
+        pen: transfer.toPen,
+      }).session(session);
+
+      if (!originalSource || !destination) {
+        throw new Error("TRANSFER_ALLOCATION_NOT_FOUND");
+      }
+
+      if (
+        destination.status !== "ACTIVE" ||
+        destination.currentBirds === null ||
+        destination.currentBirds === undefined
+      ) {
+        throw new Error("DESTINATION_NOT_AVAILABLE");
+      }
+
+      if (destination.currentBirds < transfer.birdsMoved) {
+        throw new Error("INSUFFICIENT_DESTINATION_BIRDS");
+      }
+
+      let source = originalSource;
+      let reopeningOriginalSource = false;
+
+      if (originalSource.status === "CLOSED") {
+        if (originalSource.closedReason !== "TRANSFERRED") {
+          throw new Error("SOURCE_CANNOT_BE_REOPENED");
+        }
+
+        const existingActiveSource = await FlockAllocation.findOne({
+          flock: id,
+          pen: transfer.fromPen,
+          status: "ACTIVE",
+        }).session(session);
+
+        if (existingActiveSource) {
+          source = existingActiveSource;
+        } else {
+          reopeningOriginalSource = true;
+        }
+      }
+
+      if (source.currentBirds === null || source.currentBirds === undefined) {
+        throw new Error("SOURCE_POPULATION_UNKNOWN");
+      }
+
+      await validateAllocationEventDate(source, cancellationDate, session);
+
+      await validateAllocationEventDate(destination, cancellationDate, session);
+
+      const previousSourcePopulation = source.currentBirds;
+      const previousDestinationPopulation = destination.currentBirds;
+
+      // Restore the birds to the original source pen.
+      source.currentBirds += transfer.birdsMoved;
+      source.updatedBy = getUserId(req);
+
+      if (reopeningOriginalSource) {
+        source.status = "ACTIVE";
+        source.closedAt = null;
+        source.closedReason = null;
+      }
+
+      // Remove the birds from the destination pen.
+      destination.currentBirds -= transfer.birdsMoved;
+      destination.updatedBy = getUserId(req);
+
+      await source.save({ session });
+      await destination.save({ session });
+
+      // Keep the original transfer history intact.
+      // These records document the cancellation reversal.
+      await FlockPopulationHistory.create(
+        [
+          {
+            flock: currentFlock._id,
+            allocation: source._id,
+            pen: transfer.fromPen,
+            eventType: "TRANSFER_IN",
+            quantityChange: transfer.birdsMoved,
+            balanceAfter: source.currentBirds,
+            eventDate: cancellationDate,
+            sourceType: "TRANSFER",
+            sourceId: transfer._id,
+            remarks: `Cancellation reversal: restored ${transfer.birdsMoved} birds to ${transfer.fromPen}. Reason: ${reason}`,
+            createdBy: getUserId(req),
+          },
+          {
+            flock: currentFlock._id,
+            allocation: destination._id,
+            pen: transfer.toPen,
+            eventType: "TRANSFER_OUT",
+            quantityChange: -transfer.birdsMoved,
+            balanceAfter: destination.currentBirds,
+            eventDate: cancellationDate,
+            sourceType: "TRANSFER",
+            sourceId: transfer._id,
+            remarks: `Cancellation reversal: returned ${transfer.birdsMoved} birds from ${transfer.toPen} to ${transfer.fromPen}. Reason: ${reason}`,
+            createdBy: getUserId(req),
+          },
+        ],
+        { session, ordered: true },
+      );
+
+      transfer.status = "CANCELLED";
+      transfer.cancelledBy = getUserId(req);
+      transfer.cancelledAt = cancellationDate;
+      transfer.cancellationReason = reason;
+
+      await transfer.save({ session });
+
+      await updatePopulationTrackingStatus(
+        currentFlock,
+        session,
+        getUserId(req),
+      );
+
+      return {
+        transfer,
+        source,
+        destination,
+        previousSourcePopulation,
+        previousDestinationPopulation,
+      };
+    });
+
+    await logAudit(req, {
+      action: "STATUS_CHANGE",
+      module: "Flock Transfers",
+      description: `Cancelled transfer of ${result.transfer.birdsMoved} birds for ${flock.flockId}: ${result.transfer.fromPen} to ${result.transfer.toPen}`,
+      entityId: result.transfer._id,
+      entityName: `${flock.flockId}: ${result.transfer.fromPen} to ${result.transfer.toPen}`,
+      before: {
+        status: "COMPLETED",
+        sourcePopulation: result.previousSourcePopulation,
+        destinationPopulation: result.previousDestinationPopulation,
+      },
+      after: {
+        status: "CANCELLED",
+        cancellationReason: reason,
+        cancelledAt: cancellationDate,
+        sourcePopulation: result.source.currentBirds,
+        destinationPopulation: result.destination.currentBirds,
+      },
+    });
+
+    return res.status(200).json({
+      success: true,
+      message: "Flock transfer cancelled successfully",
+      transfer: result.transfer,
+      flock: await getFlockWithAllocations(flock._id),
+    });
+  } catch (error) {
+    const messages = {
+      FLOCK_NOT_ACTIVE: {
+        status: 400,
+        message:
+          "The flock is no longer active. This transfer cannot be cancelled.",
+      },
+      TRANSFER_NOT_FOUND: {
+        status: 404,
+        message: "Transfer not found for this flock.",
+      },
+      TRANSFER_ALREADY_CANCELLED: {
+        status: 409,
+        message: "This transfer has already been cancelled.",
+      },
+      TRANSFER_NOT_COMPLETED: {
+        status: 400,
+        message: "Only completed transfers can be cancelled.",
+      },
+      INVALID_TRANSFER_RECORD: {
+        status: 400,
+        message: "The transfer record is incomplete or invalid.",
+      },
+      TRANSFER_ALLOCATION_NOT_FOUND: {
+        status: 400,
+        message:
+          "The original source or destination allocation could not be found.",
+      },
+      DESTINATION_NOT_AVAILABLE: {
+        status: 400,
+        message:
+          "The destination allocation is no longer active or its population is unknown.",
+      },
+      INSUFFICIENT_DESTINATION_BIRDS: {
+        status: 400,
+        message:
+          "The destination pen no longer has enough birds to reverse this transfer.",
+      },
+      SOURCE_CANNOT_BE_REOPENED: {
+        status: 400,
+        message:
+          "The original source allocation was closed for a reason other than this transfer and cannot be reopened.",
+      },
+      SOURCE_POPULATION_UNKNOWN: {
+        status: 400,
+        message:
+          "The source pen population is unknown. Resolve it before cancelling this transfer.",
+      },
+      EVENT_BEFORE_ALLOCATION: {
+        status: 400,
+        message:
+          "The cancellation date cannot be earlier than the allocation date.",
+      },
+      BACKDATED_POPULATION_EVENT: {
+        status: 400,
+        message:
+          "A later population event exists. The transfer cannot be cancelled without first resolving the population history.",
+      },
+    };
+
+    const knownError = messages[error.message];
+
+    if (knownError) {
+      return res.status(knownError.status).json({
+        success: false,
+        message: knownError.message,
+      });
+    }
+
+    return sendServerError(res, "Failed to cancel flock transfer", error);
+  }
+};
+
+/*
+|--------------------------------------------------------------------------
 | GET FLOCK ALLOCATIONS
 |--------------------------------------------------------------------------
 | GET /api/flocks/:id/allocations
@@ -1158,6 +1571,7 @@ const getFlockTransfers = async (req, res) => {
       .populate("fromAllocation")
       .populate("toAllocation")
       .populate("transferredBy", "name email")
+      .populate("cancelledBy", "name email")
       .sort({ transferDate: -1, createdAt: -1 });
 
     return res.status(200).json({
@@ -1888,9 +2302,11 @@ module.exports = {
   getFlocks,
   getFlock,
   getActiveFlockByPen,
+  getPenOccupancySummary,
   createFlock,
   updateFlock,
   createFlockTransfer,
+  cancelFlockTransfer,
   getFlockAllocations,
   getFlockTransfers,
   getFlockPopulationHistory,
