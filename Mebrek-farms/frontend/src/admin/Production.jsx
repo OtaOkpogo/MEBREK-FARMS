@@ -404,18 +404,32 @@ const Production = () => {
   const loadFeeds = async (showError = true) => {
     try {
       setFeedsLoading(true);
-      const data = await fetchFeeds();
-      setFeeds(
-        Array.isArray(data) ? data.filter((feed) => !feed.isDeleted) : [],
-      );
+
+      const response = await fetchFeeds();
+
+      // Backend returns: { success: true, count: ..., feeds: [...] }
+      // Also support a direct array for compatibility.
+      const feedList = Array.isArray(response)
+        ? response
+        : Array.isArray(response?.feeds)
+          ? response.feeds
+          : Array.isArray(response?.data)
+            ? response.data
+            : [];
+
+      // Exclude soft-deleted feed records.
+      setFeeds(feedList.filter((feed) => !feed.isDeleted));
     } catch (error) {
       console.error("LOAD FEEDS ERROR:", error);
+
       if (showError) {
         toast.error(
           error.response?.data?.message ||
             "Could not load central feed inventory. Feed selection may be unavailable.",
         );
       }
+
+      setFeeds([]);
     } finally {
       setFeedsLoading(false);
     }
