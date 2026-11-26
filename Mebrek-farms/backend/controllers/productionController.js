@@ -18,6 +18,11 @@ const {
 
 const { logAudit } = require("../utils/auditLogger");
 
+const {
+  syncProductionFeed,
+  reverseProductionFeed,
+} = require("../services/feedInventoryService");
+
 const BROODING_HOUSE = "Brooding House";
 
 const DAY_MS = 24 * 60 * 60 * 1000;
@@ -322,6 +327,10 @@ const getProductionAuditSnapshot = (production) => {
     ),
     closingStock: production.closingStock,
     sickBirds: production.sickBirds,
+    feedUsed: {
+      feed: production.feedUsed?.feed?._id || production.feedUsed?.feed || null,
+      feedName: production.feedUsed?.feedName || "",
+    },
     feedBagsConsumed: production.feedBagsConsumed,
     waterConsumed: production.waterConsumed,
     drugsUsed: production.drugsUsed,
@@ -716,16 +725,20 @@ const syncProductionBirdHealthAfterCommit = async ({
     }
   }
 };
-
 // ------------------------------------------------------------
 // POPULATE PRODUCTION
 // ------------------------------------------------------------
 
 const populateProduction = (query) =>
-  query.populate(
-    "flock",
-    "flockId pen placementDate startingAgeWeeks status saleDate",
-  );
+  query
+    .populate(
+      "flock",
+      "flockId pen placementDate startingAgeWeeks status saleDate",
+    )
+    .populate(
+      "feedUsed.feed",
+      "name quantity unit lowStockThreshold isDeleted",
+    );
 
 // ------------------------------------------------------------
 // ALLOWED PRODUCTION FIELDS
@@ -741,6 +754,7 @@ const ALLOWED_PRODUCTION_FIELDS = [
   "mortality",
   "mortalityAllocations",
   "sickBirds",
+  "feedUsed",
   "feedBagsConsumed",
   "waterConsumed",
   "drugsUsed",
@@ -871,6 +885,18 @@ exports.createProduction = async (req, res) => {
 
       await production.save({ session });
 
+      // Deduct feed from central Feed Inventory in this same transaction.
+      await syncProductionFeed({
+        production,
+        previousFeedUsed: null,
+        previousFeedBagsConsumed: 0,
+        hasFeedInput: true,
+        req,
+        session,
+      });
+
+      await production.save({ session });
+
       const syncResult = await syncProductionMortality({
         production,
         req,
@@ -969,6 +995,21 @@ exports.updateProduction = async (req, res) => {
 
       beforeAudit = getProductionAuditSnapshot(production);
 
+      // Capture the previous inventory selection before applying request data.
+      const previousFeedUsed = production.feedUsed
+        ? {
+            feed:
+              production.feedUsed.feed?._id || production.feedUsed.feed || null,
+            feedName: production.feedUsed.feedName || "",
+          }
+        : null;
+
+      const previousFeedBagsConsumed = Number(production.feedBagsConsumed || 0);
+
+      const hasFeedInput =
+        Object.prototype.hasOwnProperty.call(req.body, "feedUsed") ||
+        Object.prototype.hasOwnProperty.call(req.body, "feedBagsConsumed");
+
       const updates = pickProductionFields(req.body);
 
       for (const [key, value] of Object.entries(updates)) {
@@ -1017,6 +1058,18 @@ exports.updateProduction = async (req, res) => {
       }
 
       Object.assign(production, totals);
+
+      await production.save({ session });
+
+      // Restore previous consumption and deduct the updated selection/quantity.
+      await syncProductionFeed({
+        production,
+        previousFeedUsed,
+        previousFeedBagsConsumed,
+        hasFeedInput,
+        req,
+        session,
+      });
 
       await production.save({ session });
 
@@ -1089,7 +1142,6 @@ exports.updateProduction = async (req, res) => {
     await session.endSession();
   }
 };
-
 // ------------------------------------------------------------
 // DELETE PRODUCTION
 // ------------------------------------------------------------
@@ -1120,6 +1172,16 @@ exports.deleteProduction = async (req, res) => {
       affectedDate = new Date(production.date);
 
       beforeAudit = getProductionAuditSnapshot(production);
+
+      // A soft-deleted record has already had its feed stock restored.
+      // Avoid restoring it a second time if superadmin permanently deletes it.
+      if (!production.isDeleted) {
+        await reverseProductionFeed({
+          production,
+          req,
+          session,
+        });
+      }
 
       const mortalityRecords = await Mortality.find({
         productionRecord: production._id,

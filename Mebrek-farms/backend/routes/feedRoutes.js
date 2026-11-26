@@ -7,23 +7,29 @@ const {
   getFeeds,
   updateFeed,
   deleteFeed,
+  adjustFeedStock,
 } = require("../controllers/feedController");
 
-// SUPERADMIN + MANAGER — matches the Feed Inventory access level in
-// App.jsx. Previously these routes only checked authentication (any
-// logged-in role), meaning staff could hit /api/feeds directly and
-// create/edit/delete inventory regardless of what the frontend hid.
+// SUPERADMIN + MANAGER — Feed Inventory access
 
-// CREATE
+// CREATE FEED
 router.post("/", protect, allowRoles("superadmin", "manager"), createFeed);
 
-// READ
+// GET FEEDS
 router.get("/", protect, allowRoles("superadmin", "manager"), getFeeds);
 
-// UPDATE
+// UPDATE FEED DETAILS
 router.put("/:id", protect, allowRoles("superadmin", "manager"), updateFeed);
 
-// DELETE
+// ADJUST FEED STOCK
+router.patch(
+  "/:id/adjust-stock",
+  protect,
+  allowRoles("superadmin", "manager"),
+  adjustFeedStock,
+);
+
+// DELETE FEED
 router.delete("/:id", protect, allowRoles("superadmin", "manager"), deleteFeed);
 
 module.exports = router;

@@ -149,6 +149,20 @@ const productionSchema = new mongoose.Schema(
     // FEED
     // ============================================================
 
+    feedUsed: {
+      feed: {
+        type: mongoose.Schema.Types.ObjectId,
+        ref: "Feed",
+        default: null,
+      },
+
+      feedName: {
+        type: String,
+        default: "",
+        trim: true,
+      },
+    },
+
     feedBagsConsumed: {
       type: Number,
       default: 0,
