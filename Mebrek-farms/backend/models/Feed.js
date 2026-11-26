@@ -5,27 +5,25 @@ const feedSchema = new mongoose.Schema(
     name: {
       type: String,
       required: true,
+      trim: true,
     },
 
     quantity: {
       type: Number,
       required: true,
-      min: [0, "quantity cannot be negative"],
+      min: [0, "Feed quantity cannot be negative"],
+      default: 0,
     },
-
     unit: {
       type: String,
       default: "bags",
-    },
-
-    pricePerUnit: {
-      type: Number,
-      required: true,
-      min: [0, "pricePerUnit cannot be negative"],
+      trim: true,
     },
 
     supplier: {
       type: String,
+      trim: true,
+      default: "",
     },
 
     lowStockThreshold: {
@@ -34,9 +32,6 @@ const feedSchema = new mongoose.Schema(
       min: [0, "lowStockThreshold cannot be negative"],
     },
 
-    // NEW — when this batch of feed was bought, and when it goes bad.
-    // Both optional: older records won't have either set, and not every
-    // feed type necessarily has a known expiry.
     purchaseDate: {
       type: Date,
       default: Date.now,
@@ -47,7 +42,6 @@ const feedSchema = new mongoose.Schema(
       default: null,
     },
 
-    // NEW
     isDeleted: {
       type: Boolean,
       default: false,
@@ -74,10 +68,7 @@ const feedSchema = new mongoose.Schema(
 );
 
 feedSchema.index({ createdAt: -1 });
-
 feedSchema.index({ purchaseDate: -1 });
-
-// Supports a "what's expiring soon" query without a full collection scan.
 feedSchema.index({ isDeleted: 1, expiryDate: 1 });
 
 feedSchema.index({
