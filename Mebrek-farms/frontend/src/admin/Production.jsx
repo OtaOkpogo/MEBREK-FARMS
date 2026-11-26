@@ -13,6 +13,8 @@ import {
   deleteProduction,
 } from "../services/productionService";
 
+import { fetchFeeds } from "../services/feedInventoryService";
+
 import {
   fetchActiveFlockByPen,
   fetchActiveFlocksByPen,
@@ -47,6 +49,7 @@ const emptyFormData = {
   transferOut: "",
   mortality: "",
   sickBirds: "",
+  feedUsed: "",
   feedBagsConsumed: "",
   waterConsumed: "",
   drugsUsed: "",
@@ -103,6 +106,34 @@ const calculateDaysFromFlock = (flock, productionDate) => {
   );
 };
 
+const getFeedReferenceId = (feedUsed) => {
+  const feed = feedUsed?.feed ?? feedUsed?.feedId ?? feedUsed;
+
+  if (!feed) return "";
+  if (typeof feed === "object") return String(feed._id || feed.id || "");
+  return String(feed);
+};
+
+const getFeedSnapshotName = (feedUsed) =>
+  feedUsed?.feedName ||
+  (feedUsed?.feed && typeof feedUsed.feed === "object"
+    ? feedUsed.feed.name
+    : "") ||
+  "";
+
+const getCurrentFeedInventoryItem = (record, feeds) => {
+  const feedId = getFeedReferenceId(record?.feedUsed);
+  const currentFeed = Array.isArray(feeds)
+    ? feeds.find((feed) => String(feed._id) === feedId)
+    : null;
+
+  if (currentFeed) return currentFeed;
+
+  return record?.feedUsed?.feed && typeof record.feedUsed.feed === "object"
+    ? record.feedUsed.feed
+    : null;
+};
+
 const toFormData = (record) => ({
   pen: record?.pen || "",
   date: record?.date ? new Date(record.date).toISOString().slice(0, 10) : "",
@@ -112,6 +143,7 @@ const toFormData = (record) => ({
   transferOut: record?.transferOut ?? "",
   mortality: record?.mortality ?? "",
   sickBirds: record?.sickBirds ?? "",
+  feedUsed: getFeedReferenceId(record?.feedUsed),
   feedBagsConsumed: record?.feedBagsConsumed ?? "",
   waterConsumed: record?.waterConsumed ?? "",
   drugsUsed: record?.drugsUsed || "",
@@ -257,6 +289,8 @@ const Production = () => {
   // ============================================================
 
   const [productions, setProductions] = useState([]);
+  const [feeds, setFeeds] = useState([]);
+  const [feedsLoading, setFeedsLoading] = useState(false);
   const [formData, setFormData] = useState(emptyFormData);
   const [editingId, setEditingId] = useState(null);
   const [saving, setSaving] = useState(false);
@@ -295,6 +329,29 @@ const Production = () => {
   const mortalityTotal = broodingHouse
     ? Number(formData.mortality || 0)
     : allocatedMortality;
+
+  const selectedFeed = useMemo(
+    () =>
+      feeds.find((feed) => String(feed._id) === String(formData.feedUsed)) ||
+      null,
+    [feeds, formData.feedUsed],
+  );
+
+  const editingRecord = useMemo(
+    () =>
+      productions.find((record) => String(record._id) === String(editingId)) ||
+      null,
+    [productions, editingId],
+  );
+
+  const editingFeedId = getFeedReferenceId(editingRecord?.feedUsed);
+  const editingFeedQuantity =
+    editingFeedId && editingFeedId === String(formData.feedUsed)
+      ? Number(editingRecord?.feedBagsConsumed || 0)
+      : 0;
+  const availableFeedStock = selectedFeed
+    ? Number(selectedFeed.quantity || 0) + editingFeedQuantity
+    : null;
 
   // ============================================================
   // STYLES
@@ -341,11 +398,36 @@ const Production = () => {
   };
 
   // ============================================================
+  // LOAD CENTRAL FEED INVENTORY
+  // ============================================================
+
+  const loadFeeds = async (showError = true) => {
+    try {
+      setFeedsLoading(true);
+      const data = await fetchFeeds();
+      setFeeds(
+        Array.isArray(data) ? data.filter((feed) => !feed.isDeleted) : [],
+      );
+    } catch (error) {
+      console.error("LOAD FEEDS ERROR:", error);
+      if (showError) {
+        toast.error(
+          error.response?.data?.message ||
+            "Could not load central feed inventory. Feed selection may be unavailable.",
+        );
+      }
+    } finally {
+      setFeedsLoading(false);
+    }
+  };
+
+  // ============================================================
   // INITIAL LOAD
   // ============================================================
 
   useEffect(() => {
     loadProductions(false);
+    loadFeeds(true);
   }, []);
 
   // ============================================================
@@ -359,14 +441,24 @@ const Production = () => {
       loadProductions(false);
     };
 
+    const handleFeedUpdate = () => {
+      loadFeeds(false);
+    };
+
     socket.on("productionCreated", handleProductionUpdate);
     socket.on("productionUpdated", handleProductionUpdate);
     socket.on("productionDeleted", handleProductionUpdate);
+    socket.on("feedCreated", handleFeedUpdate);
+    socket.on("feedUpdated", handleFeedUpdate);
+    socket.on("feedDeleted", handleFeedUpdate);
 
     return () => {
       socket.off("productionCreated", handleProductionUpdate);
       socket.off("productionUpdated", handleProductionUpdate);
       socket.off("productionDeleted", handleProductionUpdate);
+      socket.off("feedCreated", handleFeedUpdate);
+      socket.off("feedUpdated", handleFeedUpdate);
+      socket.off("feedDeleted", handleFeedUpdate);
     };
   }, []);
 
@@ -697,6 +789,35 @@ const Production = () => {
 
     if (!validateMortalityAllocations()) return;
 
+    const feedBags = Number(formData.feedBagsConsumed || 0);
+    if (!Number.isFinite(feedBags) || feedBags < 0) {
+      toast.error("Feed bags consumed must be a valid non-negative number.");
+      return;
+    }
+
+    if (feedBags > 0 && !formData.feedUsed) {
+      toast.error(
+        "Select the feed type used before recording feed consumption.",
+      );
+      return;
+    }
+
+    if (feedBags > 0 && !selectedFeed) {
+      toast.error("The selected feed is not available in central inventory.");
+      return;
+    }
+
+    if (
+      feedBags > 0 &&
+      selectedFeed &&
+      feedBags > Number(availableFeedStock ?? 0)
+    ) {
+      toast.error(
+        `Insufficient ${selectedFeed.name} stock. Available: ${formatNumber(availableFeedStock)} ${selectedFeed.unit || "bags"}.`,
+      );
+      return;
+    }
+
     const mortality = broodingHouse
       ? Number(formData.mortality || 0)
       : allocatedMortality;
@@ -724,7 +845,15 @@ const Production = () => {
       transferOut: Number(formData.transferOut || 0),
       mortality,
       sickBirds: Number(formData.sickBirds || 0),
-      feedBagsConsumed: Number(formData.feedBagsConsumed || 0),
+      feedUsed: formData.feedUsed
+        ? {
+            feed: formData.feedUsed,
+            feedName:
+              selectedFeed?.name ||
+              getFeedSnapshotName(editingRecord?.feedUsed),
+          }
+        : null,
+      feedBagsConsumed: feedBags,
       waterConsumed: Number(formData.waterConsumed || 0),
       cratesProduced: broodingHouse ? 0 : Number(formData.cratesProduced || 0),
       extraEggPieces: broodingHouse ? 0 : Number(formData.extraEggPieces || 0),
@@ -768,6 +897,9 @@ const Production = () => {
 
         toast.success("Production record saved successfully");
       }
+
+      // Production consumption changes central warehouse stock on the backend.
+      await loadFeeds(false);
 
       setFormData(emptyFormData);
       setActiveFlock(null);
@@ -847,7 +979,7 @@ const Production = () => {
 
       toast.success("Production record deleted successfully");
 
-      await loadProductions(false);
+      await Promise.all([loadProductions(false), loadFeeds(false)]);
     } catch (error) {
       console.error("DELETE PRODUCTION ERROR:", error);
 
@@ -894,6 +1026,8 @@ const Production = () => {
         record?.date,
         record?.remarks,
         record?.drugsUsed,
+        getFeedSnapshotName(record?.feedUsed),
+        record?.feedUsed?.feed?.name,
       ];
 
       return values.some((value) =>
@@ -1138,7 +1272,15 @@ const Production = () => {
       Mortality: record.mortality ?? 0,
       "Closing Stock": record.closingStock ?? 0,
       "Sick Birds": record.sickBirds ?? 0,
+      "Feed Type":
+        getFeedSnapshotName(record.feedUsed) ||
+        record.feedUsed?.feed?.name ||
+        "",
       "Feed Bags": record.feedBagsConsumed ?? 0,
+      "Central Feed Stock Remaining":
+        typeof getCurrentFeedInventoryItem(record, feeds)?.quantity === "number"
+          ? getCurrentFeedInventoryItem(record, feeds).quantity
+          : "",
       "Water Consumed": record.waterConsumed ?? 0,
       "Crates Produced": record.cratesProduced ?? 0,
       "Extra Eggs": record.extraEggPieces ?? 0,
@@ -2045,7 +2187,39 @@ const Production = () => {
             />
           </div>
 
-          {/* FEED */}
+          {/* FEED TYPE AND CENTRAL INVENTORY CONSUMPTION */}
+
+          <div>
+            <label htmlFor="feedUsed" className={labelClass}>
+              Feed Type Used
+            </label>
+            <select
+              id="feedUsed"
+              name="feedUsed"
+              value={formData.feedUsed}
+              onChange={handleChange}
+              className={inputClass}
+              disabled={feedsLoading}
+            >
+              <option value="">Select feed type</option>
+              {feeds.map((feed) => (
+                <option key={feed._id} value={feed._id}>
+                  {feed.name} ({formatNumber(feed.quantity)}{" "}
+                  {feed.unit || "bags"} available)
+                </option>
+              ))}
+            </select>
+            {feedsLoading ? (
+              <p className="mt-1 text-xs text-gray-400">
+                Loading central feed inventory...
+              </p>
+            ) : feeds.length === 0 ? (
+              <p className="mt-1 text-xs text-amber-700">
+                No active feed items found. Add feed stock in Feed Inventory
+                first.
+              </p>
+            ) : null}
+          </div>
 
           <div>
             <label htmlFor="feedBagsConsumed" className={labelClass}>
@@ -2064,6 +2238,37 @@ const Production = () => {
             <p className="mt-1 text-xs text-gray-400">
               Decimal values are allowed, e.g. 0.5 or 1.25.
             </p>
+            {selectedFeed && (
+              <div className="mt-2 rounded-lg border border-[#e2e9df] bg-[#f7faf5] p-3">
+                <div className="flex items-center justify-between gap-3 text-sm">
+                  <span className="text-gray-600">
+                    Central stock before this entry
+                  </span>
+                  <strong className="text-[#315f3d]">
+                    {formatNumber(availableFeedStock)}{" "}
+                    {selectedFeed.unit || "bags"}
+                  </strong>
+                </div>
+                <div className="mt-1 flex items-center justify-between gap-3 text-sm">
+                  <span className="text-gray-600">
+                    Estimated stock after this entry
+                  </span>
+                  <strong className="text-[#315f3d]">
+                    {formatNumber(
+                      availableFeedStock -
+                        Number(formData.feedBagsConsumed || 0),
+                    )}{" "}
+                    {selectedFeed.unit || "bags"}
+                  </strong>
+                </div>
+                {Number(formData.feedBagsConsumed || 0) >
+                  Number(availableFeedStock || 0) && (
+                  <p className="mt-2 text-xs font-medium text-red-600">
+                    Consumption exceeds available central stock.
+                  </p>
+                )}
+              </div>
+            )}
           </div>
 
           {/* WATER */}
@@ -2425,7 +2630,7 @@ const Production = () => {
         {/* RECORD TABLE */}
 
         <div className="overflow-x-auto">
-          <table className="w-full min-w-[1500px] text-sm">
+          <table className="w-full min-w-[1580px] text-sm">
             <thead className="bg-[#edf3e9] text-left text-[#38563d]">
               <tr>
                 {[
@@ -2536,7 +2741,27 @@ const Production = () => {
                     </td>
 
                     <td className="px-4 py-3">
-                      {formatNumber(record.feedBagsConsumed)}
+                      <div className="font-medium text-gray-700">
+                        {getFeedSnapshotName(record.feedUsed) ||
+                          record.feedUsed?.feed?.name ||
+                          "Not recorded"}
+                      </div>
+                      <div className="text-xs text-gray-500">
+                        {formatNumber(record.feedBagsConsumed)} bags consumed
+                      </div>
+                      {getCurrentFeedInventoryItem(record, feeds) &&
+                        typeof getCurrentFeedInventoryItem(record, feeds)
+                          .quantity === "number" && (
+                          <div className="mt-1 text-xs font-medium text-[#315f3d]">
+                            Central remaining:{" "}
+                            {formatNumber(
+                              getCurrentFeedInventoryItem(record, feeds)
+                                .quantity,
+                            )}{" "}
+                            {getCurrentFeedInventoryItem(record, feeds).unit ||
+                              "bags"}
+                          </div>
+                        )}
                     </td>
 
                     <td className="px-4 py-3">
